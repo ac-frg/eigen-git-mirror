@@ -2,7 +2,6 @@
 // for linear algebra.
 //
 // Copyright (C) 2014 Benoit Steiner <benoit.steiner.goog@gmail.com>
-// Copyright (C) 2020 Matthias Peschke <mpeschke@physnet.uni-hamburg.de>
 //
 // This Source Code Form is subject to the terms of the Mozilla
 // Public License v. 2.0. If a copy of the MPL was not distributed
@@ -200,8 +199,6 @@ struct TensorPrinter {
       }
 
       assert(layout == RowMajor);
-      //from here on we have a tensor in RowMajor storage
-
       typedef typename
         conditional<
           is_same<Scalar, char>::value ||
