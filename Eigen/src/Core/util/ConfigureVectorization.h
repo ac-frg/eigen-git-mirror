@@ -36,7 +36,9 @@
 #if (defined EIGEN_CUDACC)
   #define EIGEN_ALIGN_TO_BOUNDARY(n) __align__(n)
   #define EIGEN_ALIGNOF(x) __alignof(x)
-#elif EIGEN_HAS_ALIGNAS
+#elif EIGEN_HAS_ALIGNAS && !defined(__s390x__)
+  // The s390x gcc compiler doesn't seem to like alignas, warning that the
+  // attribute is ignored.
   #define EIGEN_ALIGN_TO_BOUNDARY(n) alignas(n)
   #define EIGEN_ALIGNOF(x) alignof(x)
 #elif EIGEN_COMP_GNUC || EIGEN_COMP_PGI || EIGEN_COMP_IBM || EIGEN_COMP_ARM
