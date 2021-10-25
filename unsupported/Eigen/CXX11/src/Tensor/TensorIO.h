@@ -62,7 +62,7 @@ struct TensorIOFormat
     static inline const TensorIOFormat Numpy() {
       std::vector<std::string> prefix = {"", "["};
       std::vector<std::string> suffix = {"", "]"};
-      std::vector<std::string> separator = {", ", "\n"};
+      std::vector<std::string> separator = {" ", "\n"};
       return TensorIOFormat(separator, prefix, suffix, StreamPrecision, 0, "[" , "]");
     }
 
@@ -76,7 +76,7 @@ struct TensorIOFormat
     static inline const TensorIOFormat Native() {
       std::vector<std::string> separator = {", ", "\n"};
       std::vector<std::string> prefix = {"", "{"};
-      std::vector<std::string> suffix = {"", "}"};
+      std::vector<std::string> suffix = {"", "},"};
       return TensorIOFormat(separator, prefix, suffix, StreamPrecision, 0, "{" , "}", ' ');
     }
 
