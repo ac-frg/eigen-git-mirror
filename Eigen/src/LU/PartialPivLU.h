@@ -590,22 +590,22 @@ PartialPivLU<MatrixType, PermutationIndex>::determinant() const {
 }
 
 template <typename MatrixType, typename PermutationIndex>
-typename PartialPivLU<MatrixType, PermutationIndex>::RealScalar
-constexpr PartialPivLU<MatrixType, PermutationIndex>::absDeterminant() const {
+typename PartialPivLU<MatrixType, PermutationIndex>::RealScalar constexpr PartialPivLU<
+    MatrixType, PermutationIndex>::absDeterminant() const {
   eigen_assert(m_isInitialized && "PartialPivLU is not initialized.");
   return numext::abs(m_lu.diagonal().prod());
 }
 
 template <typename MatrixType, typename PermutationIndex>
-typename PartialPivLU<MatrixType, PermutationIndex>::RealScalar
-constexpr PartialPivLU<MatrixType, PermutationIndex>::logAbsDeterminant() const {
+typename PartialPivLU<MatrixType, PermutationIndex>::RealScalar constexpr PartialPivLU<
+    MatrixType, PermutationIndex>::logAbsDeterminant() const {
   eigen_assert(m_isInitialized && "PartialPivLU is not initialized.");
   return m_lu.diagonal().cwiseAbs().array().log().sum();
 }
 
 template <typename MatrixType, typename PermutationIndex>
-typename PartialPivLU<MatrixType, PermutationIndex>::Scalar
-constexpr PartialPivLU<MatrixType, PermutationIndex>::signDeterminant() const {
+typename PartialPivLU<MatrixType, PermutationIndex>::Scalar constexpr PartialPivLU<
+    MatrixType, PermutationIndex>::signDeterminant() const {
   eigen_assert(m_isInitialized && "PartialPivLU is not initialized.");
   return Scalar(m_det_p) * m_lu.diagonal().array().sign().prod();
 }
