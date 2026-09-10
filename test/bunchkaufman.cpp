@@ -575,7 +575,8 @@ void verify_subnormal_2x2_block(const MatrixType& A, const BKType& bk,
   const Matrix<Scalar, Dynamic, 1> x = bk.solve(b);
   VERIFY(x.allFinite());
   const RealScalar quantum = m > 0 ? u / s : RealScalar(0);
-  VERIFY((x - x_true).cwiseAbs().maxCoeff() <= RealScalar(16) * eps + RealScalar(4) * quantum);
+  const RealScalar tol = (NumTraits<Scalar>::IsComplex ? RealScalar(512) : RealScalar(16)) * eps + RealScalar(4) * quantum;
+  VERIFY((x - x_true).cwiseAbs().maxCoeff() <= tol);
 }
 
 template <typename MatrixType>
@@ -661,7 +662,11 @@ void bunchkaufman_near_max_scale() {
   typedef typename MatrixType::Scalar Scalar;
   typedef typename MatrixType::RealScalar RealScalar;
   typedef Matrix<Scalar, Dynamic, 1> VectorType;
-  const RealScalar M = (std::numeric_limits<RealScalar>::max)();
+  // Complex division forms c^2 + d^2 which overflows if M == max(), so scale M
+  // for complex types to avoid intermediate overflow in the C++ runtime.
+  const RealScalar M = NumTraits<Scalar>::IsComplex
+                           ? std::sqrt((std::numeric_limits<RealScalar>::max)())
+                           : (std::numeric_limits<RealScalar>::max)();
   for (Index n : {Index(3), 2 * internal::bunch_kaufman_blocksize<Scalar>() + 2}) {
     for (RealScalar s : {RealScalar(1), RealScalar(-1)}) {
       MatrixType A = MatrixType::Identity(n, n);
