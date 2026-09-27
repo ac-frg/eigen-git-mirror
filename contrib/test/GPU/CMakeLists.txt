@@ -86,6 +86,10 @@ ei_add_gpu_test(cublas_64bit EXTRA_LIBS CUDA::cublas)
 find_package(Threads REQUIRED)
 ei_add_gpu_test(device_buffer_pool EXTRA_LIBS Threads::Threads)
 
+# DeviceBlock column views: values, writes into the parent, and cross-context ordering (stream gate).
+ei_add_gpu_test(device_block
+  EXTRA_LIBS CUDA::cublas CUDA::cublasLt CUDA::cusolver CUDA::npps CUDA::nppc Threads::Threads)
+
 # cuBLAS integration.
 option(EIGEN_TEST_CUBLAS "Test cuBLAS integration" ON)
 if(EIGEN_TEST_CUBLAS AND TARGET CUDA::cublas)
