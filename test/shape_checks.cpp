@@ -48,7 +48,21 @@ void rank_update_shape_checks() {
 #endif
 }
 
+void product_coefficient_shape_checks() {
+  Matrix2d a = Matrix2d::Identity(), b = Matrix2d::Constant(2);
+  VERIFY_IS_EQUAL(a.lazyProduct(b).coeff(0, 1), 2);
+  Vector2d v = Vector2d::Ones();
+  VERIFY_IS_EQUAL((v.transpose() * v).coeff(0, 0), 2);
+  VERIFY_IS_EQUAL((v.transpose() * v).coeff(0), 2);
+  MatrixXd dynamic_a = a, dynamic_b = b;
+  VERIFY_RAISES_ASSERT((dynamic_a * dynamic_b).coeff(0, 0));
+  VERIFY_RAISES_ASSERT((dynamic_a * dynamic_b).coeff(0));
+  MatrixXd scalar = MatrixXd::Constant(1, 1, 3);
+  VERIFY_IS_EQUAL((scalar * scalar).coeff(0), 9);
+}
+
 void product_shape_checks() {
+  product_coefficient_shape_checks();
   rank_update_shape_checks();
   ShapeProbe<2, 2> a, b;
   const auto product = a * b;
@@ -166,6 +180,25 @@ EIGEN_DECLARE_TEST(shape_checks) {
 #endif
   VectorXd bad_vector(2);
   VERIFY_RAISES_ASSERT(vector.dot(bad_vector));
+  VectorXd resized;
+  resized.resizeLike(row);
+  VERIFY_IS_EQUAL(resized.size(), 3);
+  MatrixXd resize_source = matrix;
+  VERIFY_RAISES_ASSERT(resized.resizeLike(resize_source));
+#ifdef EIGEN_NO_STATIC_ASSERT
+  VERIFY_RAISES_ASSERT(resized.resizeLike(matrix));
+#endif
+  Ref<VectorXd> ref(vector);
+  Ref<Matrix2d> matrix_ref(matrix);
+  VERIFY_IS_EQUAL(matrix_ref.rows(), 2);
+  Matrix2d resized_matrix;
+  resized_matrix.resizeLike(matrix);
+#ifdef EIGEN_NO_STATIC_ASSERT
+  VERIFY_RAISES_ASSERT(EIGEN_ASSERT_SCALAR(matrix));
+#endif
+  VERIFY_IS_EQUAL(ref.size(), 3);
+  MatrixXd dynamic_matrix = matrix;
+  VERIFY_RAISES_ASSERT((Ref<VectorXd>(dynamic_matrix)));
   CALL_SUBTEST(product_shape_checks());
   CALL_SUBTEST((product_destination_shape_checks<3, ColMajor>()));
   CALL_SUBTEST((product_destination_shape_checks<3, RowMajor>()));

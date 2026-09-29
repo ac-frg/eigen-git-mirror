@@ -99,6 +99,8 @@ nor at run time unless the operation also has a runtime assertion.
 Shared shape checks reject statically incompatible coefficient counts and product inner dimensions at compile time,
 including in release builds. Checks proven valid do not read dimensions at runtime.
 Matching rows and columns (including directional concatenation checks) follow the same rule.
+Vector adaptation and scalar extraction likewise reject provably invalid shapes, while
+allowing dynamically sized inputs that satisfy their preconditions at runtime.
 Unknown dimensions are checked by debug assertions; maximum storage capacities are
 not treated as actual dimensions. Row and column vectors may have equal coefficient counts.
 

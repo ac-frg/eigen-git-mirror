@@ -117,6 +117,8 @@ ei_add_failtest("shape_product")
 ei_add_failtest("shape_rank_update")
 ei_add_failtest("shape_same_rows")
 ei_add_failtest("shape_same_cols")
+ei_add_failtest("shape_scalar")
+ei_add_failtest("resize_like_vector_shape")
 
 ei_add_failtest("shape_size_rows")
 ei_add_failtest("shape_size_cols")

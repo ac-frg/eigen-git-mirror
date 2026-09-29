@@ -288,15 +288,19 @@ class ProductImpl<Lhs, Rhs, Option, Dense> : public internal::dense_product_base
 
  public:
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Scalar coeff(Index row, Index col) const {
-    EIGEN_STATIC_ASSERT(EnableCoeff, THIS_METHOD_IS_ONLY_FOR_INNER_OR_LAZY_PRODUCTS);
-    eigen_assert((Option == LazyProduct) || (this->rows() == 1 && this->cols() == 1));
+    EIGEN_CHECK_SHAPE((Option == LazyProduct) || (this->rows() == 1 && this->cols() == 1),
+                      THIS_METHOD_IS_ONLY_FOR_INNER_OR_LAZY_PRODUCTS,
+                      std::conditional_t<Option == LazyProduct, internal::dimension_relation<1, 1>,
+                                         internal::fixed_dimensions<Derived, 1, 1>>);
 
     return internal::evaluator<Derived>(derived()).coeff(row, col);
   }
 
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Scalar coeff(Index i) const {
-    EIGEN_STATIC_ASSERT(EnableCoeff, THIS_METHOD_IS_ONLY_FOR_INNER_OR_LAZY_PRODUCTS);
-    eigen_assert((Option == LazyProduct) || (this->rows() == 1 && this->cols() == 1));
+    EIGEN_CHECK_SHAPE((Option == LazyProduct) || (this->rows() == 1 && this->cols() == 1),
+                      THIS_METHOD_IS_ONLY_FOR_INNER_OR_LAZY_PRODUCTS,
+                      std::conditional_t<Option == LazyProduct, internal::dimension_relation<1, 1>,
+                                         internal::fixed_dimensions<Derived, 1, 1>>);
 
     return internal::evaluator<Derived>(derived()).coeff(i);
   }
