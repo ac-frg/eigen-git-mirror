@@ -331,7 +331,7 @@ static Index llt_rank_update_lower(MatrixType& mat, const VectorType& vec,
   using TempVecSegment = typename TempVectorType::SegmentReturnType;
 
   Index n = mat.cols();
-  eigen_assert(mat.rows() == n);
+  EIGEN_ASSERT_SQUARE(mat);
   EIGEN_ASSERT_SIZE_MATCHES_COLS(vec, mat);
 
   TempVectorType temp;
@@ -389,7 +389,7 @@ struct llt_inplace<Scalar, Lower> {
   static Index unblocked(MatrixType& mat) {
     using std::sqrt;
 
-    eigen_assert(mat.rows() == mat.cols());
+    EIGEN_ASSERT_SQUARE(mat);
     const Index size = mat.rows();
     for (Index k = 0; k < size; ++k) {
       Index rs = size - k - 1;  // remaining size
@@ -410,7 +410,7 @@ struct llt_inplace<Scalar, Lower> {
 
   template <typename MatrixType>
   static Index blocked(MatrixType& m) {
-    eigen_assert(m.rows() == m.cols());
+    EIGEN_ASSERT_SQUARE(m);
     Index size = m.rows();
     // The unblocked kernel walks row k of the factor, which strides through memory: it wins up to about 48 columns,
     // and beyond that 16-column blocks keep those walks short while amortizing the level-3 updates.
@@ -502,7 +502,7 @@ struct LLT_Traits<MatrixType, Upper> {
 template <typename MatrixType, int UpLo_>
 template <typename InputType>
 LLT<MatrixType, UpLo_>& LLT<MatrixType, UpLo_>::compute(const EigenBase<InputType>& a) {
-  eigen_assert(a.rows() == a.cols());
+  EIGEN_ASSERT_SQUARE(a);
   const Index size = a.rows();
   m_matrix.resize(size, size);
   if (!internal::is_same_dense(m_matrix, a.derived())) m_matrix = a.derived();

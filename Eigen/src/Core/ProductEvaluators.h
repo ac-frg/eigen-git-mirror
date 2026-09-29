@@ -1257,7 +1257,7 @@ struct selfadjoint_diagonal_product_impl {
   template <bool Accumulate, typename Dest, typename Alpha>
   static EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void runImpl(Dest& dst, const MatrixType& matrix,
                                                             const DiagonalType& diagonal, const Alpha& alpha) {
-    eigen_assert(matrix.rows() == matrix.cols() && "SelfAdjointView is only for squared matrices");
+    EIGEN_ASSERT_SQUARE(matrix);
     EIGEN_ASSERT_SIZE_MATCHES_ROWS(diagonal, matrix);
 
     const Index size = matrix.rows();

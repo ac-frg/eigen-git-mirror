@@ -68,9 +68,7 @@ class SparseSelfAdjointView : public EigenBase<SparseSelfAdjointView<MatrixType,
   using PlainObject =
       SparseMatrix<Scalar, (MatrixTypeNested_::Flags & RowMajorBit) ? RowMajor : ColMajor, StorageIndex>;
 
-  explicit inline SparseSelfAdjointView(MatrixType& matrix) : m_matrix(matrix) {
-    eigen_assert(rows() == cols() && "SelfAdjointView is only for squared matrices");
-  }
+  explicit inline SparseSelfAdjointView(MatrixType& matrix) : m_matrix(matrix) { EIGEN_ASSERT_SQUARE(matrix); }
 
   inline Index rows() const { return m_matrix.rows(); }
   inline Index cols() const { return m_matrix.cols(); }

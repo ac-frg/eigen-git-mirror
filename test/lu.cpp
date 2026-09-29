@@ -296,20 +296,23 @@ void lu_verify_assert() {
   VERIFY_RAISES_ASSERT(lu.kernel())
   VERIFY_RAISES_ASSERT(lu.image(tmp))
   VERIFY_RAISES_ASSERT(lu.solve(tmp))
-  VERIFY_RAISES_ASSERT(lu.transpose().solve(tmp))
-  VERIFY_RAISES_ASSERT(lu.adjoint().solve(tmp))
-  VERIFY_RAISES_ASSERT(lu.determinant())
-  VERIFY_RAISES_ASSERT(lu.absDeterminant())
-  VERIFY_RAISES_ASSERT(lu.logAbsDeterminant())
-  VERIFY_RAISES_ASSERT(lu.signDeterminant())
+  VERIFY_RAISES_ASSERT(lu.transpose().solve(tmp.transpose()))
+  VERIFY_RAISES_ASSERT(lu.adjoint().solve(tmp.transpose()))
+  using SquareMatrix =
+      Matrix<typename MatrixType::Scalar, MatrixType::RowsAtCompileTime, MatrixType::RowsAtCompileTime>;
+  FullPivLU<SquareMatrix> square_lu;
+  VERIFY_RAISES_ASSERT(square_lu.determinant())
+  VERIFY_RAISES_ASSERT(square_lu.absDeterminant())
+  VERIFY_RAISES_ASSERT(square_lu.logAbsDeterminant())
+  VERIFY_RAISES_ASSERT(square_lu.signDeterminant())
   VERIFY_RAISES_ASSERT(lu.rank())
   VERIFY_RAISES_ASSERT(lu.dimensionOfKernel())
   VERIFY_RAISES_ASSERT(lu.isInjective())
   VERIFY_RAISES_ASSERT(lu.isSurjective())
   VERIFY_RAISES_ASSERT(lu.isInvertible())
-  VERIFY_RAISES_ASSERT(lu.inverse())
+  VERIFY_RAISES_ASSERT(square_lu.inverse())
 
-  PartialPivLU<MatrixType> plu;
+  PartialPivLU<SquareMatrix> plu;
   VERIFY_RAISES_ASSERT(plu.matrixLU())
   VERIFY_RAISES_ASSERT(plu.permutationP())
   VERIFY_RAISES_ASSERT(plu.solve(tmp))

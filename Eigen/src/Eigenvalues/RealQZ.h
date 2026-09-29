@@ -536,8 +536,8 @@ template <typename MatrixType>
 template <typename InputTypeA, typename InputTypeB>
 RealQZ<MatrixType>& RealQZ<MatrixType>::compute(const EigenBase<InputTypeA>& A_in, const EigenBase<InputTypeB>& B_in,
                                                 bool computeQZ) {
-  eigen_assert(A_in.rows() == A_in.cols() && B_in.rows() == A_in.cols() && B_in.cols() == A_in.cols() &&
-               "Need square matrices of the same dimension");
+  EIGEN_ASSERT_SQUARE(A_in);
+  EIGEN_ASSERT_SAME_SHAPE(A_in, B_in);
   m_S = A_in.derived();
   m_T = B_in.derived();
   return computeInPlace(computeQZ);
@@ -548,8 +548,8 @@ template <typename MatrixType>
 RealQZ<MatrixType>& RealQZ<MatrixType>::computeInPlace(bool computeQZ) {
   const Index dim = m_S.cols();
 
-  eigen_assert(m_S.rows() == dim && m_T.rows() == dim && m_T.cols() == dim &&
-               "Need square matrices of the same dimension");
+  EIGEN_ASSERT_SQUARE(m_S);
+  EIGEN_ASSERT_SAME_SHAPE(m_S, m_T);
 
   m_isInitialized = true;
   m_computeQZ = computeQZ;

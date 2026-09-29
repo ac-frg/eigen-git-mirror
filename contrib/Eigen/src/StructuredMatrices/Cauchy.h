@@ -175,7 +175,7 @@ class Cauchy : public EigenBase<Cauchy<Scalar_, Rows_, Cols_>> {
    * a node difference that overflows makes its factor infinite, which turns the
    * determinant into NaN when it meets a zero or another infinite factor. */
   Scalar determinant() const {
-    eigen_assert(rows() == cols() && "Cauchy::determinant requires a square matrix");
+    EIGEN_ASSERT_SQUARE(*this);
     const Index n = rows();
     Scalar det(1);
     Index exponent = 0;
@@ -347,7 +347,7 @@ class CauchyLU : public SolverBase<CauchyLU<Scalar_>> {
    * \f$D_x C-C D_y=\mathbf{1}\mathbf{1}^T\f$. \sa solve */
   template <int Rows_, int Cols_>
   CauchyLU& compute(const Cauchy<Scalar, Rows_, Cols_>& C) {
-    eigen_assert(C.rows() == C.cols() && "CauchyLU requires a square Cauchy matrix");
+    EIGEN_ASSERT_SQUARE(C);
     const Index n = C.rows();
     DenseVector x = C.rowNodes();
     const DenseVector y = C.colNodes();

@@ -1036,7 +1036,8 @@ class KroneckerOperator : public EigenBase<KroneckerOperator<LhsMatrix, RhsMatri
                             int(RowsAtCompileTime) == int(Rhs::RowsAtCompileTime),
                         YOU_MIXED_MATRICES_OF_DIFFERENT_SIZES)
     const Index n1 = m_A.cols(), n2 = m_B.cols();
-    eigen_assert(m_A.rows() == n1 && m_B.rows() == n2 && "KroneckerOperator::solve requires square factors");
+    EIGEN_ASSERT_SQUARE(m_A);
+    EIGEN_ASSERT_SQUARE(m_B);
     eigen_assert(b.rows() == n1 * n2 && "right-hand side has the wrong number of rows");
     const internal::kron_factor_solver<LhsMatrix> solverA(m_A);
     const internal::kron_factor_solver<RhsMatrix> solverB(m_B);
@@ -1139,8 +1140,8 @@ class KroneckerOperator : public EigenBase<KroneckerOperator<LhsMatrix, RhsMatri
    * matrix, computed by one \c SparseLU solve against the identity (NaN when
    * the factorization fails). */
   KroneckerOperator<typename LhsOps::InverseFactor, typename RhsOps::InverseFactor> inverse() const {
-    eigen_assert(m_A.rows() == m_A.cols() && m_B.rows() == m_B.cols() &&
-                 "KroneckerOperator::inverse requires square factors");
+    EIGEN_ASSERT_SQUARE(m_A);
+    EIGEN_ASSERT_SQUARE(m_B);
     return {LhsOps::inversed(m_A), RhsOps::inversed(m_B)};
   }
 
@@ -1157,8 +1158,8 @@ class KroneckerOperator : public EigenBase<KroneckerOperator<LhsMatrix, RhsMatri
    * underflow on their own) never leave the representable range when the
    * determinant itself is representable. */
   Scalar determinant() const {
-    eigen_assert(m_A.rows() == m_A.cols() && m_B.rows() == m_B.cols() &&
-                 "KroneckerOperator::determinant requires square factors");
+    EIGEN_ASSERT_SQUARE(m_A);
+    EIGEN_ASSERT_SQUARE(m_B);
     Index exponent = 0;
     const Scalar mant = balancedDeterminant(exponent);
     return internal::structured_ldexp_clamped(mant, exponent);
@@ -1173,8 +1174,8 @@ class KroneckerOperator : public EigenBase<KroneckerOperator<LhsMatrix, RhsMatri
    * product must then be square -- with the accuracy
    * KroneckerSum::eigenvalues() describes for a sum. */
   ComplexVector eigenvalues() const {
-    eigen_assert(m_A.rows() == m_A.cols() && m_B.rows() == m_B.cols() &&
-                 "KroneckerOperator::eigenvalues requires square factors");
+    EIGEN_ASSERT_SQUARE(m_A);
+    EIGEN_ASSERT_SQUARE(m_B);
     // Column-major stacking of the nB x nA outer product puts mu_j(B) lambda_i(A)
     // at index i*nB + j, the Kronecker order.
     return (RhsSpectrum::eigenvalues(m_B) * LhsSpectrum::eigenvalues(m_A).transpose()).reshaped();
@@ -1185,8 +1186,8 @@ class KroneckerOperator : public EigenBase<KroneckerOperator<LhsMatrix, RhsMatri
    * \c i*n2 + j is \f$ v_i(A) \otimes v_j(B) \f$ and matches
    * \c eigenvalues()[i*n2 + j]. Assign it to a dense matrix to materialize. */
   KroneckerOperator<typename LhsSpectrum::Eigenvectors, typename RhsSpectrum::Eigenvectors> eigenvectors() const {
-    eigen_assert(m_A.rows() == m_A.cols() && m_B.rows() == m_B.cols() &&
-                 "KroneckerOperator::eigenvectors requires square factors");
+    EIGEN_ASSERT_SQUARE(m_A);
+    EIGEN_ASSERT_SQUARE(m_B);
     return {LhsSpectrum::eigenvectors(m_A), RhsSpectrum::eigenvectors(m_B)};
   }
 

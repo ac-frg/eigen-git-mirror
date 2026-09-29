@@ -224,7 +224,7 @@ class Vandermonde : public EigenBase<Vandermonde<Scalar_, Rows_, Cols_>> {
    * exactly; a node difference that overflows makes the determinant infinite, or
    * NaN when a zero factor is also present. */
   Scalar determinant() const {
-    eigen_assert(rows() == cols() && "Vandermonde::determinant requires a square matrix");
+    EIGEN_ASSERT_SQUARE(*this);
     const Index n = rows();
     Scalar det(1);
     internal::structured_exponent_type exponent = 0;
@@ -412,8 +412,7 @@ class BjorckPereyra : public SolverBase<BjorckPereyra<Scalar_>> {
    * nodes. */
   template <int Rows_, int Cols_>
   BjorckPereyra& compute(const Vandermonde<Scalar, Rows_, Cols_>& V) {
-    EIGEN_STATIC_ASSERT(Rows_ == Dynamic || Cols_ == Dynamic || Rows_ == Cols_, YOU_MIXED_MATRICES_OF_DIFFERENT_SIZES)
-    eigen_assert(V.rows() == V.cols() && "BjorckPereyra requires a square Vandermonde matrix");
+    EIGEN_ASSERT_SQUARE(V);
     m_x = V.nodes();
     m_order.clear();
     m_info = Success;

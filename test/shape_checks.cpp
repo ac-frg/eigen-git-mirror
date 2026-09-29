@@ -61,7 +61,24 @@ void product_coefficient_shape_checks() {
   VERIFY_IS_EQUAL((scalar * scalar).coeff(0), 9);
 }
 
+void transpose_shape_checks() {
+  Matrix<double, 2, 3> rectangle;
+  rectangle << 1, 2, 3, 4, 5, 6;
+  MatrixXd resizable = rectangle;
+  resizable.transposeInPlace();
+  VERIFY_IS_EQUAL(resizable, rectangle.transpose());
+  Matrix<double, 2, Dynamic> partial = Matrix2d::Identity();
+  partial.transposeInPlace();
+  VERIFY_IS_EQUAL(partial, Matrix2d::Identity());
+  partial = rectangle;
+  VERIFY_RAISES_ASSERT(partial.transposeInPlace());
+#ifdef EIGEN_NO_STATIC_ASSERT
+  VERIFY_RAISES_ASSERT(rectangle.transposeInPlace());
+#endif
+}
+
 void product_shape_checks() {
+  transpose_shape_checks();
   product_coefficient_shape_checks();
   rank_update_shape_checks();
   ShapeProbe<2, 2> a, b;
@@ -199,6 +216,29 @@ EIGEN_DECLARE_TEST(shape_checks) {
   VERIFY_IS_EQUAL(ref.size(), 3);
   MatrixXd dynamic_matrix = matrix;
   VERIFY_RAISES_ASSERT((Ref<VectorXd>(dynamic_matrix)));
+  VERIFY_IS_EQUAL(matrix.determinant(), 1);
+  VERIFY_IS_EQUAL(matrix.householderQr().absDeterminant(), 1);
+  VERIFY_IS_EQUAL(matrix.fullPivLu().determinant(), 1);
+  VERIFY_IS_EQUAL(matrix.fullPivLu().rcond(), 1);
+  Matrix3d transpose_source = Matrix3d::Random();
+  const Matrix3d transposed = transpose_source.transpose();
+  transpose_source.transposeInPlace();
+  VERIFY_IS_EQUAL(transpose_source, transposed);
+  MatrixXd rectangular_transpose = MatrixXd::Random(2, 3);
+  const MatrixXd rectangular_expected = rectangular_transpose.transpose();
+  rectangular_transpose.transposeInPlace();
+  VERIFY_IS_EQUAL(rectangular_transpose, rectangular_expected);
+  VERIFY(matrix.llt().info() == Success);
+  VERIFY_IS_APPROX(matrix.sqrt(), matrix);
+  VERIFY(SelfAdjointEigenSolver<Matrix2d>(matrix).info() == Success);
+  MatrixXd rectangle = MatrixXd::Ones(2, 3);
+  VERIFY_RAISES_ASSERT(rectangle.determinant());
+  VERIFY_RAISES_ASSERT(rectangle.householderQr().absDeterminant());
+  VERIFY_RAISES_ASSERT(rectangle.fullPivLu().determinant());
+  VERIFY_RAISES_ASSERT(rectangle.llt());
+#ifdef EIGEN_NO_STATIC_ASSERT
+  VERIFY_RAISES_ASSERT(wide.fullPivLu().determinant());
+#endif
   CALL_SUBTEST(product_shape_checks());
   CALL_SUBTEST((product_destination_shape_checks<3, ColMajor>()));
   CALL_SUBTEST((product_destination_shape_checks<3, RowMajor>()));

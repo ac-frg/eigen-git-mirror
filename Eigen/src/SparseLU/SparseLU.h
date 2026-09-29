@@ -613,7 +613,7 @@ template <typename MatrixType, typename OrderingType>
 void SparseLU<MatrixType, OrderingType>::factorize(const MatrixType& matrix) {
   using internal::emptyIdxLU;
   eigen_assert(m_analysisIsOk && "analyzePattern() should be called first");
-  eigen_assert((matrix.rows() == matrix.cols()) && "Only for squared matrices");
+  EIGEN_ASSERT_SQUARE(matrix);
 
   m_isInitialized = true;
 

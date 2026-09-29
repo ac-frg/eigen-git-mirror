@@ -213,7 +213,7 @@ class Hankel : public EigenBase<Hankel<Scalar_, Rows_, Cols_>> {
     EIGEN_STATIC_ASSERT(RowsAtCompileTime == Dynamic || Rhs::RowsAtCompileTime == Dynamic ||
                             int(RowsAtCompileTime) == int(Rhs::RowsAtCompileTime),
                         YOU_MIXED_MATRICES_OF_DIFFERENT_SIZES)
-    eigen_assert(rows() == cols() && "Hankel::solve requires a square matrix");
+    EIGEN_ASSERT_SQUARE(*this);
     eigen_assert(b.rows() == rows() && "right-hand side has the wrong number of rows");
     LookAheadLevinson<Scalar> levinson(toToeplitz());
     eigen_assert(levinson.info() == Success &&

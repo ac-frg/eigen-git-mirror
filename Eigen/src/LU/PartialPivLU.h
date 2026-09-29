@@ -651,7 +651,7 @@ void PartialPivLU<MatrixType, PermutationIndex>::compute() {
   else
     m_l1_norm = RealScalar(0);
 
-  eigen_assert(m_lu.rows() == m_lu.cols() && "PartialPivLU is only for square (and moreover invertible) matrices");
+  EIGEN_ASSERT_SQUARE(m_lu);
   const Index size = m_lu.rows();
 
   m_rowsTranspositions.resize(size);
