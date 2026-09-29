@@ -271,7 +271,7 @@ class PermutationBase : public EigenBase<Derived> {
   template <typename Other>
   inline PlainPermutationType operator*(const InverseImpl<Other, PermutationStorage>& other) const {
     const auto& rhs = other.derived().nestedExpression();
-    eigen_assert(size() == rhs.size());
+    EIGEN_ASSERT_SAME_ROWS(*this, rhs);
     PlainPermutationType result(size());
     // (P * Q.inverse())(Q(i)) = P(i).
     for (Index i = 0; i < size(); ++i) result.indices().coeffRef(rhs.indices().coeff(i)) = indices().coeff(i);

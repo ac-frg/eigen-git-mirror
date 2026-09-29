@@ -113,6 +113,9 @@ void product_destination_shape_checks() {
   VERIFY(result.isZero());
   VERIFY_IS_EQUAL((scaled * permutation).toDenseMatrix(), 2 * identity);
   VERIFY_IS_EQUAL((permutation * scaled).toDenseMatrix(), 2 * identity);
+  VERIFY_IS_EQUAL((permutation * permutation.inverse()).toDenseMatrix().template cast<double>(), identity);
+  const ScaledPermutationMatrix<double, Size> from_coefficients(permutation.indices(), diagonal.diagonal());
+  VERIFY_IS_EQUAL(from_coefficients.toDenseMatrix(), 2 * identity);
   DiagonalMatrix<double, Dynamic> wrong(2);
   VERIFY_RAISES_ASSERT(permutation * wrong);
 }
@@ -150,6 +153,19 @@ EIGEN_DECLARE_TEST(shape_checks) {
   VERIFY_IS_EQUAL(triangular_product, 2 * wide.triangularView<Upper>().toDenseMatrix());
   triangular_product = wide.triangularView<Upper>() * right_diagonal;
   VERIFY_IS_EQUAL(triangular_product, 3 * wide.triangularView<Upper>().toDenseMatrix());
+  Vector3d vector = Vector3d::Ones();
+  RowVector3d row = RowVector3d::Ones();
+  VERIFY_IS_EQUAL(vector.dot(row), 3);
+  VERIFY_IS_EQUAL(vector.reshaped(fix<1>, fix<3>).sum(), 3);
+  VectorXd dynamic_reshape = vector;
+  VERIFY_RAISES_ASSERT(dynamic_reshape.reshaped(fix<2>, fix<2>));
+#ifdef EIGEN_NO_STATIC_ASSERT
+  VERIFY_RAISES_ASSERT(vector.reshaped(fix<2>, fix<2>));
+  Vector4d mismatched_vector = Vector4d::Ones();
+  VERIFY_RAISES_ASSERT(vector.dot(mismatched_vector));
+#endif
+  VectorXd bad_vector(2);
+  VERIFY_RAISES_ASSERT(vector.dot(bad_vector));
   CALL_SUBTEST(product_shape_checks());
   CALL_SUBTEST((product_destination_shape_checks<3, ColMajor>()));
   CALL_SUBTEST((product_destination_shape_checks<3, RowMajor>()));

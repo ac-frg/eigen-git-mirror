@@ -388,7 +388,7 @@ class ScaledPermutationMatrix
   EIGEN_DEVICE_FUNC ScaledPermutationMatrix(const MatrixBase<IndicesDerived>& indices,
                                             const MatrixBase<ScalesDerived>& scales)
       : m_permutation(indices), m_scales(scales) {
-    eigen_assert(indices.size() == scales.size());
+    EIGEN_ASSERT_SAME_SIZE(indices, scales);
   }
 
   /** Converts the permutation \a permutation, all scales being one. */

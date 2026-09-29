@@ -111,6 +111,8 @@ foreach(_sb_target
                         CXX_EXTENSIONS OFF)
 endforeach()
 
+ei_add_failtest("reshape_fixed_count")
+ei_add_failtest("shape_same_size")
 ei_add_failtest("shape_product")
 ei_add_failtest("shape_rank_update")
 ei_add_failtest("shape_same_rows")
