@@ -253,6 +253,24 @@ EIGEN_DECLARE_TEST(shape_checks) {
 #ifdef EIGEN_NO_STATIC_ASSERT
   VERIFY_RAISES_ASSERT(wide.fullPivLu().determinant());
 #endif
+  MatrixXd empty(0, 0);
+  VERIFY_IS_EQUAL(empty.sum(), 0);
+  const Matrix<double, 0, 0> fixed_empty;
+  VERIFY_IS_EQUAL(fixed_empty.sum(), 0);
+  VERIFY_IS_EQUAL(fixed_empty.prod(), 1);
+  Matrix<double, 3, 0> empty_columns;
+  Matrix<double, 0, 3> empty_rows;
+  VERIFY_IS_EQUAL(empty_columns.colwise().maxCoeff().eval().size(), 0);
+  VERIFY_IS_EQUAL(empty_rows.rowwise().minCoeff().eval().size(), 0);
+#ifdef EIGEN_NO_STATIC_ASSERT
+  VERIFY_RAISES_ASSERT(fixed_empty.maxCoeff());
+  VERIFY_RAISES_ASSERT(empty_columns.rowwise().maxCoeff());
+  VERIFY_RAISES_ASSERT(empty_rows.colwise().minCoeff());
+#endif
+  VERIFY_RAISES_ASSERT(empty.maxCoeff());
+  VERIFY_IS_EQUAL(matrix.maxCoeff(), 1);
+  Index max_row, max_col;
+  VERIFY_IS_EQUAL(matrix.maxCoeff(&max_row, &max_col), 1);
   CALL_SUBTEST(product_shape_checks());
   CALL_SUBTEST((product_destination_shape_checks<3, ColMajor>()));
   CALL_SUBTEST((product_destination_shape_checks<3, RowMajor>()));
@@ -293,6 +311,8 @@ EIGEN_DECLARE_TEST(shape_checks) {
   VERIFY_IS_EQUAL(runtime_b.accesses, 2);
 #endif
   EIGEN_SHAPE_ASSERT((dimension_relation<3, 3>::Proven), ++reads == 1);
+  VERIFY_IS_EQUAL(reads, 0);
+  EIGEN_ASSERT_NONEMPTY_SIZE(fixed_a, ++reads);
   VERIFY_IS_EQUAL(reads, 0);
 #ifndef EIGEN_NO_DEBUG
   EIGEN_SHAPE_ASSERT((dimension_relation<Dynamic, 3>::Proven), ++reads == 1);

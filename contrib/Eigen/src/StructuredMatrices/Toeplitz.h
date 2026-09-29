@@ -112,7 +112,8 @@ class Toeplitz : public EigenBase<Toeplitz<Scalar_, Rows_, Cols_>> {
   Toeplitz(const MatrixBase<ColDerived>& col, const MatrixBase<RowDerived>& row) : m_col(col), m_row(row) {
     EIGEN_STATIC_ASSERT_VECTOR_ONLY(ColDerived)
     EIGEN_STATIC_ASSERT_VECTOR_ONLY(RowDerived)
-    eigen_assert(m_col.size() > 0 && m_row.size() > 0 && "Toeplitz generators must be non-empty");
+    EIGEN_ASSERT_NONEMPTY(m_col);
+    EIGEN_ASSERT_NONEMPTY(m_row);
     // Below the threshold every product takes the direct path and the symbol has
     // no consumer, so skip the embedding altogether.
     if (rows() > internal::structured_direct_threshold() || cols() > internal::structured_direct_threshold())

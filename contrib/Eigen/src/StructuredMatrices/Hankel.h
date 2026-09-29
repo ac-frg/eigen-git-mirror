@@ -134,7 +134,8 @@ class Hankel : public EigenBase<Hankel<Scalar_, Rows_, Cols_>> {
     EIGEN_STATIC_ASSERT_VECTOR_ONLY(ColDerived)
     EIGEN_STATIC_ASSERT_VECTOR_ONLY(RowDerived)
     const Index m = col.size(), n = row.size();
-    eigen_assert(m > 0 && n > 0 && "Hankel generators must be non-empty");
+    EIGEN_ASSERT_NONEMPTY_SIZE(col, m);
+    EIGEN_ASSERT_NONEMPTY_SIZE(row, n);
     m_h.resize(m + n - 1);
     m_h.head(m) = col;
     if (n > 1) m_h.tail(n - 1) = row.tail(n - 1);

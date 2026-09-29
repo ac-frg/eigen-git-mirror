@@ -173,7 +173,7 @@ class DiagonalPlusLowRank : public EigenBase<DiagonalPlusLowRank<Scalar_, Size_,
   DiagonalPlusLowRank(const MatrixBase<DDerived>& d, const MatrixBase<UDerived>& U, const MatrixBase<VDerived>& V)
       : m_d(d), m_U(U), m_V(V) {
     EIGEN_STATIC_ASSERT_VECTOR_ONLY(DDerived)
-    eigen_assert(m_d.size() > 0 && "DiagonalPlusLowRank must be non-empty");
+    EIGEN_ASSERT_NONEMPTY(m_d);
     EIGEN_ASSERT_SIZE_MATCHES_ROWS(m_d, m_U);
     EIGEN_ASSERT_SIZE_MATCHES_ROWS(m_d, m_V);
     EIGEN_ASSERT_SAME_COLS(m_U, m_V);

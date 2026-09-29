@@ -134,7 +134,8 @@ class Cauchy : public EigenBase<Cauchy<Scalar_, Rows_, Cols_>> {
   Cauchy(const MatrixBase<XDerived>& x, const MatrixBase<YDerived>& y) : m_x(x), m_y(y) {
     EIGEN_STATIC_ASSERT_VECTOR_ONLY(XDerived)
     EIGEN_STATIC_ASSERT_VECTOR_ONLY(YDerived)
-    eigen_assert(m_x.size() > 0 && m_y.size() > 0 && "Cauchy node vectors must be non-empty");
+    EIGEN_ASSERT_NONEMPTY(m_x);
+    EIGEN_ASSERT_NONEMPTY(m_y);
   }
 
   EIGEN_DEVICE_FUNC Index rows() const { return m_x.size(); }

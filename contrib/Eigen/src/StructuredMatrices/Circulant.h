@@ -125,7 +125,7 @@ class Circulant : public EigenBase<Circulant<Scalar_, Size_>> {
   template <typename Derived>
   explicit Circulant(const MatrixBase<Derived>& col) : m_col(col) {
     EIGEN_STATIC_ASSERT_VECTOR_ONLY(Derived)
-    eigen_assert(m_col.size() > 0 && "Circulant generator must be non-empty");
+    EIGEN_ASSERT_NONEMPTY(m_col);
     if (m_col.size() > internal::structured_direct_threshold()) {
       m_symbol = computeSymbol();
       m_prodSymbol = computeProdSymbol(m_col);

@@ -104,6 +104,9 @@ allowing dynamically sized inputs that satisfy their preconditions at runtime.
 Square-only operations such as determinant accessors also reject fixed rectangular inputs.
 Solver right-hand sides are checked against the appropriate fixed dimension, including
 the reversed row/column rule for transposed solves.
+Reductions requiring a nonempty input reject statically empty expressions. Empty dense
+\c sum() and \c prod() remain valid and return their respective identity values.
+Empty \c lpNorm<Infinity>() and \c hypotNorm() likewise remain valid and return zero.
 Unknown dimensions are checked by debug assertions; maximum storage capacities are
 not treated as actual dimensions. Row and column vectors may have equal coefficient counts.
 

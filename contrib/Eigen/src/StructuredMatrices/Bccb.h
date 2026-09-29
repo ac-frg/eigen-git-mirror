@@ -165,7 +165,7 @@ class Bccb : public EigenBase<Bccb<Scalar_, BlockSize_, NumBlocks_>> {
    * cached transform. */
   template <typename Derived>
   explicit Bccb(const MatrixBase<Derived>& generator) : m_g(generator) {
-    eigen_assert(m_g.rows() > 0 && m_g.cols() > 0 && "Bccb generator must be non-empty");
+    EIGEN_ASSERT_NONEMPTY(m_g);
     if (m_g.size() > internal::structured_direct_threshold()) {
       m_symbol = computeSymbol();
       m_prodSymbol = computeProdSymbol(m_g);

@@ -968,7 +968,8 @@ class KroneckerOperator : public EigenBase<KroneckerOperator<LhsMatrix, RhsMatri
   template <typename LhsDerived, typename RhsDerived>
   KroneckerOperator(const EigenBase<LhsDerived>& a, const EigenBase<RhsDerived>& b)
       : m_A(a.derived()), m_B(b.derived()) {
-    eigen_assert(m_A.size() > 0 && m_B.size() > 0 && "KroneckerOperator factors must be non-empty");
+    EIGEN_ASSERT_NONEMPTY(m_A);
+    EIGEN_ASSERT_NONEMPTY(m_B);
     LhsOps::prepare(m_A);
     RhsOps::prepare(m_B);
   }

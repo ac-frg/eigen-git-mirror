@@ -185,7 +185,7 @@ class Vandermonde : public EigenBase<Vandermonde<Scalar_, Rows_, Cols_>> {
   template <typename Derived>
   Vandermonde(const MatrixBase<Derived>& nodes, Index cols) : m_x(nodes), m_cols(cols) {
     EIGEN_STATIC_ASSERT_VECTOR_ONLY(Derived)
-    eigen_assert(m_x.size() > 0 && m_cols > 0 && "Vandermonde must be non-empty");
+    EIGEN_ASSERT_NONEMPTY(*this);
     eigen_assert((Cols_ == Dynamic || Cols_ == cols) && "cols does not match the compile-time column count");
   }
 
