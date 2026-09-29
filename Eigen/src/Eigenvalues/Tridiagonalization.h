@@ -590,7 +590,9 @@ template <typename MatrixType, typename DiagonalType, typename SubDiagonalType, 
           typename WorkSpaceType>
 EIGEN_DEVICE_FUNC void tridiagonalization_inplace(MatrixType& mat, DiagonalType& diag, SubDiagonalType& subdiag,
                                                   CoeffVectorType& hcoeffs, WorkSpaceType& workspace, bool extractQ) {
-  eigen_assert(mat.cols() == mat.rows() && diag.size() == mat.rows() && subdiag.size() == mat.rows() - 1);
+  eigen_assert(mat.cols() == mat.rows());
+  EIGEN_ASSERT_SIZE_MATCHES_ROWS(diag, mat);
+  eigen_assert(subdiag.size() == mat.rows() - 1);
   tridiagonalization_inplace_selector<MatrixType>::run(mat, diag, subdiag, hcoeffs, workspace, extractQ);
 }
 

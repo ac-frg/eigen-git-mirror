@@ -331,7 +331,8 @@ static Index llt_rank_update_lower(MatrixType& mat, const VectorType& vec,
   using TempVecSegment = typename TempVectorType::SegmentReturnType;
 
   Index n = mat.cols();
-  eigen_assert(mat.rows() == n && vec.size() == n);
+  eigen_assert(mat.rows() == n);
+  EIGEN_ASSERT_SIZE_MATCHES_COLS(vec, mat);
 
   TempVectorType temp;
 
@@ -525,7 +526,7 @@ template <typename MatrixType_, int UpLo_>
 template <typename VectorType>
 LLT<MatrixType_, UpLo_>& LLT<MatrixType_, UpLo_>::rankUpdate(const VectorType& v, const RealScalar& sigma) {
   EIGEN_STATIC_ASSERT_VECTOR_ONLY(VectorType);
-  eigen_assert(v.size() == m_matrix.cols());
+  EIGEN_ASSERT_SIZE_MATCHES_COLS(v, m_matrix);
   eigen_assert(m_isInitialized);
   if (internal::llt_inplace<typename MatrixType::Scalar, UpLo>::rankUpdate(m_matrix, v, sigma) >= 0)
     m_info = NumericalIssue;

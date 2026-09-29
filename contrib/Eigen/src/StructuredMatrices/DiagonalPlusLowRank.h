@@ -174,8 +174,9 @@ class DiagonalPlusLowRank : public EigenBase<DiagonalPlusLowRank<Scalar_, Size_,
       : m_d(d), m_U(U), m_V(V) {
     EIGEN_STATIC_ASSERT_VECTOR_ONLY(DDerived)
     eigen_assert(m_d.size() > 0 && "DiagonalPlusLowRank must be non-empty");
-    eigen_assert(m_U.rows() == m_d.size() && m_V.rows() == m_d.size() && m_U.cols() == m_V.cols() &&
-                 "factor dimensions do not match");
+    EIGEN_ASSERT_SIZE_MATCHES_ROWS(m_d, m_U);
+    EIGEN_ASSERT_SIZE_MATCHES_ROWS(m_d, m_V);
+    eigen_assert(m_U.cols() == m_V.cols() && "factor dimensions do not match");
   }
 
   EIGEN_DEVICE_FUNC Index rows() const { return m_d.size(); }

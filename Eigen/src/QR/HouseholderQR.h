@@ -424,8 +424,8 @@ void householder_qr_inplace_update(MatrixQR& mat, HCoeffs& hCoeffs, const Vector
 
   eigen_assert(k < mat.cols());
   eigen_assert(k < rows);
-  eigen_assert(hCoeffs.size() == mat.cols());
-  eigen_assert(newColumn.size() == rows);
+  EIGEN_ASSERT_SIZE_MATCHES_COLS(hCoeffs, mat);
+  EIGEN_ASSERT_SIZE_MATCHES_ROWS(newColumn, mat);
   eigen_assert(tempData);
 
   // Store new column in mat at column k

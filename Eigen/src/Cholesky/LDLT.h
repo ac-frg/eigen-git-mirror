@@ -471,7 +471,8 @@ struct ldlt_inplace<Lower> {
     using RealScalar = typename MatrixType::RealScalar;
 
     const Index size = mat.rows();
-    eigen_assert(mat.cols() == size && w.size() == size);
+    eigen_assert(mat.cols() == size);
+    EIGEN_ASSERT_SIZE_MATCHES_ROWS(w, mat);
 
     RealScalar alpha = 1;
 

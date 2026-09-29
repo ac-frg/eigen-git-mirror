@@ -25,6 +25,11 @@ Assertions cost run time and can be turned off. You can suppress eigen_assert by
 
 \section StaticAssert Static assertions
 
+Coefficient-count checks against matrix rows or columns reject provably incompatible fixed dimensions at compile
+time, including in release builds. This applies to diagonal products, factorization workspaces and rank updates.
+Unknown dimensions retain debug runtime checks, also when \c EIGEN_NO_STATIC_ASSERT disables static diagnostics.
+Invalid fixed-size calls that previously compiled and asserted only at runtime can therefore fail to compile.
+
 In the Eigen library, there are many conditions that can and should be detected at compile time. For instance, we use static assertions to prevent the code below from compiling.
 
 \code

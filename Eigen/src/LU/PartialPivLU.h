@@ -606,7 +606,7 @@ void partial_lu_inplace(MatrixType& lu, TranspositionType& row_transpositions,
     nb_transpositions = 0;
     return;
   }
-  eigen_assert(lu.cols() == row_transpositions.size());
+  EIGEN_ASSERT_SIZE_MATCHES_COLS(row_transpositions.indices(), lu);
   eigen_assert(row_transpositions.size() < 2 ||
                (&row_transpositions.coeffRef(1) - &row_transpositions.coeffRef(0)) == 1);
 
