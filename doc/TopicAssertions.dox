@@ -107,6 +107,8 @@ the reversed row/column rule for transposed solves.
 Reductions requiring a nonempty input reject statically empty expressions. Empty dense
 \c sum() and \c prod() remain valid and return their respective identity values.
 Empty \c lpNorm<Infinity>() and \c hypotNorm() likewise remain valid and return zero.
+Tensor shape checks reject different ranks or incompatible fixed extents. Equal rank alone
+never proves equality of runtime extents.
 Unknown dimensions are checked by debug assertions; maximum storage capacities are
 not treated as actual dimensions. Row and column vectors may have equal coefficient counts.
 

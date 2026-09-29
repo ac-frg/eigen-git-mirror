@@ -125,6 +125,7 @@ ei_add_failtest("shape_solver_rhs")
 ei_add_failtest("shape_nonempty")
 ei_add_failtest("shape_nonempty_comma")
 ei_add_failtest("shape_nonempty_axis")
+ei_add_failtest("shape_tensor")
 ei_add_failtest("resize_like_vector_shape")
 
 ei_add_failtest("shape_size_rows")
