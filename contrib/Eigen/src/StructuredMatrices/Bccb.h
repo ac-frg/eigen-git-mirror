@@ -228,11 +228,8 @@ class Bccb : public EigenBase<Bccb<Scalar_, BlockSize_, NumBlocks_>> {
    * multiple right-hand sides. */
   template <typename Rhs>
   Matrix<Scalar, RowsAtCompileTime, Rhs::ColsAtCompileTime> solve(const MatrixBase<Rhs>& b) const {
-    EIGEN_STATIC_ASSERT(RowsAtCompileTime == Dynamic || Rhs::RowsAtCompileTime == Dynamic ||
-                            int(RowsAtCompileTime) == int(Rhs::RowsAtCompileTime),
-                        YOU_MIXED_MATRICES_OF_DIFFERENT_SIZES)
+    EIGEN_ASSERT_SOLVER_RHS(*this, b, false);
     const Index N = rows();
-    eigen_assert(b.rows() == N && "right-hand side has the wrong number of rows");
     const ComplexArray s = symbol();
     const RealArray mods = s.cwiseAbs();
     const ComplexArray sinv = internal::structured_pinv_symbol(s, mods, internal::structured_rank_threshold(s, mods));

@@ -239,10 +239,7 @@ class DiagonalPlusLowRank : public EigenBase<DiagonalPlusLowRank<Scalar_, Size_,
    * accuracy degrades accordingly, even for a well-conditioned operator [5]. */
   template <typename Rhs>
   Matrix<Scalar, Size_, Rhs::ColsAtCompileTime> solve(const MatrixBase<Rhs>& b) const {
-    EIGEN_STATIC_ASSERT(RowsAtCompileTime == Dynamic || Rhs::RowsAtCompileTime == Dynamic ||
-                            int(RowsAtCompileTime) == int(Rhs::RowsAtCompileTime),
-                        YOU_MIXED_MATRICES_OF_DIFFERENT_SIZES)
-    eigen_assert(b.rows() == rows() && "right-hand side has the wrong number of rows");
+    EIGEN_ASSERT_SOLVER_RHS(*this, b, false);
     const DiagonalVector dinv = m_d.cwiseInverse();
     Matrix<Scalar, Size_, Rhs::ColsAtCompileTime> x = dinv.asDiagonal() * b;
     internal::dplr_capacitance_impl<Rank_>::subtractSolveCorrection(*this, dinv, x);

@@ -1032,13 +1032,10 @@ class KroneckerOperator : public EigenBase<KroneckerOperator<LhsMatrix, RhsMatri
    * \ref leastSquaresSolve for rank-deficient or rectangular factors. */
   template <typename Rhs>
   Matrix<Scalar, ColsAtCompileTime, Rhs::ColsAtCompileTime> solve(const MatrixBase<Rhs>& b) const {
-    EIGEN_STATIC_ASSERT(RowsAtCompileTime == Dynamic || Rhs::RowsAtCompileTime == Dynamic ||
-                            int(RowsAtCompileTime) == int(Rhs::RowsAtCompileTime),
-                        YOU_MIXED_MATRICES_OF_DIFFERENT_SIZES)
     const Index n1 = m_A.cols(), n2 = m_B.cols();
     EIGEN_ASSERT_SQUARE(m_A);
     EIGEN_ASSERT_SQUARE(m_B);
-    eigen_assert(b.rows() == n1 * n2 && "right-hand side has the wrong number of rows");
+    EIGEN_ASSERT_SOLVER_RHS(*this, b, false);
     const internal::kron_factor_solver<LhsMatrix> solverA(m_A);
     const internal::kron_factor_solver<RhsMatrix> solverB(m_B);
     Matrix<Scalar, ColsAtCompileTime, Rhs::ColsAtCompileTime> x(n1 * n2, b.cols());

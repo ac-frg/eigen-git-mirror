@@ -180,7 +180,7 @@ class SimplicialCholeskyBase : public SparseSolverBase<Derived> {
     eigen_assert(m_factorizationIsOk &&
                  "The decomposition is not in a valid state for solving, you must first call either compute() or "
                  "symbolic()/numeric()");
-    eigen_assert(m_matrix.rows() == b.rows());
+    EIGEN_ASSERT_SAME_ROWS(m_matrix, b);
 
     if (m_info != Success) return;
 
@@ -930,7 +930,7 @@ class SimplicialCholesky : public SimplicialCholeskyBase<SimplicialCholesky<Matr
     eigen_assert(Base::m_factorizationIsOk &&
                  "The decomposition is not in a valid state for solving, you must first call either compute() or "
                  "symbolic()/numeric()");
-    eigen_assert(Base::m_matrix.rows() == b.rows());
+    EIGEN_ASSERT_SAME_ROWS(Base::m_matrix, b);
 
     if (Base::m_info != Success) return;
 

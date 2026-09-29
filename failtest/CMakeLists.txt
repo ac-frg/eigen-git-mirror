@@ -121,6 +121,7 @@ ei_add_failtest("shape_scalar")
 ei_add_failtest("shape_square")
 ei_add_failtest("shape_structured_square")
 ei_add_failtest("shape_transpose_inplace")
+ei_add_failtest("shape_solver_rhs")
 ei_add_failtest("resize_like_vector_shape")
 
 ei_add_failtest("shape_size_rows")

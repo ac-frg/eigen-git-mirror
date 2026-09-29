@@ -102,6 +102,8 @@ Matching rows and columns (including directional concatenation checks) follow th
 Vector adaptation and scalar extraction likewise reject provably invalid shapes, while
 allowing dynamically sized inputs that satisfy their preconditions at runtime.
 Square-only operations such as determinant accessors also reject fixed rectangular inputs.
+Solver right-hand sides are checked against the appropriate fixed dimension, including
+the reversed row/column rule for transposed solves.
 Unknown dimensions are checked by debug assertions; maximum storage capacities are
 not treated as actual dimensions. Row and column vectors may have equal coefficient counts.
 

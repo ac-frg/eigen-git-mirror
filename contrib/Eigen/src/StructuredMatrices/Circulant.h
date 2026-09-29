@@ -254,11 +254,8 @@ class Circulant : public EigenBase<Circulant<Scalar_, Size_>> {
    * \c x = ifft( fft(b) ./ fft(c) ). Supports multiple right-hand sides. */
   template <typename Rhs>
   Matrix<Scalar, Size_, Rhs::ColsAtCompileTime> solve(const MatrixBase<Rhs>& b) const {
-    EIGEN_STATIC_ASSERT(RowsAtCompileTime == Dynamic || Rhs::RowsAtCompileTime == Dynamic ||
-                            int(RowsAtCompileTime) == int(Rhs::RowsAtCompileTime),
-                        YOU_MIXED_MATRICES_OF_DIFFERENT_SIZES)
+    EIGEN_ASSERT_SOLVER_RHS(*this, b, false);
     const Index n = rows();
-    eigen_assert(b.rows() == n && "right-hand side has the wrong number of rows");
     const ComplexVector s = symbol();
     const RealVector mods = s.cwiseAbs();
     const ComplexVector sinv = internal::structured_pinv_symbol(s, mods, internal::structured_rank_threshold(s, mods));

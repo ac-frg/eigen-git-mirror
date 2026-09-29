@@ -291,7 +291,7 @@ class PartialPivLU : public SolverBase<PartialPivLU<MatrixType_, PermutationInde
      * Step 3: update  c = P^-1 c.
      */
 
-    eigen_assert(rhs.rows() == m_lu.cols());
+    EIGEN_ASSERT_SOLVER_RHS(m_lu, rhs, true);
 
     // Step 1
     dst = m_lu.template triangularView<Upper>().transpose().template conjugateIf<Conjugate>().solve(rhs);

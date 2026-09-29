@@ -276,7 +276,7 @@ class IterativeSolverBase : public SparseSolverBase<Derived> {
   template <typename Rhs, typename Guess>
   inline const SolveWithGuess<Derived, Rhs, Guess> solveWithGuess(const MatrixBase<Rhs>& b, const Guess& x0) const {
     eigen_assert(m_isInitialized && "Solver is not initialized.");
-    eigen_assert(derived().rows() == b.rows() && "solve(): invalid number of rows of the right hand side matrix b");
+    EIGEN_ASSERT_SOLVER_RHS(derived(), b, false);
     return SolveWithGuess<Derived, Rhs, Guess>(derived(), b.derived(), x0);
   }
 
@@ -293,8 +293,7 @@ class IterativeSolverBase : public SparseSolverBase<Derived> {
   template <typename Rhs, typename Dest>
   void solveWithGuessInPlace(const Rhs& b, Dest& x) const {
     eigen_assert(m_isInitialized && "Solver is not initialized.");
-    eigen_assert(derived().rows() == b.rows() &&
-                 "solveWithGuessInPlace(): invalid number of rows of the right hand side b");
+    EIGEN_ASSERT_SOLVER_RHS(derived(), b, false);
     derived()._solve_vector_with_guess_impl(b, x);
   }
 
@@ -307,7 +306,7 @@ class IterativeSolverBase : public SparseSolverBase<Derived> {
   /** \internal */
   template <typename Rhs, typename DestDerived>
   void _solve_with_guess_impl(const Rhs& b, SparseMatrixBase<DestDerived>& aDest) const {
-    eigen_assert(rows() == b.rows());
+    EIGEN_ASSERT_SOLVER_RHS(derived(), b, false);
 
     Index rhsCols = b.cols();
     Index size = b.rows();
@@ -340,7 +339,7 @@ class IterativeSolverBase : public SparseSolverBase<Derived> {
   template <typename Rhs, typename DestDerived>
   std::enable_if_t<Rhs::ColsAtCompileTime != 1 && DestDerived::ColsAtCompileTime != 1> _solve_with_guess_impl(
       const Rhs& b, MatrixBase<DestDerived>& aDest) const {
-    eigen_assert(rows() == b.rows());
+    EIGEN_ASSERT_SOLVER_RHS(derived(), b, false);
 
     Index rhsCols = b.cols();
     DestDerived& dest(aDest.derived());

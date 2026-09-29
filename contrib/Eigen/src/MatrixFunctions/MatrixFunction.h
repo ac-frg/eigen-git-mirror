@@ -270,8 +270,8 @@ MatrixType matrix_function_solve_triangular_sylvester(const MatrixType& A, const
   eigen_assert(A.isUpperTriangular());
   EIGEN_ASSERT_SQUARE(B);
   eigen_assert(B.isUpperTriangular());
-  eigen_assert(C.rows() == A.rows());
-  eigen_assert(C.cols() == B.rows());
+  EIGEN_ASSERT_SAME_ROWS(C, A);
+  EIGEN_ASSERT_PRODUCT_SHAPE(C, B);
 
   typedef typename MatrixType::Scalar Scalar;
 

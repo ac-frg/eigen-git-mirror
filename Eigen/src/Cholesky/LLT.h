@@ -598,7 +598,7 @@ template <typename MatrixType, int UpLo_>
 template <typename Derived>
 void LLT<MatrixType, UpLo_>::solveInPlace(const MatrixBase<Derived>& bAndX) const {
   eigen_assert(m_isInitialized && "LLT is not initialized.");
-  eigen_assert(m_matrix.rows() == bAndX.rows());
+  EIGEN_ASSERT_SAME_ROWS(m_matrix, bAndX);
   matrixL().solveInPlace(bAndX);
   matrixU().solveInPlace(bAndX);
 }

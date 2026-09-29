@@ -210,11 +210,8 @@ class Hankel : public EigenBase<Hankel<Scalar_, Rows_, Cols_>> {
    * the solution rows. */
   template <typename Rhs>
   Matrix<Scalar, SolveRowsAtCompileTime, Rhs::ColsAtCompileTime> solve(const MatrixBase<Rhs>& b) const {
-    EIGEN_STATIC_ASSERT(RowsAtCompileTime == Dynamic || Rhs::RowsAtCompileTime == Dynamic ||
-                            int(RowsAtCompileTime) == int(Rhs::RowsAtCompileTime),
-                        YOU_MIXED_MATRICES_OF_DIFFERENT_SIZES)
     EIGEN_ASSERT_SQUARE(*this);
-    eigen_assert(b.rows() == rows() && "right-hand side has the wrong number of rows");
+    EIGEN_ASSERT_SOLVER_RHS(*this, b, false);
     LookAheadLevinson<Scalar> levinson(toToeplitz());
     eigen_assert(levinson.info() == Success &&
                  "Hankel::solve: the Levinson recursion broke down; "

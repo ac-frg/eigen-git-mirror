@@ -1434,7 +1434,7 @@ class BlockSparseTriangularView {
     constexpr int DiagMode = IsUpper ? Upper : Lower;
     constexpr bool diagFirst = (IsUpper == BSM::IsRowMajor);
     Index nb = m_matrix.blockCols();  // == blockRows() for square matrices
-    eigen_assert(x.rows() == m_matrix.rows() && "solveInPlace: size mismatch");
+    EIGEN_ASSERT_SAME_ROWS(x, m_matrix);
 
     const StorageIndex* innerPtr = m_matrix.innerIndexPtr();
     const StorageIndex* outerPtr = m_matrix.outerIndexPtr();
@@ -1484,7 +1484,7 @@ class BlockSparseTriangularView {
     constexpr int DiagMode = IsUpper ? Upper : Lower;
     constexpr bool diagFirst = (IsUpper == BSM::IsRowMajor);
     Index nb = m_matrix.blockCols();  // == blockRows() for square matrices
-    eigen_assert(x.rows() == m_matrix.rows() && "solveInPlace: size mismatch");
+    EIGEN_ASSERT_SAME_ROWS(x, m_matrix);
 
     const StorageIndex* innerPtr = m_matrix.innerIndexPtr();
     const StorageIndex* outerPtr = m_matrix.outerIndexPtr();

@@ -229,6 +229,20 @@ EIGEN_DECLARE_TEST(shape_checks) {
   rectangular_transpose.transposeInPlace();
   VERIFY_IS_EQUAL(rectangular_transpose, rectangular_expected);
   VERIFY(matrix.llt().info() == Success);
+  Vector2d rhs = Vector2d::Ones();
+  const auto lu = matrix.fullPivLu();
+  VERIFY_IS_EQUAL(lu.solve(rhs).eval(), rhs);
+  VERIFY_IS_EQUAL(lu.transpose().solve(rhs).eval(), rhs);
+  Matrix2d nonsymmetric;
+  nonsymmetric << 2, 1, 0, 3;
+  const auto partial_lu = nonsymmetric.partialPivLu();
+  const Vector2d transpose_solution = partial_lu.transpose().solve(rhs);
+  VERIFY_IS_APPROX(nonsymmetric.transpose() * transpose_solution, rhs);
+  VERIFY_RAISES_ASSERT(partial_lu.transpose().solve(VectorXd::Ones(3)));
+  VERIFY_RAISES_ASSERT(lu.solve(VectorXd::Ones(3)));
+#ifdef EIGEN_NO_STATIC_ASSERT
+  VERIFY_RAISES_ASSERT(lu.solve(Vector3d::Ones()));
+#endif
   VERIFY_IS_APPROX(matrix.sqrt(), matrix);
   VERIFY(SelfAdjointEigenSolver<Matrix2d>(matrix).info() == Success);
   MatrixXd rectangle = MatrixXd::Ones(2, 3);

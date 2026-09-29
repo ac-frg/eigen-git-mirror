@@ -712,7 +712,7 @@ template <typename MatrixType, int UpLo_>
 template <typename Derived>
 bool LDLT<MatrixType, UpLo_>::solveInPlace(MatrixBase<Derived>& bAndX) const {
   eigen_assert(m_isInitialized && "LDLT is not initialized.");
-  eigen_assert(m_matrix.rows() == bAndX.rows());
+  EIGEN_ASSERT_SAME_ROWS(m_matrix, bAndX);
 
   bAndX = this->solve(bAndX);
 
