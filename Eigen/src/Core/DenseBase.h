@@ -395,7 +395,7 @@ class DenseBase
   template <typename OtherDerived>
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void swap(const DenseBase<OtherDerived>& other) {
     EIGEN_STATIC_ASSERT(!OtherDerived::IsPlainObjectBase, THIS_EXPRESSION_IS_NOT_A_LVALUE__IT_IS_READ_ONLY);
-    eigen_assert(rows() == other.rows() && cols() == other.cols());
+    EIGEN_ASSERT_SAME_SHAPE(*this, other);
     call_assignment(derived(), other.const_cast_derived(), internal::swap_assign_op<Scalar>());
   }
 
@@ -404,7 +404,7 @@ class DenseBase
    */
   template <typename OtherDerived>
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void swap(PlainObjectBase<OtherDerived>& other) {
-    eigen_assert(rows() == other.rows() && cols() == other.cols());
+    EIGEN_ASSERT_SAME_SHAPE(*this, other);
     call_assignment(derived(), other.derived(), internal::swap_assign_op<Scalar>());
   }
 

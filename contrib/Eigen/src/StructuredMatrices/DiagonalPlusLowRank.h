@@ -176,7 +176,7 @@ class DiagonalPlusLowRank : public EigenBase<DiagonalPlusLowRank<Scalar_, Size_,
     eigen_assert(m_d.size() > 0 && "DiagonalPlusLowRank must be non-empty");
     EIGEN_ASSERT_SIZE_MATCHES_ROWS(m_d, m_U);
     EIGEN_ASSERT_SIZE_MATCHES_ROWS(m_d, m_V);
-    eigen_assert(m_U.cols() == m_V.cols() && "factor dimensions do not match");
+    EIGEN_ASSERT_SAME_COLS(m_U, m_V);
   }
 
   EIGEN_DEVICE_FUNC Index rows() const { return m_d.size(); }
