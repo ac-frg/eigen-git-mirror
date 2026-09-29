@@ -1327,10 +1327,6 @@ class KroneckerOperator : public EigenBase<KroneckerOperator<LhsMatrix, RhsMatri
    * \c .noalias() skips it. */
   template <typename Rhs>
   Product<KroneckerOperator, Rhs> operator*(const MatrixBase<Rhs>& x) const {
-    EIGEN_STATIC_ASSERT(ColsAtCompileTime == Dynamic || Rhs::RowsAtCompileTime == Dynamic ||
-                            int(ColsAtCompileTime) == int(Rhs::RowsAtCompileTime),
-                        INVALID_MATRIX_PRODUCT)
-    eigen_assert(x.rows() == cols() && "invalid product: dimensions do not match");
     return Product<KroneckerOperator, Rhs>(*this, x.derived());
   }
 
@@ -1356,7 +1352,7 @@ class KroneckerOperator : public EigenBase<KroneckerOperator<LhsMatrix, RhsMatri
   void addProduct(Dest& dst, const Rhs& rhs, const ProductScalar& alpha) const {
     using ProductMatrix = Matrix<ProductScalar, Dynamic, Dynamic, ColMajor>;  // ColMajor: see DenseMatrix
     const Index m1 = m_A.rows(), n1 = m_A.cols(), m2 = m_B.rows(), n2 = m_B.cols(), r = rhs.cols();
-    eigen_assert(rhs.rows() == n1 * n2 && "invalid product: dimensions do not match");
+    EIGEN_ASSERT_PRODUCT_SHAPE(*this, rhs);
     typename internal::nested_eval<Rhs, 1>::type actualRhs(rhs);
     const bool skipA = LhsOps::isSquareIdentity(m_A), skipB = RhsOps::isSquareIdentity(m_B);
     ProductMatrix X, BX, Y, work;

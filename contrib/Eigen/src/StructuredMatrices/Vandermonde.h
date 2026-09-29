@@ -276,10 +276,6 @@ class Vandermonde : public EigenBase<Vandermonde<Scalar_, Rows_, Cols_>> {
    * \c .noalias() skips it. */
   template <typename Rhs>
   Product<Vandermonde, Rhs> operator*(const MatrixBase<Rhs>& a) const {
-    EIGEN_STATIC_ASSERT(ColsAtCompileTime == Dynamic || Rhs::RowsAtCompileTime == Dynamic ||
-                            int(ColsAtCompileTime) == int(Rhs::RowsAtCompileTime),
-                        INVALID_MATRIX_PRODUCT)
-    eigen_assert(a.rows() == cols() && "invalid product: dimensions do not match");
     return Product<Vandermonde, Rhs>(*this, a.derived());
   }
 
@@ -292,7 +288,7 @@ class Vandermonde : public EigenBase<Vandermonde<Scalar_, Rows_, Cols_>> {
    * when the polynomial value is representable. */
   template <typename Dest, typename Rhs, typename ProductScalar>
   void addProduct(Dest& dst, const Rhs& rhs, const ProductScalar& alpha) const {
-    eigen_assert(rhs.rows() == m_cols && "invalid product: dimensions do not match");
+    EIGEN_ASSERT_PRODUCT_SHAPE(*this, rhs);
     // A unit alpha must not multiply: even the identity complex scalar (1,0)
     // pollutes an (Inf,0) value with NaN through the 0*Inf cross term.
     const bool unitAlpha = alpha == ProductScalar(1);

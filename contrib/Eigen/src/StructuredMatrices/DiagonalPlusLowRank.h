@@ -319,10 +319,6 @@ class DiagonalPlusLowRank : public EigenBase<DiagonalPlusLowRank<Scalar_, Size_,
    * it. */
   template <typename Rhs>
   Product<DiagonalPlusLowRank, Rhs> operator*(const MatrixBase<Rhs>& v) const {
-    EIGEN_STATIC_ASSERT(ColsAtCompileTime == Dynamic || Rhs::RowsAtCompileTime == Dynamic ||
-                            int(ColsAtCompileTime) == int(Rhs::RowsAtCompileTime),
-                        INVALID_MATRIX_PRODUCT)
-    eigen_assert(v.rows() == cols() && "invalid product: dimensions do not match");
     return Product<DiagonalPlusLowRank, Rhs>(*this, v.derived());
   }
 
@@ -332,7 +328,7 @@ class DiagonalPlusLowRank : public EigenBase<DiagonalPlusLowRank<Scalar_, Size_,
    * promoted type. */
   template <typename Dest, typename Rhs, typename ProductScalar>
   void addProduct(Dest& dst, const Rhs& rhs, const ProductScalar& alpha) const {
-    eigen_assert(rhs.rows() == rows() && "invalid product: dimensions do not match");
+    EIGEN_ASSERT_PRODUCT_SHAPE(*this, rhs);
     const Matrix<ProductScalar, Size_, Rhs::ColsAtCompileTime> r = rhs;
     dst += alpha * (m_d.asDiagonal() * r);
     if (correctionRank() > 0) {

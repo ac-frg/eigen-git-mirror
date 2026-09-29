@@ -249,7 +249,7 @@ class PermutationBase : public EigenBase<Derived> {
   }
   template <typename Lhs, typename Rhs>
   void assignProduct(const Lhs& lhs, const Rhs& rhs) {
-    eigen_assert(lhs.cols() == rhs.rows());
+    EIGEN_ASSERT_PRODUCT_SHAPE(lhs, rhs);
     for (Index i = 0; i < rows(); ++i) indices().coeffRef(i) = lhs.indices().coeff(rhs.indices().coeff(i));
   }
 #endif

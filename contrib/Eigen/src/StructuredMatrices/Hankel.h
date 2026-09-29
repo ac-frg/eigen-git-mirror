@@ -260,10 +260,6 @@ class Hankel : public EigenBase<Hankel<Scalar_, Rows_, Cols_>> {
    * aliasing between the destination and \a x, and \c .noalias() skips it. */
   template <typename Rhs>
   Product<Hankel, Rhs> operator*(const MatrixBase<Rhs>& x) const {
-    EIGEN_STATIC_ASSERT(ColsAtCompileTime == Dynamic || Rhs::RowsAtCompileTime == Dynamic ||
-                            int(ColsAtCompileTime) == int(Rhs::RowsAtCompileTime),
-                        INVALID_MATRIX_PRODUCT)
-    eigen_assert(x.rows() == cols() && "invalid product: dimensions do not match");
     return Product<Hankel, Rhs>(*this, x.derived());
   }
 
@@ -278,7 +274,7 @@ class Hankel : public EigenBase<Hankel<Scalar_, Rows_, Cols_>> {
   template <typename Dest, typename Rhs, typename ProductScalar>
   void addProduct(Dest& dst, const Rhs& rhs, const ProductScalar& alpha) const {
     const Index m = rows(), n = cols();
-    eigen_assert(rhs.rows() == n && "invalid product: dimensions do not match");
+    EIGEN_ASSERT_PRODUCT_SHAPE(*this, rhs);
     const bool small = m == 1 || n == 1 ||
                        (m <= internal::structured_direct_threshold() && n <= internal::structured_direct_threshold());
     if (small) {

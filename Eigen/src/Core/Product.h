@@ -221,8 +221,7 @@ class Product
   using AdjointReturnType = typename internal::product_transpose_helper<Lhs, Rhs, Option>::AdjointType;
 
   EIGEN_DEVICE_FUNC constexpr EIGEN_STRONG_INLINE Product(const Lhs& lhs, const Rhs& rhs) : m_lhs(lhs), m_rhs(rhs) {
-    eigen_assert(lhs.cols() == rhs.rows() && "invalid matrix product" &&
-                 "if you wanted a coeff-wise or a dot product use the respective explicit functions");
+    EIGEN_ASSERT_PRODUCT_SHAPE(lhs, rhs);
   }
 
   EIGEN_DEVICE_FUNC constexpr Index rows() const noexcept { return m_lhs.rows(); }

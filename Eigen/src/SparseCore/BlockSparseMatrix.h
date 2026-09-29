@@ -1328,7 +1328,7 @@ class BlockSparseTriangularView {
     EIGEN_STATIC_ASSERT(
         (std::is_same<Scalar, typename OtherDerived::Scalar>::value),
         YOU_MIXED_DIFFERENT_NUMERIC_TYPES__YOU_NEED_TO_USE_THE_CAST_METHOD_OF_MATRIXBASE_TO_CAST_NUMERIC_TYPES_EXPLICITLY)
-    eigen_assert(m_matrix.cols() == rhs.rows() && "BlockSparseTriangularView * Dense: dimension mismatch");
+    EIGEN_ASSERT_PRODUCT_SHAPE(m_matrix, rhs);
     using ResultType = Matrix<Scalar, Dynamic, OtherDerived::ColsAtCompileTime>;
     ResultType result = ResultType::Zero(m_matrix.rows(), rhs.cols());
     for (Index out = 0; out < m_matrix.m_blockOuterSize; ++out) {
@@ -1356,7 +1356,7 @@ class BlockSparseTriangularView {
     EIGEN_STATIC_ASSERT(
         (std::is_same<Scalar, typename OtherDerived::Scalar>::value),
         YOU_MIXED_DIFFERENT_NUMERIC_TYPES__YOU_NEED_TO_USE_THE_CAST_METHOD_OF_MATRIXBASE_TO_CAST_NUMERIC_TYPES_EXPLICITLY)
-    eigen_assert(lhs.cols() == tri.m_matrix.rows() && "Dense * BlockSparseTriangularView: dimension mismatch");
+    EIGEN_ASSERT_PRODUCT_SHAPE(lhs, tri.m_matrix);
     constexpr bool isRM = BSM::IsRowMajor;
     using ResultType = Matrix<Scalar, OtherDerived::RowsAtCompileTime, Dynamic>;
     // BSM befriends BlockSparseTriangularView, but GCC <= 11 and MSVC do not
@@ -1680,7 +1680,7 @@ class BlockSparseSelfAdjointView {
     EIGEN_STATIC_ASSERT(
         (std::is_same<Scalar, typename OtherDerived::Scalar>::value),
         YOU_MIXED_DIFFERENT_NUMERIC_TYPES__YOU_NEED_TO_USE_THE_CAST_METHOD_OF_MATRIXBASE_TO_CAST_NUMERIC_TYPES_EXPLICITLY)
-    eigen_assert(m_matrix.cols() == rhs.rows() && "BlockSparseSelfAdjointView * Dense: dimension mismatch");
+    EIGEN_ASSERT_PRODUCT_SHAPE(m_matrix, rhs);
     using ResultType = Matrix<Scalar, Dynamic, OtherDerived::ColsAtCompileTime>;
     ResultType result = ResultType::Zero(m_matrix.rows(), rhs.cols());
 

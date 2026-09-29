@@ -222,10 +222,6 @@ class Cauchy : public EigenBase<Cauchy<Scalar_, Rows_, Cols_>> {
    * \a v, and \c .noalias() skips it. */
   template <typename Rhs>
   Product<Cauchy, Rhs> operator*(const MatrixBase<Rhs>& v) const {
-    EIGEN_STATIC_ASSERT(ColsAtCompileTime == Dynamic || Rhs::RowsAtCompileTime == Dynamic ||
-                            int(ColsAtCompileTime) == int(Rhs::RowsAtCompileTime),
-                        INVALID_MATRIX_PRODUCT)
-    eigen_assert(v.rows() == cols() && "invalid product: dimensions do not match");
     return Product<Cauchy, Rhs>(*this, v.derived());
   }
 
@@ -238,7 +234,7 @@ class Cauchy : public EigenBase<Cauchy<Scalar_, Rows_, Cols_>> {
   template <typename Dest, typename Rhs, typename ProductScalar>
   void addProduct(Dest& dst, const Rhs& rhs, const ProductScalar& alpha) const {
     const Index n = cols();
-    eigen_assert(rhs.rows() == n && "invalid product: dimensions do not match");
+    EIGEN_ASSERT_PRODUCT_SHAPE(*this, rhs);
     // A unit alpha must not multiply: even the identity complex scalar (1,0)
     // pollutes an (Inf,0) value with NaN through the 0*Inf cross term.
     const bool unitAlpha = alpha == ProductScalar(1);

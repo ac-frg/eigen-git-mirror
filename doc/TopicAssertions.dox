@@ -91,7 +91,20 @@ If \c EIGEN_NO_STATIC_ASSERT is defined, the static assertions are removed entir
 \endcode
 
 They are not downgraded to run-time checks, so the misuse they guard against is reported neither at compile time
-nor at run time. \c EIGEN_NO_STATIC_ASSERT is undefined by default.
+nor at run time unless the operation also has a runtime assertion.
+\c EIGEN_NO_STATIC_ASSERT is undefined by default.
+
+\subsection ShapeAssertions Shape preconditions
+
+Shared shape checks reject statically incompatible coefficient counts and product inner dimensions at compile time,
+including in release builds. Checks proven valid do not read dimensions at runtime.
+Unknown dimensions are checked by debug assertions; maximum storage capacities are
+not treated as actual dimensions. Row and column vectors may have equal coefficient counts.
+
+With \c EIGEN_NO_STATIC_ASSERT, these shared checks retain their debug runtime fallback.
+Defining \c EIGEN_NO_DEBUG disables the default runtime assertions, not the static diagnostics.
+This stricter validation can reject invalid code that previously compiled and only asserted
+when executed in a debug build.
 
 */
 }
