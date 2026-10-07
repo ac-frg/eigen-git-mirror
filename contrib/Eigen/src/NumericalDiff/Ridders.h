@@ -18,10 +18,12 @@ namespace Eigen {
  * the Jacobian column with the smallest estimated error is retained. The stopping test uses
  * the maximum absolute componentwise difference over the entire column.
  *
- * The functor supplies Scalar, InputType, ValueType, JacobianType, InputsAtCompileTime,
- * ValuesAtCompileTime, values(), and operator()(x, values), as for NumericalDiff. Scalar must be
- * real and non-integer. The functor must be smooth and defined throughout the initial step interval.
- * inputs() is required only when forwarding inputs() to the stored functor.
+ * The functor supplies \c Scalar, \c InputType, \c ValueType, \c JacobianType,
+ * \c InputsAtCompileTime, \c ValuesAtCompileTime, \c values(), and \c operator(),
+ * as for NumericalDiff. The scalar type must be real and non-integer.
+ * The functor's \c inputs() method is required only when calling inputs().
+ *
+ * \warning The functor must be smooth and defined throughout the initial step interval.
  *
  * \code
  * Eigen::Ridders<MyFunctor> derivative(functor);
@@ -44,24 +46,29 @@ class Ridders {
   static constexpr int InputsAtCompileTime = Functor::InputsAtCompileTime;
   static constexpr int ValuesAtCompileTime = Functor::ValuesAtCompileTime;
 
-  /** Controls the initial interval and the maximum refinement cost. */
+  /** \brief Parameters controlling the initial interval and the maximum refinement cost. */
   struct Parameters {
-    /** Initial step is initialStep * max(abs(x[j]), 1). Must be positive and finite. */
+    /** \brief Initial step scale, giving \f$h_j = \mathrm{initialStep}\,\max(|x_j|, 1)\f$.
+     * Must be positive and finite. */
     Scalar initialStep = Scalar(0.01);
-    /** Each successive step is divided by this factor. Its square must be finite and greater than one. */
+    /** \brief Step reduction factor applied at each refinement.
+     * The factor must be greater than one and its square must be finite. */
     Scalar stepReduction = Scalar(2);
-    /** Maximum number of central differences per input coordinate. Must be at least two. */
+    /** \brief Maximum number of central differences per input coordinate. Must be at least two. */
     int maxSteps = 10;
   };
 
   Ridders() = default;
 
-  /** Copies the functor and sets the differentiation parameters. */
+  /** \brief Constructs from a copy of a functor and differentiation parameters.
+   * \param functor The functor to differentiate.
+   * \param parameters The differentiation parameters. */
   explicit Ridders(const Functor& functor, const Parameters& parameters = Parameters()) : m_functor(functor) {
     setParameters(parameters);
   }
 
-  /** Sets the differentiation parameters. */
+  /** \brief Sets the differentiation parameters.
+   * \param parameters The differentiation parameters. */
   void setParameters(const Parameters& parameters) {
     eigen_assert(parameters.initialStep > Scalar(0) && (numext::isfinite)(parameters.initialStep));
     eigen_assert(parameters.stepReduction > Scalar(1) &&
@@ -77,7 +84,10 @@ class Ridders {
   /** \returns the stored functor. */
   const Functor& functor() const { return m_functor; }
 
-  /** Forwards function evaluation to the stored functor. */
+  /** \brief Evaluates the stored functor.
+   * \param[in] x The evaluation point.
+   * \param[out] values The function values.
+   * \returns the value returned by the functor. */
   int operator()(const InputType& x, ValueType& values) const { return m_functor(x, values); }
   /** \returns the stored functor's number of inputs. */
   int inputs() const { return m_functor.inputs(); }
@@ -85,20 +95,32 @@ class Ridders {
   int values() const { return m_functor.values(); }
 
   /**
-   * Computes the Jacobian at \a x into \a jac and returns the number of functor evaluations.
-   * The caller sizes \a jac to values() by x.size(). At most <tt>2 * maxSteps</tt> evaluations
+   * \brief Computes the Jacobian using adaptive central differences.
+   *
+   * The caller sizes \a jac to values() by x.size(). At most \c 2*maxSteps evaluations
    * are made per coordinate. Difference quotients divide by the separation of the representable
    * evaluation points. Refinement stops when successive tableau diagonals differ by at least
    * twice the best estimated error, or when evaluation points coincide or a non-finite value
    * is encountered. The best finite estimate is retained; if none exists, the column contains NaNs.
+   *
+   * \param[in] x The evaluation point.
+   * \param[out] jac The Jacobian at \a x.
+   * \returns the number of functor evaluations.
+   * \sa Parameters
    */
   int df(const InputType& x, JacobianType& jac) const { return dfImpl(x, jac, nullptr); }
 
   /**
-   * Computes the Jacobian and resizes \a error to hold an absolute error estimate per input coordinate.
+   * \brief Computes the Jacobian and an absolute error estimate per input coordinate.
+   *
    * The estimate is the maximum componentwise difference from the two parent tableau entries;
    * it is a heuristic, not an error bound. An infinite estimate means no extrapolation was available.
-   * Returns the number of functor evaluations, as does the two-argument df().
+   *
+   * \param[in] x The evaluation point.
+   * \param[out] jac The Jacobian at \a x, sized by the caller to values() by x.size().
+   * \param[out] error The error estimates, resized to x.size().
+   * \returns the number of functor evaluations.
+   * \sa Parameters
    */
   int df(const InputType& x, JacobianType& jac, InputType& error) const {
     error.resize(x.size());

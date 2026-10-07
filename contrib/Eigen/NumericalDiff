@@ -17,6 +17,7 @@ namespace Eigen {
 
 /**
  * \defgroup NumericalDiff_Module Numerical differentiation module
+ * \brief Finite-difference Jacobians and differentiation weights.
  *
  * \code
  * #include <contrib/Eigen/NumericalDiff>
@@ -28,16 +29,13 @@ namespace Eigen {
  * is a different method and has its own module in Eigen : \ref
  * AutoDiff_Module.
  *
- * NumericalDiff extends a functor with Jacobian computation using Forward or
- * Central finite differences at a fixed step.
- *
- * Ridders stores a functor and computes its Jacobian by adaptively refining
- * central differences with Richardson extrapolation. It can report an error
- * estimate for each Jacobian column and requires a smooth function defined
- * throughout the initial step interval.
- *
- * Stencil computes finite-difference weights for arbitrary fixed-size grids and
- * derivative orders; the caller supplies the points and chooses the step size.
+ * This module provides the following classes:
+ * - \ref NumericalDiff extends a functor with Jacobian computation using
+ *   \c Forward or \c Central finite differences at a fixed step.
+ * - \ref Ridders stores a functor and computes its Jacobian using adaptive
+ *   central differences and Richardson extrapolation, with optional error estimates.
+ * - \ref Stencil computes finite-difference weights for arbitrary fixed-size
+ *   grids and derivative orders, using points and a step size chosen by the caller.
  *
  * Also, the \ref NonLinearOptimization_Module needs this in order to
  * provide full features compatibility with the original (c)minpack
