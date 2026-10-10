@@ -1698,12 +1698,15 @@ EIGEN_DECLARE_TEST(array_cwise) {
     CALL_SUBTEST_28((cast_truncation_test<double, 8>()));
     CALL_SUBTEST_28((cast_truncation_test<double, 16>()));
     CALL_SUBTEST_28((cast_truncation_test<float, 16>()));
+    // QEMU, which runs the ppc64le tests, emulates xscvsxdsp and xscvuxdsp through double, so they round twice.
+#if !EIGEN_ARCH_PPC
     CALL_SUBTEST_28((int64_to_float_cast_test<int64_t, Dynamic>(17)));
     CALL_SUBTEST_28((int64_to_float_cast_test<int64_t, 14>()));
     CALL_SUBTEST_28(int64_to_float_midpoint_cast_test<int64_t>());
     CALL_SUBTEST_28((int64_to_float_cast_test<uint64_t, Dynamic>(17)));
     CALL_SUBTEST_28((int64_to_float_cast_test<uint64_t, 14>()));
     CALL_SUBTEST_28(int64_to_float_midpoint_cast_test<uint64_t>());
+#endif
     CALL_SUBTEST_29((cast_test<3, 1>()));
     CALL_SUBTEST_30((cast_test<5, 1>()));
     CALL_SUBTEST_31((cast_test<9, 1>()));
