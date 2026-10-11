@@ -106,8 +106,18 @@ class Serializer<DenseBase<Derived>, void> {
     EIGEN_USING_STD(memcpy)
     memcpy(&header, src, header_bytes);
     src += header_bytes;
+    // The header is untrusted: reject sizes that are negative, that value cannot take, or that overrun the buffer.
+    if (EIGEN_PREDICT_FALSE(header.rows < 0 || header.cols < 0)) return nullptr;
+    if (EIGEN_PREDICT_FALSE((Derived::RowsAtCompileTime != Dynamic && header.rows != Derived::RowsAtCompileTime) ||
+                            (Derived::ColsAtCompileTime != Dynamic && header.cols != Derived::ColsAtCompileTime) ||
+                            (Derived::MaxRowsAtCompileTime != Dynamic && header.rows > Derived::MaxRowsAtCompileTime) ||
+                            (Derived::MaxColsAtCompileTime != Dynamic && header.cols > Derived::MaxColsAtCompileTime)))
+      return nullptr;
+    const size_t max_coeffs = static_cast<size_t>(end - src) / sizeof(Scalar);
+    if (EIGEN_PREDICT_FALSE(header.cols != 0 &&
+                            static_cast<size_t>(header.rows) > max_coeffs / static_cast<size_t>(header.cols)))
+      return nullptr;
     const size_t data_bytes = sizeof(Scalar) * header.rows * header.cols;
-    if (EIGEN_PREDICT_FALSE(src + data_bytes > end)) return nullptr;
     value.resize(header.rows, header.cols);
     if (data_bytes > 0) memcpy(value.data(), src, data_bytes);
     return src + data_bytes;

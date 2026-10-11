@@ -166,6 +166,30 @@ void test_eigen_type(const T& type) {
   VERIFY(src == nullptr);
 }
 
+// A dense header whose sizes are negative, wrong for the type, or larger than the buffer is a parsing error.
+template <typename T>
+void test_malformed_dense_header(Index rows, Index cols) {
+  struct Header {
+    Index rows;
+    Index cols;
+  };
+  std::vector<uint8_t> buffer(sizeof(Header) + 16 * sizeof(typename T::Scalar));
+  const Header header = {rows, cols};
+  std::memcpy(buffer.data(), &header, sizeof(header));
+  T value;
+  VERIFY(Eigen::Serializer<T>().deserialize(buffer.data(), buffer.data() + buffer.size(), value) == nullptr);
+}
+
+void test_malformed_dense_headers() {
+  test_malformed_dense_header<Matrix2d>(4, 4);
+  test_malformed_dense_header<Matrix2d>(1, 4);
+  test_malformed_dense_header<Matrix<double, Dynamic, Dynamic, 0, 2, 2>>(4, 1);
+  test_malformed_dense_header<MatrixXd>(-1, -4);
+  test_malformed_dense_header<MatrixXd>(5, 4);
+  test_malformed_dense_header<MatrixXd>(Index(1) << (8 * sizeof(Index) - 2), 4);
+  test_malformed_dense_header<VectorXd>(4, 4);
+}
+
 // Test a collection of dense types.
 template <typename T1, typename T2, typename T3>
 void test_dense_types(const T1& type1, const T2& type2, const T3& type3) {
@@ -213,6 +237,7 @@ void test_dense_types(const T1& type1, const T2& type2, const T3& type3) {
 
 EIGEN_DECLARE_TEST(serializer) {
   CALL_SUBTEST(test_pod_type());
+  CALL_SUBTEST(test_malformed_dense_headers());
 
   for (int i = 0; i < g_repeat; i++) {
     CALL_SUBTEST(test_eigen_type(Eigen::Array33f()));
