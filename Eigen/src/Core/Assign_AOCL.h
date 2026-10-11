@@ -167,7 +167,8 @@ class aocl_assign_binary_traits {
   struct Assignment<DstXprType, CwiseUnaryOp<scalar_##EIGENOP##_op<float>, SrcXprNested>, assign_op<float, float>, \
                     Dense2Dense, std::enable_if_t<aocl_assign_traits<DstXprType, SrcXprNested>::EnableAoclVML>> {  \
     typedef CwiseUnaryOp<scalar_##EIGENOP##_op<float>, SrcXprNested> SrcXprType;                                   \
-    static void run(DstXprType &dst, const SrcXprType &src, const assign_op<float, float> &) {                     \
+    static void run(DstXprType &dst, const SrcXprType &src, const assign_op<float, float> &func) {                 \
+      resize_if_allowed(dst, src, func);                                                                           \
       eigen_assert(dst.rows() == src.rows() && dst.cols() == src.cols());                                          \
       Eigen::Index n = dst.size();                                                                                 \
       if (n <= 0) return;                                                                                          \
@@ -185,7 +186,8 @@ class aocl_assign_binary_traits {
   struct Assignment<DstXprType, CwiseUnaryOp<scalar_##EIGENOP##_op<double>, SrcXprNested>, assign_op<double, double>, \
                     Dense2Dense, std::enable_if_t<aocl_assign_traits<DstXprType, SrcXprNested>::EnableAoclVML>> {     \
     typedef CwiseUnaryOp<scalar_##EIGENOP##_op<double>, SrcXprNested> SrcXprType;                                     \
-    static void run(DstXprType &dst, const SrcXprType &src, const assign_op<double, double> &) {                      \
+    static void run(DstXprType &dst, const SrcXprType &src, const assign_op<double, double> &func) {                  \
+      resize_if_allowed(dst, src, func);                                                                              \
       eigen_assert(dst.rows() == src.rows() && dst.cols() == src.cols());                                             \
       Eigen::Index n = dst.size();                                                                                    \
       eigen_assert(n <= INT_MAX && "AOCL does not support arrays larger than INT_MAX");                               \
@@ -220,7 +222,8 @@ EIGEN_AOCL_VML_UNARY_CALL_DOUBLE(log2, amd_vrda_log2)
       assign_op<float, float>, Dense2Dense,                                                                 \
       std::enable_if_t<aocl_assign_binary_traits<DstXprType, LhsXprNested, RhsXprNested>::EnableAoclVML>> { \
     typedef CwiseBinaryOp<scalar_##EIGENOP##_op<float, float>, LhsXprNested, RhsXprNested> SrcXprType;      \
-    static void run(DstXprType &dst, const SrcXprType &src, const assign_op<float, float> &) {              \
+    static void run(DstXprType &dst, const SrcXprType &src, const assign_op<float, float> &func) {          \
+      resize_if_allowed(dst, src, func);                                                                    \
       eigen_assert(dst.rows() == src.rows() && dst.cols() == src.cols());                                   \
       Eigen::Index n = dst.size();                                                                          \
       if (n <= 0) return;                                                                                   \
@@ -241,7 +244,8 @@ EIGEN_AOCL_VML_UNARY_CALL_DOUBLE(log2, amd_vrda_log2)
       assign_op<double, double>, Dense2Dense,                                                               \
       std::enable_if_t<aocl_assign_binary_traits<DstXprType, LhsXprNested, RhsXprNested>::EnableAoclVML>> { \
     typedef CwiseBinaryOp<scalar_##EIGENOP##_op<double, double>, LhsXprNested, RhsXprNested> SrcXprType;    \
-    static void run(DstXprType &dst, const SrcXprType &src, const assign_op<double, double> &) {            \
+    static void run(DstXprType &dst, const SrcXprType &src, const assign_op<double, double> &func) {        \
+      resize_if_allowed(dst, src, func);                                                                    \
       eigen_assert(dst.rows() == src.rows() && dst.cols() == src.cols());                                   \
       Eigen::Index n = dst.size();                                                                          \
       eigen_assert(n <= INT_MAX && "AOCL does not support arrays larger than INT_MAX");                     \
