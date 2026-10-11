@@ -108,6 +108,7 @@ struct unpacket_traits<Packet4f> {
     masked_store_available = false
   };
   typedef Packet4f half;
+  typedef Packet4i integer_packet;
 };
 
 template <>

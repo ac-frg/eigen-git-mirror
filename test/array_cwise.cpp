@@ -960,6 +960,18 @@ void array_real(const ArrayType& m) {
   VERIFY_IS_APPROX(m1.cosh().acosh(), acosh(cosh(m1)));
   VERIFY_IS_APPROX(m1.logistic(), logistic(m1));
 
+  // sin and cos must reduce large arguments accurately. A Cody-Waite reduction in Scalar loses every bit of the
+  // reduced argument long before |x| reaches 2^digits.
+  if (std::is_same<Scalar, float>::value || std::is_same<Scalar, double>::value) {
+    Array<Scalar, Dynamic, 1> x(2 * NumTraits<Scalar>::digits());
+    for (Index i = 0; i < x.size(); ++i) x(i) = Scalar(std::ldexp(1.0 + 0.37 * double(i % 3), int(i)));
+    const Array<Scalar, Dynamic, 1> s = x.sin(), c = x.cos();
+    for (Index i = 0; i < x.size(); ++i) {
+      VERIFY(abs(s(i) - numext::sin(x(i))) <= Scalar(4) * NumTraits<Scalar>::epsilon());
+      VERIFY(abs(c(i) - numext::cos(x(i))) <= Scalar(4) * NumTraits<Scalar>::epsilon());
+    }
+  }
+
   VERIFY_IS_APPROX(m1.arg(), arg(m1));
   // carg of a real array is its arg as a real Scalar, on the vectorized path too.
   VERIFY_IS_CWISE_EQUAL(m1.carg(), m1.arg());
