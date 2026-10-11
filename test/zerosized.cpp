@@ -46,6 +46,11 @@ void zeroSizedMatrix() {
     MatrixType reversed = t1;
     reversed.reverseInPlace();
     VERIFY(reversed == t1.reverse());
+    if (t1.rows() == t1.cols()) {
+      MatrixType transposed = t1;
+      transposed.transposeInPlace();
+      VERIFY(transposed == t1.transpose());
+    }
 
     if (MatrixType::RowsAtCompileTime == Dynamic && MatrixType::ColsAtCompileTime == Dynamic) {
       MatrixType t2(0, 0);
