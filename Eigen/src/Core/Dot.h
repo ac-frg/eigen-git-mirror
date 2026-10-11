@@ -503,7 +503,8 @@ template <typename Derived>
 struct lpNorm_selector<Derived, Infinity> {
   using RealScalar = typename NumTraits<typename traits<Derived>::Scalar>::Real;
   EIGEN_DEVICE_FUNC static inline RealScalar run(const MatrixBase<Derived>& m) {
-    return redux_with_identity(m.cwiseAbs(), scalar_max_op<RealScalar, RealScalar>(), 0);
+    // Like the other norms, NaN in, NaN out; PropagateFast may return an arbitrary coefficient.
+    return redux_with_identity(m.cwiseAbs(), scalar_max_op<RealScalar, RealScalar, PropagateNaN>(), 0);
   }
 };
 
