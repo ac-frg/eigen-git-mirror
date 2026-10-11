@@ -793,26 +793,6 @@ EIGEN_STRONG_INLINE Packet4f pceil<Packet4f>(const Packet4f& a) {
 }
 
 template <>
-EIGEN_STRONG_INLINE Packet4f pround<Packet4f>(const Packet4f& a) {
-  Packet4f v = a;
-  int32_t old_mode, new_mode;
-  asm volatile(
-      "cfcmsa  %[old_mode], $1\n"
-      "ori     %[new_mode], %[old_mode], 3\n"
-      "xori    %[new_mode], %[new_mode], 3\n"  // 0 = round to nearest, ties to even.
-      "ctcmsa  $1, %[new_mode]\n"
-      "frint.w %w[v], %w[v]\n"
-      "ctcmsa  $1, %[old_mode]\n"
-      :  // outputs
-      [old_mode] "=r"(old_mode), [new_mode] "=r"(new_mode),
-      [v] "+f"(v)
-      :  // inputs
-      :  // clobbers
-  );
-  return v;
-}
-
-template <>
 EIGEN_STRONG_INLINE Packet4f print<Packet4f>(const Packet4f& a) {
   // frint.w uses the current rounding mode (default: round to nearest, ties to even).
   Packet4f v = a;
@@ -1248,26 +1228,6 @@ EIGEN_STRONG_INLINE Packet2d pceil<Packet2d>(const Packet2d& a) {
       "cfcmsa  %[old_mode], $1\n"
       "ori     %[new_mode], %[old_mode], 3\n"
       "xori    %[new_mode], %[new_mode], 1\n"  // 2 = round towards +INFINITY.
-      "ctcmsa  $1, %[new_mode]\n"
-      "frint.d %w[v], %w[v]\n"
-      "ctcmsa  $1, %[old_mode]\n"
-      :  // outputs
-      [old_mode] "=r"(old_mode), [new_mode] "=r"(new_mode),
-      [v] "+f"(v)
-      :  // inputs
-      :  // clobbers
-  );
-  return v;
-}
-
-template <>
-EIGEN_STRONG_INLINE Packet2d pround<Packet2d>(const Packet2d& a) {
-  Packet2d v = a;
-  int32_t old_mode, new_mode;
-  asm volatile(
-      "cfcmsa  %[old_mode], $1\n"
-      "ori     %[new_mode], %[old_mode], 3\n"
-      "xori    %[new_mode], %[new_mode], 3\n"  // 0 = round to nearest, ties to even.
       "ctcmsa  $1, %[new_mode]\n"
       "frint.d %w[v], %w[v]\n"
       "ctcmsa  $1, %[old_mode]\n"
