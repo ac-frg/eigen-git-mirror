@@ -148,6 +148,16 @@ void test_realview(const T&) {
   }
   VERIFY_IS_CWISE_EQUAL(C, D);
 
+  // swap() through the views: these maps start at an odd real offset, and a reversed view has no direct access.
+  C.setRandom();
+  T C0 = C, D0 = D;
+  C.realView().swap(D.realView());
+  VERIFY_IS_CWISE_EQUAL(C, D0);
+  VERIFY_IS_CWISE_EQUAL(D, C0);
+  C.reverse().realView().swap(D.realView());
+  VERIFY_IS_CWISE_EQUAL(C, T(C0.reverse()));
+  VERIFY_IS_CWISE_EQUAL(D, T(D0.reverse()));
+
   C = A;
 
   for (Index c = 0; c < realViewCols - 1; c++) {
