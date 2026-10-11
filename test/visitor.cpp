@@ -398,9 +398,10 @@ void checkBooleanVisitorTraversal() {
   STATIC_CHECK((Reduction::LinearAccess));
   STATIC_CHECK((!internal::predicate_reduction<Block<MatrixType>, internal::nonzero_predicate<Scalar>>::LinearAccess));
   STATIC_CHECK((internal::visitor_has_linear_access<internal::count_visitor<Scalar>>::value));
-  // 4 and 9 packets plus a tail reach the blocked loop, the merged remainder packets, and the scalar tail.
+  // 4 and 9 packets plus a tail reach the blocked loop, the merged remainder packets, and the scalar tail; 131 reaches
+  // two 64-coefficient blocks and a tail without packets.
   const Index sizes[] = {
-      0, 1, PacketSize - 1, PacketSize, PacketSize + 1, 2 * PacketSize + 1, 4 * PacketSize, 9 * PacketSize + 3};
+      0, 1, PacketSize - 1, PacketSize, PacketSize + 1, 2 * PacketSize + 1, 4 * PacketSize, 9 * PacketSize + 3, 131};
   for (Index inner : sizes) {
     MatrixType matrix(Options == RowMajor ? 3 : inner, Options == RowMajor ? inner : 3);
     for (int value = 0; value <= 1; ++value) {
@@ -675,6 +676,8 @@ EIGEN_DECLARE_TEST(visitor) {
   CALL_SUBTEST_14((checkBooleanVisitorTraversal<int64_t, RowMajor>()));
   CALL_SUBTEST_14((checkBooleanVisitorTraversal<Eigen::half, ColMajor>()));
   CALL_SUBTEST_14((checkBooleanVisitorTraversal<std::complex<float>, RowMajor>()));
+  CALL_SUBTEST_14((checkBooleanVisitorTraversal<int16_t, ColMajor>()));
+  CALL_SUBTEST_14((checkBooleanVisitorTraversal<long double, RowMajor>()));
   CALL_SUBTEST_14(checkVisitorShortCircuit<ColMajor>());
   CALL_SUBTEST_14(checkVisitorShortCircuit<RowMajor>());
   CALL_SUBTEST_14((checkVisitorShortCircuit<ColMajor, true>()));

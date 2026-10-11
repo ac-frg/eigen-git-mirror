@@ -194,6 +194,7 @@ struct predicate_search_for<true, nonzero_predicate<bool>> {
 // Coefficient access along one inner vector, or along the whole expression with linear access.
 template <typename Evaluator, bool Linear = Evaluator::LinearAccess>
 struct predicate_segment {
+  using Scalar = typename Evaluator::Scalar;
   const Evaluator& eval;
   Index length;
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE predicate_segment(const Evaluator& evaluator, Index, Index size)
@@ -209,6 +210,7 @@ struct predicate_segment {
 };
 template <typename Evaluator>
 struct predicate_segment<Evaluator, false> {
+  using Scalar = typename Evaluator::Scalar;
   const Evaluator& eval;
   Index outer;
   Index length;
@@ -281,6 +283,17 @@ EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE bool predicate_search_tail(const Segment& 
   return predicate_search_sequential<Search>(seg, i, pred);
 }
 
+// Scalar blocks OR their tests into an unsigned integer as wide as the scalar. gcc vectorizes that reduction but not an
+// OR of bools, and a wider accumulator widens every test.
+template <typename Scalar, typename Unsigned = typename numext::get_integer_by_size<sizeof(Scalar)>::unsigned_type>
+struct predicate_block_accumulator {
+  using type = Unsigned;
+};
+template <typename Scalar>
+struct predicate_block_accumulator<Scalar, void> {
+  using type = bool;
+};
+
 template <typename Search, typename Packet, bool Vectorize>
 struct predicate_search_segment {
   static constexpr Index ShortSize = 0;
@@ -294,14 +307,11 @@ struct predicate_search_segment {
     // The shortest segments first, so they skip the block and group guards.
     if (EIGEN_PREDICT_FALSE(size < 4)) return predicate_search_upto3<Search>(seg, 0, pred);
     Index i = 0;
+    using Acc = typename predicate_block_accumulator<typename Segment::Scalar>::type;
     for (; i + 64 <= size; i += 64) {
-      bool b = false;
-      for (Index k = 0; k < 64; k += 4)
-        b = predicate_or(b, predicate_or(predicate_or(Search::test_scalar(pred, seg.coeff(i + k)),
-                                                      Search::test_scalar(pred, seg.coeff(i + k + 1))),
-                                         predicate_or(Search::test_scalar(pred, seg.coeff(i + k + 2)),
-                                                      Search::test_scalar(pred, seg.coeff(i + k + 3)))));
-      if EIGEN_PREDICT_FALSE (b) return true;
+      Acc b = 0;
+      for (Index k = 0; k < 64; ++k) b |= Acc(Search::test_scalar(pred, seg.coeff(i + k)));
+      if EIGEN_PREDICT_FALSE (b != Acc(0)) return true;
     }
     return predicate_search_scalar<Search>(seg, i, pred);
   }
