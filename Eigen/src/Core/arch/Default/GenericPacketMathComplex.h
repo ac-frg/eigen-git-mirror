@@ -38,10 +38,26 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet pdiv_complex(const Pa
   const RealPacket mask = pcmp_lt(abs_y, abs_y_flip);  // |c| < |d|
   RealPacket y_scaled = pselect(mask, pdiv(abs_y, abs_y_flip), one);
   y_scaled = por(y_scaled, pandnot(y.v, abs_y));  // copy signs in case |c| == |d|
-  RealPacket denom = pmul(y.v, y_scaled);
-  denom = padd(denom, pcplxflip(Packet(denom)).v);  // c * c' + d * d'
-  Packet num = pmul(x, pconj(Packet(y_scaled)));    // a * c' + b * d', -a * d + b * c
-  return Packet(pdiv(num.v, denom));
+  // y_scaled = y / max(|c|, |d|), so the denominator lies in [m, 2 m] for m = max(|c|, |d|) and the numerator's
+  // components are at most |a| + |b|. Either can overflow where x / y is finite: elements with a component of x
+  // (of y) above highest / 4 take x (y) scaled by 1/4, which is exact, and the quotient the inverse scale.
+  const RealPacket cst_quarter = pset1<RealPacket>(RealScalar(0.25));
+  const RealPacket quarter_highest = pset1<RealPacket>(NumTraits<RealScalar>::highest() / RealScalar(4));
+  Packet x_in = x;
+  RealPacket y_in = y.v;
+  RealPacket unscale = one;
+  if (EIGEN_PREDICT_FALSE(predux_any(pcmp_lt(quarter_highest, pmax(pabs(x.v), abs_y))))) {
+    const RealPacket abs_x = pabs(x.v);
+    const RealPacket large_x = pcmp_lt(quarter_highest, pmax(abs_x, pcplxflip(Packet(abs_x)).v));
+    const RealPacket large_y = pcmp_lt(quarter_highest, pmax(abs_y, abs_y_flip));
+    x_in.v = pselect(large_x, pmul(x.v, cst_quarter), x.v);
+    y_in = pselect(large_y, pmul(y.v, cst_quarter), y.v);
+    unscale = pmul(pselect(large_x, pset1<RealPacket>(RealScalar(4)), one), pselect(large_y, cst_quarter, one));
+  }
+  RealPacket denom = pmul(y_in, y_scaled);
+  denom = padd(denom, pcplxflip(Packet(denom)).v);   // c * c' + d * d'
+  Packet num = pmul(x_in, pconj(Packet(y_scaled)));  // a * c' + b * d', -a * d + b * c
+  return Packet(pmul(pdiv(num.v, denom), unscale));
 }
 
 template <typename Packet>

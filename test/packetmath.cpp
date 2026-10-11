@@ -2360,6 +2360,22 @@ void packetmath_complex() {
       Scalar expected = data1[i] / data2[i];
       VERIFY_IS_APPROX(pval[i], expected);
     }
+
+    // Finite quotients of operands near the overflow threshold, beside an ordinary one. The exact quotients are given:
+    // libgcc's complex<double> division overflows on the second.
+    const RealScalar big = RealScalar(0.75) * NumTraits<RealScalar>::highest();
+    const RealScalar half = RealScalar(0.5);
+    const Scalar numerators[] = {Scalar(big, zero), Scalar(big, big), Scalar(big, big), Scalar(one, RealScalar(2))};
+    const Scalar denominators[] = {Scalar(big, big), Scalar(one, one), Scalar(big, -big), Scalar(RealScalar(3), one)};
+    const Scalar quotients[] = {Scalar(half, -half), Scalar(big, zero), Scalar(zero, one), Scalar(half, half)};
+    for (int k = 0; k < 4; ++k) {
+      for (int i = 0; i < PacketSize; ++i) {
+        data1[i] = numerators[(i + k) % 4];
+        data2[i] = denominators[(i + k) % 4];
+      }
+      internal::pstore(pval, internal::pdiv(internal::pload<Packet>(data1), internal::pload<Packet>(data2)));
+      for (int i = 0; i < PacketSize; ++i) VERIFY_IS_APPROX(pval[i], quotients[(i + k) % 4]);
+    }
   }
 
   // Test pisnan.
