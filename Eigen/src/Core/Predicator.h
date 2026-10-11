@@ -187,6 +187,23 @@ struct bool_lane_search : predicate_search<true> {
     return x;
   }
 };
+// any_of(nonzero) on integer lanes ORs the coefficients themselves and compares the OR with zero once per block: it
+// is zero exactly where every coefficient is. Floating-point lanes keep the compare per packet: their OR can be a
+// signaling NaN, which a floating-point compare would flag as an invalid operation.
+struct or_lane_search : predicate_search<true> {
+  template <typename Predicate, typename Packet>
+  static EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet apply(const Predicate&, const Packet& x) {
+    return x;
+  }
+  template <typename Packet>
+  static EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE bool found(const Packet& m) {
+    return predux_any(pandnot(ptrue(m), pcmp_eq(m, pzero(m))));
+  }
+  template <typename Packet>
+  static EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE bool found_in(const Packet& m, const Packet& lanes) {
+    return found(pand(m, lanes));
+  }
+};
 template <bool Target, typename Predicate>
 struct predicate_search_for {
   using type = predicate_search<Target>;
@@ -194,6 +211,11 @@ struct predicate_search_for {
 template <typename Scalar>
 struct predicate_search_for<false, nonzero_predicate<Scalar>> {
   using type = zero_lane_search;
+};
+template <typename Scalar>
+struct predicate_search_for<true, nonzero_predicate<Scalar>> {
+  using type = std::conditional_t<NumTraits<Scalar>::IsInteger && !NumTraits<Scalar>::IsComplex, or_lane_search,
+                                  predicate_search<true>>;
 };
 template <>
 struct predicate_search_for<true, nonzero_predicate<bool>> {

@@ -10,6 +10,8 @@
 
 #include "main.h"
 
+#include <cfenv>
+
 template <typename MatrixType>
 void matrixVisitor_impl(MatrixType& m) {
   typedef typename MatrixType::Scalar Scalar;
@@ -483,6 +485,28 @@ void checkBooleanVisitorTraversal() {
   checkBooleanVisitors(fixed);
 }
 
+template <typename ArrayType>
+EIGEN_DONT_INLINE bool anyOfArray(const ArrayType& a) {
+  return a.any();
+}
+
+// any() ORs whole integer packets before testing them, but not floating-point ones: the OR of two finite coefficients
+// can be a signaling NaN, which a floating-point comparison would flag as an invalid operation.
+template <typename Scalar>
+void checkAnyRaisesNoInvalid() {
+  using Bits = typename numext::get_integer_by_size<sizeof(Scalar)>::unsigned_type;
+  constexpr Index PacketSize = internal::packet_traits<Scalar>::size;
+  // The successor of 1 and 2: their OR has an all-ones exponent and only the lowest mantissa bit set, a signaling NaN.
+  const Bits one = numext::bit_cast<Bits>(Scalar(1)) | Bits(1), two = numext::bit_cast<Bits>(Scalar(2));
+  for (Index size : {2 * PacketSize, 3 * PacketSize, 8 * PacketSize, 9 * PacketSize + 3}) {
+    Array<Scalar, Dynamic, 1> a(size);
+    for (Index i = 0; i < size; ++i) a(i) = numext::bit_cast<Scalar>((i / PacketSize) % 2 ? one : two);
+    std::feclearexcept(FE_ALL_EXCEPT);
+    VERIFY(anyOfArray(a));
+    VERIFY_IS_EQUAL(std::fetestexcept(FE_INVALID) & FE_INVALID, 0);
+  }
+}
+
 template <bool Vectorize = false>
 struct CountVisitorReads {
   Index* reads;
@@ -744,6 +768,8 @@ EIGEN_DECLARE_TEST(visitor) {
   CALL_SUBTEST_14((checkVisitorShortCircuit<RowMajor, true>()));
   CALL_SUBTEST_15(checkFindCoeffWithoutPacketCmp<ColMajor>());
   CALL_SUBTEST_15(checkFindCoeffWithoutPacketCmp<RowMajor>());
+  CALL_SUBTEST_16(checkAnyRaisesNoInvalid<float>());
+  CALL_SUBTEST_16(checkAnyRaisesNoInvalid<double>());
   CALL_SUBTEST_17(checkPartialPackets<float>());
   CALL_SUBTEST_17(checkPartialPackets<double>());
   CALL_SUBTEST_17(checkPartialPackets<int>());
