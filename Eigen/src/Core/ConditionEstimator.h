@@ -81,7 +81,11 @@ typename Decomposition::RealScalar rcond_invmatrix_L1_norm_estimate(const Decomp
   // lower_bound is a lower bound on
   //   ||inv(matrix)||_1  = sup_v ||inv(matrix) v||_1 / ||v||_1
   // and is the objective maximized by the supergradient ascent algorithm below.
+  // A solve through an exactly zero pivot yields Inf or NaN. NaN fails every comparison below and
+  // would be dropped by the final maximum, so any non-finite probe makes the estimate infinite.
+  const RealScalar infinite_norm = NumTraits<RealScalar>::infinity();
   RealScalar lower_bound = v.template lpNorm<1>();
+  if (!(numext::isfinite)(lower_bound)) return infinite_norm;
   if (n == 1) return lower_bound;
 
   // Gradient ascent: the optimum is achieved at a unit vector e_j. Each
@@ -107,6 +111,7 @@ typename Decomposition::RealScalar rcond_invmatrix_L1_norm_estimate(const Decomp
     // Probe the best unit vector: v = A^{-1} * e_j.
     v = dec.solve(Vector::Unit(n, v_max_abs_index));
     lower_bound = v.template lpNorm<1>();
+    if (!(numext::isfinite)(lower_bound)) return infinite_norm;
     if (lower_bound <= old_lower_bound) {
       // No improvement from the gradient step.
       break;
@@ -129,6 +134,7 @@ typename Decomposition::RealScalar rcond_invmatrix_L1_norm_estimate(const Decomp
   }
   v = dec.solve(v);
   const RealScalar alt_est = (RealScalar(2) * v.template lpNorm<1>()) / (RealScalar(3) * RealScalar(n));
+  if (!(numext::isfinite)(alt_est)) return infinite_norm;
   return numext::maxi(lower_bound, alt_est);
 }
 

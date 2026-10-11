@@ -95,6 +95,14 @@ void rcond_singular() {
 
   FullPivLU<MatrixType> lu(m);
   VERIFY_IS_EQUAL(lu.rcond(), Scalar(0));
+
+  // An exactly zero pivot makes the estimator's solves produce NaN, which must not be dropped:
+  // diag(1, ..., 1, 0) used to report rcond == 1 while diag(1, ..., 1, 1e-30) reports 1e-30.
+  using RealScalar = typename MatrixType::RealScalar;
+  MatrixType d = MatrixType::Identity(size, size);
+  d(size - 1, size - 1) = Scalar(0);
+  VERIFY_IS_EQUAL(PartialPivLU<MatrixType>(d).rcond(), RealScalar(0));
+  VERIFY_IS_EQUAL(PartialPivLU<MatrixType>(m).rcond(), RealScalar(0));
 }
 
 template <typename MatrixType>
