@@ -167,6 +167,30 @@ void check_fuzzy_boundaries() {
   VERIFY(!strided.isZero());
 }
 
+// The packet test of isApproxToConstant() holds for 0 <= prec <= 1 and a finite constant; other precisions and
+// constants fall back to scalar tests. Coefficients of either sign, signed zeros and non-finite values at every
+// position of a vector long enough for packet blocks and a scalar tail.
+template <typename Scalar>
+void check_fuzzy_constant_signs() {
+  const Scalar inf = NumTraits<Scalar>::infinity(), nan = NumTraits<Scalar>::quiet_NaN();
+  constexpr int packetSize = internal::packet_traits<Scalar>::size;
+  Matrix<Scalar, Dynamic, 1> v(9 * packetSize + 3);
+  for (Scalar value : {Scalar(0.5), Scalar(-0.5), Scalar(0), -Scalar(0), inf, -inf, NumTraits<Scalar>::highest()}) {
+    for (Scalar precision : {Scalar(0), Scalar(1e-3), Scalar(0.5), Scalar(1), Scalar(1.5), Scalar(3), inf}) {
+      for (Scalar x :
+           {-value, value * Scalar(1.25), value * Scalar(-0.25), Scalar(0), -Scalar(0), inf, -inf, nan, Scalar(1)}) {
+        for (Index k = 0; k < v.size(); ++k) {
+          v.setConstant(value);
+          v(k) = x;
+          bool expected = true;
+          for (Index i = 0; i < v.size(); ++i) expected &= internal::isApprox(v(i), value, precision);
+          VERIFY_IS_EQUAL(v.isApproxToConstant(value, precision), expected);
+        }
+      }
+    }
+  }
+}
+
 template <typename Scalar, int Order>
 void check_fuzzy_subnormals() {
   const ScopedFlushToZero gradual(FlushToZeroMode::None);
@@ -223,5 +247,7 @@ EIGEN_DECLARE_TEST(fuzzy_matrix_checks) {
     CALL_SUBTEST_4((check_fuzzy_loops<double, RowMajor>()));
     CALL_SUBTEST_4((check_fuzzy_subnormals<double, RowMajor>()));
     CALL_SUBTEST_5(check_fuzzy_custom_scalars());
+    CALL_SUBTEST_6(check_fuzzy_constant_signs<float>());
+    CALL_SUBTEST_6(check_fuzzy_constant_signs<double>());
   }
 }

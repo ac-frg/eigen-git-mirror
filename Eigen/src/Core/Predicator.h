@@ -53,15 +53,23 @@ struct functor_traits<isfinite_predicate<Scalar>> {
 // Separate specializations keep custom scalars that support only one of isApprox and isMuchSmallerThan compiling.
 template <typename Scalar, bool Approximate>
 struct fuzzy_constant_predicate {
+  using RealScalar = typename NumTraits<Scalar>::Real;
   Scalar value;
-  typename NumTraits<Scalar>::Real precision;
+  RealScalar precision;
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE bool operator()(const Scalar& x) const {
     return internal::isApprox(x, value, precision);
   }
+  // Requires 0 <= precision <= 1 and a finite value. Then min(|x|, |v|) p = min(|x| p, |v| p) exactly, and |x| p is
+  // x copysign(p, v) where x has the sign of v; where it does not, |x - v| >= max(|x|, |v|) > p min(|x|, |v|) unless
+  // x = v = 0, and x copysign(p, v) <= 0 rejects it as well.
   template <typename Packet>
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet packetOp(const Packet& x) const {
-    const Packet v = pset1<Packet>(value);
-    return pcmp_le(pabs(psub(x, v)), pmul(pmin(pabs(x), pabs(v)), pset1<Packet>(precision)));
+    const Packet bound = pset1<Packet>(numext::abs(value) * precision);
+    const Packet scale = pset1<Packet>(numext::copysign(precision, value));
+    return pcmp_le(pabs(psub(x, pset1<Packet>(value))), pmin(pmul(x, scale), bound));
+  }
+  EIGEN_DEVICE_FUNC bool packetOpApplies() const {
+    return precision >= RealScalar(0) && precision <= RealScalar(1) && (numext::isfinite)(value);
   }
 };
 template <typename Scalar>
@@ -88,6 +96,23 @@ struct functor_traits<fuzzy_constant_predicate<Scalar, Approximate>> {
        (packet_traits<Scalar>::HasSub && packet_traits<Scalar>::HasMin && packet_traits<Scalar>::HasMul));
   // Grouped scalar compares may be vectorized onto the unit PacketAccess excludes.
   static constexpr bool GroupScalars = PacketAccess;
+  // The approximate test saturates the vector units, so larger blocks barely speed up full scans but read further
+  // past a deciding coefficient: 2 packets per exit is never slower than master's exit per packet.
+  static constexpr int BlockPackets = Approximate ? 2 : 8;
+};
+
+// A predicate's scalar test alone, tested one coefficient at a time.
+template <typename Predicate>
+struct scalar_predicate {
+  Predicate pred;
+  template <typename Scalar>
+  EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE bool operator()(const Scalar& x) const {
+    return pred(x);
+  }
+};
+template <typename Predicate>
+struct functor_traits<scalar_predicate<Predicate>> {
+  static constexpr bool PacketAccess = false;
 };
 
 // Searches for a coefficient on which the predicate is Target: any_of searches for true, all_of for false. Packets
@@ -206,6 +231,13 @@ template <typename Predicate>
 struct predicate_groups_scalars<Predicate, void_t<decltype(functor_traits<Predicate>::GroupScalars)>>
     : bool_constant<static_cast<bool>(functor_traits<Predicate>::GroupScalars)> {};
 
+// Packets tested between exits on the long path; predicates that do not say test blocks of 8.
+template <typename Predicate, typename = void>
+struct predicate_block_packets : std::integral_constant<int, 8> {};
+template <typename Predicate>
+struct predicate_block_packets<Predicate, void_t<decltype(functor_traits<Predicate>::BlockPackets)>>
+    : std::integral_constant<int, functor_traits<Predicate>::BlockPackets> {};
+
 // Scalar searches OR their tests without a branch per test; spelling a | b on the calls directly draws clang's
 // -Wbitwise-instead-of-logical.
 EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE bool predicate_or(bool a, bool b) { return a | b; }
@@ -316,10 +348,31 @@ struct predicate_search_segment<Search, Packet, true> {
     return predicate_search_tail<Search>(seg, i, pred);
   }
 
+  template <int Block, typename Segment, typename Predicate>
+  static EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE bool run_blocks(const Segment& seg, Predicate pred) {
+    const Index size = seg.size();
+    Index i = 0;
+    for (; i + Block * PacketSize <= size; i += Block * PacketSize) {
+      Packet m = test(seg, i, pred);
+      for (int k = 1; k < Block; ++k) m = Search::combine(m, test(seg, i + k * PacketSize, pred));
+      if EIGEN_PREDICT_FALSE (Search::found(m)) return true;
+    }
+    if (Block > 1 && i + PacketSize <= size) {
+      Packet m = test(seg, i, pred);
+      for (i += PacketSize; i + PacketSize <= size; i += PacketSize) m = Search::combine(m, test(seg, i, pred));
+      if (Search::found(m)) return true;
+    }
+    if (EIGEN_PREDICT_TRUE(i == size)) return false;
+    return predicate_search_tail<Search>(seg, i, pred);
+  }
+
   template <typename Segment, typename Predicate>
   static EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE bool run(const Segment& seg, Predicate pred) {
     const Index size = seg.size();
     if (size < ShortSize) return run_short(seg, pred);
+    EIGEN_IF_CONSTEXPR (predicate_block_packets<Predicate>::value < 8) {
+      return run_blocks<predicate_block_packets<Predicate>::value>(seg, pred);
+    }
     Index i = 0;
     // Longer segments: the block loop is laid out off the fall-through path.
     if (EIGEN_PREDICT_FALSE(8 * PacketSize <= size)) {
@@ -401,6 +454,19 @@ EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE bool any_of(const Derived& xpr, const Pred
   return predicate_reduction<Derived, Predicate>::template search<true>(xpr, pred);
 }
 
+// The packet test of fuzzy_constant_predicate holds only where packetOpApplies; elsewhere it tests scalars.
+template <typename Derived, typename Predicate>
+EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE bool fuzzy_constant_all_of(const Derived& xpr, const Predicate& pred,
+                                                                 std::true_type) {
+  if (EIGEN_PREDICT_FALSE(!pred.packetOpApplies())) return all_of(xpr, scalar_predicate<Predicate>{pred});
+  return all_of(xpr, pred);
+}
+template <typename Derived, typename Predicate>
+EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE bool fuzzy_constant_all_of(const Derived& xpr, const Predicate& pred,
+                                                                 std::false_type) {
+  return all_of(xpr, pred);
+}
+
 template <typename Derived, bool AlwaysTrue = NumTraits<typename traits<Derived>::Scalar>::IsInteger>
 struct all_finite_impl {
   static EIGEN_DEVICE_FUNC inline bool run(const Derived& /*derived*/) { return true; }
@@ -455,7 +521,10 @@ EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE bool DenseBase<Derived>::allFinite() const
 template <typename Derived>
 EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE bool DenseBase<Derived>::isApproxToConstant(const Scalar& val,
                                                                                   const RealScalar& prec) const {
-  return internal::all_of(derived(), internal::fuzzy_constant_predicate<Scalar, true>{val, prec});
+  using Predicate = internal::fuzzy_constant_predicate<Scalar, true>;
+  return internal::fuzzy_constant_all_of(
+      derived(), Predicate{val, prec},
+      std::integral_constant<bool, internal::functor_traits<Predicate>::PacketAccess>());
 }
 
 /** \returns true if *this is approximately equal to the zero matrix,
