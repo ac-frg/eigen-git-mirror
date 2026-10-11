@@ -111,6 +111,16 @@ void check_custom_new_delete() {
     delete[] t;
   }
 
+  {
+    T *t = new (std::nothrow) T;
+    VERIFY(t != nullptr);
+    delete t;
+    std::size_t N = internal::random<std::size_t>(1, 10);
+    t = new (std::nothrow) T[N];
+    VERIFY(t != nullptr);
+    delete[] t;
+  }
+
 #if EIGEN_MAX_ALIGN_BYTES > 0 && (!EIGEN_HAS_CXX17_OVERALIGN)
   {
     T *t = static_cast<T *>((T::operator new)(sizeof(T)));

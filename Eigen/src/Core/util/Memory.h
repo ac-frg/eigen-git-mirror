@@ -890,10 +890,14 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void* eigen_aligned_alloca_helper(void* pt
 
 // HIP does not support new/delete on device.
 #if EIGEN_MAX_ALIGN_BYTES != 0 && !defined(EIGEN_HIP_DEVICE_COMPILE)
-#define EIGEN_MAKE_ALIGNED_OPERATOR_NEW_NOTHROW(NeedsToAlign)                              \
-  EIGEN_DEVICE_FUNC void* operator new(std::size_t size, const std::nothrow_t&) noexcept { \
-    EIGEN_TRY { return Eigen::internal::conditional_aligned_malloc<NeedsToAlign>(size); }  \
-    EIGEN_CATCH(...) { return 0; }                                                         \
+#define EIGEN_MAKE_ALIGNED_OPERATOR_NEW_NOTHROW(NeedsToAlign)                                \
+  EIGEN_DEVICE_FUNC void* operator new(std::size_t size, const std::nothrow_t&) noexcept {   \
+    EIGEN_TRY { return Eigen::internal::conditional_aligned_malloc<NeedsToAlign>(size); }    \
+    EIGEN_CATCH(...) { return 0; }                                                           \
+  }                                                                                          \
+  EIGEN_DEVICE_FUNC void* operator new[](std::size_t size, const std::nothrow_t&) noexcept { \
+    EIGEN_TRY { return Eigen::internal::conditional_aligned_malloc<NeedsToAlign>(size); }    \
+    EIGEN_CATCH(...) { return 0; }                                                           \
   }
 #define EIGEN_MAKE_ALIGNED_OPERATOR_NEW_IF(NeedsToAlign)                                                              \
   EIGEN_DEVICE_FUNC void* operator new(std::size_t size) {                                                            \
@@ -926,6 +930,9 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void* eigen_aligned_alloca_helper(void* pt
   /* nothrow-new (returns zero instead of std::bad_alloc) */                                                          \
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW_NOTHROW(NeedsToAlign)                                                               \
   EIGEN_DEVICE_FUNC void operator delete(void* ptr, const std::nothrow_t&) noexcept {                                 \
+    Eigen::internal::conditional_aligned_free<NeedsToAlign>(ptr);                                                     \
+  }                                                                                                                   \
+  EIGEN_DEVICE_FUNC void operator delete[](void* ptr, const std::nothrow_t&) noexcept {                               \
     Eigen::internal::conditional_aligned_free<NeedsToAlign>(ptr);                                                     \
   }                                                                                                                   \
   typedef void eigen_aligned_operator_new_marker_type;
