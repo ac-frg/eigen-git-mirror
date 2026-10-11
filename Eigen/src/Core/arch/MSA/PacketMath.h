@@ -561,6 +561,16 @@ EIGEN_STRONG_INLINE Packet4i plogical_shift_left(const Packet4i& a) {
 }
 
 template <>
+EIGEN_STRONG_INLINE Packet4i pcast<Packet4f, Packet4i>(const Packet4f& a) {
+  return __builtin_msa_ftrunc_s_w(a);
+}
+
+template <>
+EIGEN_STRONG_INLINE Packet4f pldexp<Packet4f>(const Packet4f& a, const Packet4f& exponent) {
+  return pldexp_generic(a, exponent);
+}
+
+template <>
 EIGEN_STRONG_INLINE float predux<Packet4f>(const Packet4f& a) {
   EIGEN_MSA_DEBUG;
 
@@ -887,7 +897,41 @@ struct unpacket_traits<Packet2d> {
     masked_store_available = false
   };
   typedef Packet2d half;
+  typedef Packet2l integer_packet;
 };
+
+template <>
+struct unpacket_traits<Packet2l> {
+  typedef int64_t type;
+  enum {
+    size = 2,
+    alignment = Aligned16,
+    vectorizable = true,
+    masked_load_available = false,
+    masked_store_available = false
+  };
+  typedef Packet2l half;
+};
+
+template <>
+EIGEN_STRONG_INLINE Packet2l pset1<Packet2l>(const int64_t& from) {
+  return __builtin_msa_fill_d(from);
+}
+
+template <int N>
+EIGEN_STRONG_INLINE Packet2l plogical_shift_right(const Packet2l& a) {
+  return __builtin_msa_srli_d(a, N);
+}
+
+template <int N>
+EIGEN_STRONG_INLINE Packet2l plogical_shift_left(const Packet2l& a) {
+  return __builtin_msa_slli_d(a, N);
+}
+
+template <>
+EIGEN_STRONG_INLINE Packet2l pcast<Packet2d, Packet2l>(const Packet2d& a) {
+  return __builtin_msa_ftrunc_s_d(a);
+}
 
 template <>
 EIGEN_STRONG_INLINE Packet2d pset1<Packet2d>(const double& from) {
@@ -1267,6 +1311,11 @@ EIGEN_STRONG_INLINE Packet2d ptrunc<Packet2d>(const Packet2d& a) {
 template <>
 EIGEN_STRONG_INLINE Packet2d pcmp_lt_or_nan<Packet2d>(const Packet2d& a, const Packet2d& b) {
   return (Packet2d)__builtin_msa_fcult_d(a, b);
+}
+
+template <>
+EIGEN_STRONG_INLINE Packet2d pldexp<Packet2d>(const Packet2d& a, const Packet2d& exponent) {
+  return pldexp_generic(a, exponent);
 }
 
 }  // end namespace internal

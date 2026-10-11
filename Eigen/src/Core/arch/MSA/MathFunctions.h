@@ -228,6 +228,17 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet4f ptanh<Packet4f>(con
 EIGEN_FLOAT_PACKET_FUNCTION(sin, Packet4f)
 EIGEN_FLOAT_PACKET_FUNCTION(cos, Packet4f)
 
+// generic_exp2 clamps its argument with pmin and pmax, which keep the number over a NaN under EIGEN_FAST_MATH.
+template <>
+EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet4f pexp2<Packet4f>(const Packet4f& x) {
+  return pselect(pisnan(x), x, generic_exp2(x));
+}
+
+template <>
+EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet2d pexp2<Packet2d>(const Packet2d& x) {
+  return pselect(pisnan(x), x, generic_exp2(x));
+}
+
 template <>
 EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet2d pexp<Packet2d>(const Packet2d& _x) {
   // Limiting double-precision pexp's argument to [-1024, +1024] lets pexp
