@@ -23,6 +23,8 @@
 #define EIGEN_64BIT_BLAS
 #elif defined(EIGEN_TEST_PART_4)
 #define EIGEN_ALIGN_TO_AVOID_FALSE_SHARING EIGEN_ALIGN_TO_BOUNDARY(256)
+#elif defined(EIGEN_TEST_PART_5)
+#define EIGEN_INITIALIZE_MATRICES_BY_NAN
 #endif
 
 #include "main.h"
@@ -90,10 +92,34 @@ void check_false_sharing_alignment() {
 #endif
 }
 
+// EIGEN_INITIALIZE_MATRICES_BY_NAN initializes new entries after resizing, including those that conservativeResize
+// appends, whether it reallocates the storage in place (same leading dimension) or copies it.
+void check_initialize_by_nan() {
+#if defined(EIGEN_TEST_PART_5)
+  MatrixXd m(2, 3);
+  VERIFY(m.array().isNaN().all());
+  m.setZero(2, 2);
+  m.conservativeResize(2, 3);
+  VERIFY(m.leftCols(2).isZero(0) && m.col(2).array().isNaN().all());
+  m.conservativeResize(3, 3);
+  VERIFY(m.row(2).array().isNaN().all());
+  Matrix<double, Dynamic, Dynamic, RowMajor> r = Matrix<double, Dynamic, Dynamic, RowMajor>::Zero(2, 2);
+  r.conservativeResize(3, 2);
+  VERIFY(r.topRows(2).isZero(0) && r.row(2).array().isNaN().all());
+  VectorXd v = VectorXd::Zero(2);
+  v.conservativeResize(5);
+  VERIFY(v.head(2).isZero(0) && v.tail(3).array().isNaN().all());
+  Matrix<double, Dynamic, Dynamic, ColMajor, 4, 4> f = Matrix<double, Dynamic, Dynamic, ColMajor, 4, 4>::Zero(2, 2);
+  f.conservativeResize(2, 4);
+  VERIFY(f.leftCols(2).isZero(0) && f.rightCols(2).array().isNaN().all());
+#endif
+}
+
 EIGEN_DECLARE_TEST(preprocessor_directives) {
   CALL_SUBTEST_1(check_index_type());
   CALL_SUBTEST_1(check_false_sharing_alignment());
   CALL_SUBTEST_2(check_index_type());
   CALL_SUBTEST_3(check_blas_index());
   CALL_SUBTEST_4(check_false_sharing_alignment());
+  CALL_SUBTEST_5(check_initialize_by_nan());
 }
