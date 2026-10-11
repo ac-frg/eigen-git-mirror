@@ -1263,8 +1263,9 @@ template <>
 EIGEN_STRONG_INLINE Packet4f pcmp_le(const Packet4f& a, const Packet4f& b) {
   return reinterpret_cast<Packet4f>(vec_cmple(a, b));
 }
-// To fix bug with vec_cmplt on older versions
-#ifdef EIGEN_VECTORIZE_VSX
+// To fix bug with vec_cmplt on older versions. Clang needs it: for AltiVec vectors its a < b is one bool, true when
+// every lane compares less, which breaks the generic pcmp_lt.
+#if defined(EIGEN_VECTORIZE_VSX) || EIGEN_COMP_CLANG
 template <>
 EIGEN_STRONG_INLINE Packet4f pcmp_lt(const Packet4f& a, const Packet4f& b) {
   return reinterpret_cast<Packet4f>(vec_cmplt(a, b));

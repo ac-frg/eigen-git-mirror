@@ -992,6 +992,20 @@ void array_real(const ArrayType& m) {
     VERIFY_IS_CWISE_EQUAL(q, quotient);
   }
 
+  // rint rounds halfway cases to even. generic_rint passes values beyond 2^digits through by a lane-wise pcmp_lt, so
+  // every packet mixes both kinds.
+  {
+    const float halves[] = {0.5f, 1.5f, 2.5f, 1e30f, -0.5f, -1.5f, -2.5f, -1e30f};
+    const float even[] = {0.f, 2.f, 2.f, 1e30f, -0.f, -2.f, -2.f, -1e30f};
+    Array<Scalar, Dynamic, 1> h(32), r(32);
+    for (Index i = 0; i < h.size(); ++i) {
+      h(i) = Scalar(halves[i % 8]);
+      r(i) = Scalar(even[i % 8]);
+    }
+    const Array<Scalar, Dynamic, 1> rh = h.rint();
+    VERIFY_IS_CWISE_EQUAL(rh, r);
+  }
+
   VERIFY_IS_APPROX(m1.arg(), arg(m1));
   // carg of a real array is its arg as a real Scalar, on the vectorized path too.
   VERIFY_IS_CWISE_EQUAL(m1.carg(), m1.arg());
