@@ -148,9 +148,9 @@ void diagonalmatrices(const MatrixType& m) {
     VERIFY_IS_APPROX((m1 * rdm1.transpose())(i, j), m1(i, j) * rv1(j));
     internal::set_is_malloc_allowed(true);
     // For real scalars the conjugate is the diagonal itself, with no conjugation functor.
-    STATIC_CHECK(
-        (NumTraits<Scalar>::IsComplex ||
-         internal::is_same<std::decay_t<decltype(ldm1.conjugate())>, DiagonalWrapper<const VectorType>>::value));
+    STATIC_CHECK((NumTraits<Scalar>::IsComplex ||
+                  internal::is_same<std::decay_t<decltype(ldm1.conjugate())>,
+                                    DiagonalWrapper<const typename LeftDiagonalMatrix::DiagonalVectorType>>::value));
   }
 
   // Zero and Identity
