@@ -55,4 +55,38 @@ void aocl_vml_resize() {
   VERIFY_IS_APPROX(r, x.binaryExpr(y, [](double a, double b) { return a + b; }));
 }
 
-EIGEN_DECLARE_TEST(aocl_vml) { CALL_SUBTEST_1(aocl_vml_resize<0>()); }
+// Operands that are not one contiguous array: blocks of a larger matrix, strided maps, and block destinations,
+// whose coefficients outside the block must stay untouched.
+template <int>
+void aocl_vml_non_contiguous() {
+  const Index n = 2 * EIGEN_AOCL_VML_THRESHOLD + 3, m = n - 7;
+  const MatrixXd a = MatrixXd::Random(n, n), b = MatrixXd::Random(n, n);
+  const MatrixXd aBlock = a.block(1, 2, m, m), bBlock = b.block(3, 0, m, m);
+  const auto exp = [](double v) { return std::exp(v); };
+  const auto sum = [](double x, double y) { return x + y; };
+
+  MatrixXd r = a.block(1, 2, m, m).array().exp();
+  VERIFY_IS_APPROX(r, aBlock.unaryExpr(exp));
+  r = a.block(1, 2, m, m) + b.block(3, 0, m, m);
+  VERIFY_IS_APPROX(r, aBlock.binaryExpr(bBlock, sum));
+
+  MatrixXd d = MatrixXd::Zero(n, n);
+  d.block(2, 1, m, m).array() = aBlock.array().exp();
+  VERIFY_IS_APPROX(MatrixXd(d.block(2, 1, m, m)), aBlock.unaryExpr(exp));
+  d.block(2, 1, m, m).setZero();
+  VERIFY(d.isZero());
+  d.block(2, 1, m, m) = aBlock + bBlock;
+  VERIFY_IS_APPROX(MatrixXd(d.block(2, 1, m, m)), aBlock.binaryExpr(bBlock, sum));
+  d.block(2, 1, m, m).setZero();
+  VERIFY(d.isZero());
+
+  const Map<const VectorXd, 0, InnerStride<2> > strided(a.data(), n);
+  const VectorXd stridedCopy = strided;
+  VectorXd v = strided.array().exp();
+  VERIFY_IS_APPROX(v, stridedCopy.unaryExpr(exp));
+}
+
+EIGEN_DECLARE_TEST(aocl_vml) {
+  CALL_SUBTEST_1(aocl_vml_resize<0>());
+  CALL_SUBTEST_2(aocl_vml_non_contiguous<0>());
+}

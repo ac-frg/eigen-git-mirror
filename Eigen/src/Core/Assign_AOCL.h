@@ -53,7 +53,7 @@
  * 3. Dense2Dense assignment context with AOCL-compatible traits
  *
  * Dispatch conditions (all must be true):
- * - Source and destination have DirectAccessBit (contiguous memory)
+ * - Source and destination are contiguous arrays (direct access, unit inner stride, linear access)
  * - Compatible storage orders (both row-major or both column-major)
  * - Vector size ≥ EIGEN_AOCL_VML_THRESHOLD or Dynamic size
  * - Supported data type (currently double precision for VRDA)
@@ -118,13 +118,20 @@
 namespace Eigen {
 namespace internal {
 
+// The AOCL calls take one contiguous array per operand: unit inner stride and linear access, which a block of a
+// larger matrix or a map with an outer stride lacks.
+template <typename Xpr>
+struct aocl_is_contiguous
+    : bool_constant<(int(Xpr::Flags) & DirectAccessBit) && int(Xpr::InnerStrideAtCompileTime) == 1 &&
+                    (int(evaluator<Xpr>::Flags) & LinearAccessBit)> {};
+
 // Traits for unary operations.
 template <typename Dst, typename Src>
 class aocl_assign_traits {
  private:
   enum {
-    DstHasDirectAccess = !!(Dst::Flags & DirectAccessBit),
-    SrcHasDirectAccess = !!(Src::Flags & DirectAccessBit),
+    DstIsContiguous = aocl_is_contiguous<Dst>::value,
+    SrcIsContiguous = aocl_is_contiguous<Src>::value,
     StorageOrdersAgree = (int(Dst::IsRowMajor) == int(Src::IsRowMajor)),
     InnerSize = Dst::IsVectorAtCompileTime   ? int(Dst::SizeAtCompileTime)
                 : (Dst::Flags & RowMajorBit) ? int(Dst::ColsAtCompileTime)
@@ -134,7 +141,7 @@ class aocl_assign_traits {
 
  public:
   enum {
-    EnableAoclVML = DstHasDirectAccess && SrcHasDirectAccess && StorageOrdersAgree && LargeEnough,
+    EnableAoclVML = DstIsContiguous && SrcIsContiguous && StorageOrdersAgree && LargeEnough,
     Traversal = LinearTraversal
   };
 };
@@ -144,9 +151,9 @@ template <typename Dst, typename Lhs, typename Rhs>
 class aocl_assign_binary_traits {
  private:
   enum {
-    DstHasDirectAccess = !!(Dst::Flags & DirectAccessBit),
-    LhsHasDirectAccess = !!(Lhs::Flags & DirectAccessBit),
-    RhsHasDirectAccess = !!(Rhs::Flags & DirectAccessBit),
+    DstIsContiguous = aocl_is_contiguous<Dst>::value,
+    LhsIsContiguous = aocl_is_contiguous<Lhs>::value,
+    RhsIsContiguous = aocl_is_contiguous<Rhs>::value,
     StorageOrdersAgree =
         (int(Dst::IsRowMajor) == int(Lhs::IsRowMajor)) && (int(Dst::IsRowMajor) == int(Rhs::IsRowMajor)),
     InnerSize = Dst::IsVectorAtCompileTime   ? int(Dst::SizeAtCompileTime)
@@ -156,9 +163,7 @@ class aocl_assign_binary_traits {
   };
 
  public:
-  enum {
-    EnableAoclVML = DstHasDirectAccess && LhsHasDirectAccess && RhsHasDirectAccess && StorageOrdersAgree && LargeEnough
-  };
+  enum { EnableAoclVML = DstIsContiguous && LhsIsContiguous && RhsIsContiguous && StorageOrdersAgree && LargeEnough };
 };
 
 // Unary operation dispatch for float (scalar fallback).
