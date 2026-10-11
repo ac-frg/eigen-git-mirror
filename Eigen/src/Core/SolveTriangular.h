@@ -194,8 +194,13 @@ EIGEN_DEVICE_FUNC void TriangularViewImpl<MatrixType, Mode, Dense>::solveInPlace
   using OtherCopy = std::conditional_t<copy, OtherPlainObject, OtherDerived&>;
   OtherCopy otherCopy(other);
 
-  internal::triangular_solver_selector<MatrixType, std::remove_reference_t<OtherCopy>, Side, Mode>::run(
-      derived().nestedExpression(), otherCopy);
+  // The kernels read the matrix blas_traits extracts, without its scalar factor. A unit diagonal does not
+  // scale with that factor, so a scaled matrix is evaluated rather than its factor applied to the solution.
+  constexpr bool EvalLhs = internal::blas_traits<MatrixType>::HasScalarFactor;
+  using Lhs = std::conditional_t<EvalLhs, typename MatrixType::PlainObject, MatrixType>;
+  std::conditional_t<EvalLhs, const Lhs, const MatrixType&> lhs(derived().nestedExpression());
+
+  internal::triangular_solver_selector<Lhs, std::remove_reference_t<OtherCopy>, Side, Mode>::run(lhs, otherCopy);
 
   if (copy) other = otherCopy;
 }

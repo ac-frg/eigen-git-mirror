@@ -81,6 +81,16 @@ void trsolve(int size = Size, int cols = Cols) {
   VERIFY_TRSM_ONTHERIGHT(rmLhs.template triangularView<Lower>(), cmRhs);
   VERIFY_TRSM_ONTHERIGHT(rmLhs.conjugate().template triangularView<UnitUpper>(), rmRhs);
 
+  // Triangles with a scalar factor, which a unit diagonal does not share.
+  const Scalar s = Scalar(RealScalar(1.5)) + RealScalar(0.25) * internal::random<Scalar>();
+  VERIFY_TRSM((s * cmLhs).template triangularView<Lower>(), cmRhs);
+  VERIFY_TRSM((-rmLhs).template triangularView<Upper>(), rmRhs);
+  VERIFY_TRSM(s * cmLhs.template triangularView<Upper>(), rmRhs);
+  VERIFY_TRSM((cmLhs * s).adjoint().template triangularView<UnitLower>(), cmRhs);
+  VERIFY_TRSM((s * rmLhs).template triangularView<UnitUpper>(), cmRhs);
+  VERIFY_TRSM_ONTHERIGHT((s * cmLhs).template triangularView<UnitLower>(), cmRhs);
+  VERIFY_TRSM_ONTHERIGHT((s * rmLhs).template triangularView<Upper>(), rmRhs);
+
   int c = internal::random<int>(0, cols - 1);
   VERIFY_TRSM(rmLhs.template triangularView<Lower>(), rmRhs.col(c));
   VERIFY_TRSM(cmLhs.template triangularView<Lower>(), rmRhs.col(c));
