@@ -123,11 +123,13 @@ void orthomethods(int size = Size) {
   // and where the norm of the two coefficients it rotates is below 1 / highest or above highest
   for (const RealScalar s :
        {(std::numeric_limits<RealScalar>::min)() / RealScalar(16), NumTraits<RealScalar>::highest()}) {
-    VectorType v = VectorType::Zero(size);
+    // v = s * e, set coefficient-wise: ARMv7 NEON reads a subnormal s as zero, so v / s would be NaN there.
+    VectorType v = VectorType::Zero(size), e = VectorType::Zero(size);
     v(0) = v(1) = Scalar(s);
+    e(0) = e(1) = Scalar(1);
     const VectorType u = v.unitOrthogonal();
     VERIFY_IS_APPROX(u.norm(), RealScalar(1));
-    VERIFY_IS_MUCH_SMALLER_THAN(u.dot(v / s), Scalar(1));
+    VERIFY_IS_MUCH_SMALLER_THAN(u.dot(e), Scalar(1));
   }
 
   if (size >= 3) {
