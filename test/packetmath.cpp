@@ -1291,6 +1291,11 @@ void packetmath_real() {
     data2[i + PacketSize] = Scalar(internal::random<double>(-4, 4));
   }
   CHECK_CWISE2_IF(PacketTraits::HasExp, REF_LDEXP, internal::pldexp);
+  // pldexp takes (int)exponent: +-0.75, +-1.75, +-2.75, +-3.75 truncate to a different power than they round to.
+  for (int i = 0; i < PacketSize; ++i) {
+    data1[i + PacketSize] = Scalar((i % 2 == 0 ? 1 : -1) * ((i / 2) % 4 + 0.75));
+  }
+  CHECK_CWISE2_IF(PacketTraits::HasExp, REF_LDEXP, internal::pldexp);
   if (PacketTraits::HasExp) {
     data1[0] = Scalar(-1);
     // underflow to zero
