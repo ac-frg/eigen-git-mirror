@@ -668,6 +668,25 @@ void vectorwiseop_bool_minmax() {
   }
 }
 
+// A destination that is not packet aligned makes the assignment request source packets at unaligned indices; the
+// panels reduced for them used to load aligned packets when the reduced matrix has a fixed, aligned outer stride.
+template <typename Scalar>
+void vectorwiseop_unaligned_panel() {
+  using ColMajorMatrix = Matrix<Scalar, 128, 4>;
+  using RowMajorMatrix = Matrix<Scalar, 4, 128, RowMajor>;
+  const ColMajorMatrix mc = ColMajorMatrix::Random();
+  const RowMajorMatrix mr = mc.transpose();
+  const Matrix<Scalar, Dynamic, 1> rowSums = mc.rowwise().sum().eval();
+  for (Index offset = 1; offset < 4; ++offset) {
+    Matrix<Scalar, Dynamic, 1> column = Matrix<Scalar, Dynamic, 1>::Zero(128 + offset);
+    column.segment(offset, 128) = mc.rowwise().sum();
+    VERIFY_IS_APPROX(column.segment(offset, 128), rowSums);
+    Matrix<Scalar, 1, Dynamic> row = Matrix<Scalar, 1, Dynamic>::Zero(128 + offset);
+    row.segment(offset, 128) = mr.colwise().sum();
+    VERIFY_IS_APPROX(row.segment(offset, 128), rowSums.transpose());
+  }
+}
+
 EIGEN_DECLARE_TEST(vectorwiseop) {
   CALL_SUBTEST_11(vectorwiseop_operand_order());
   CALL_SUBTEST_11(vectorwiseop_minmax_nan<PropagateNaN>());
@@ -694,6 +713,8 @@ EIGEN_DECLARE_TEST(vectorwiseop) {
   CALL_SUBTEST_10(vectorwiseop_rowmajor<double>());
   CALL_SUBTEST_10(vectorwiseop_rowmajor<std::complex<float>>());
   CALL_SUBTEST_10(vectorwiseop_bool_minmax());
+  CALL_SUBTEST_10(vectorwiseop_unaligned_panel<float>());
+  CALL_SUBTEST_10(vectorwiseop_unaligned_panel<double>());
   CALL_SUBTEST_11(vectorwiseop_array_extensions(Array<float, 3, 4>()));
   CALL_SUBTEST_11(vectorwiseop_array_extensions(ArrayXXd(3, 4)));
   CALL_SUBTEST_12(vectorwiseop_matrix_extensions(Matrix<float, 4, 5>()));
