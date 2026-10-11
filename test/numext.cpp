@@ -396,6 +396,24 @@ void check_complex_log() {
                   std::numeric_limits<T>::infinity());
 }
 
+// log1p(z) to a few ulps of |log1p(z)| for small z off the real axis, where rounding |1 + z| to 1 loses log|1 + z|.
+// W is wider than T; log|1 + z| = log1p(x (2 + x) + y^2) / 2.
+template <typename T, typename W>
+void check_complex_log1p_accuracy() {
+  const T eps = NumTraits<T>::epsilon();
+  const T tiny_x[] = {T(0), T(4) * eps, -T(3) * eps, T(1e-3) * numext::sqrt(eps)};
+  const T tiny_y[] = {numext::sqrt(eps), -T(2) * numext::sqrt(eps), T(1e-3), T(64) * eps};
+  for (const T x : tiny_x) {
+    for (const T y : tiny_y) {
+      const std::complex<T> got = numext::log1p(std::complex<T>(x, y));
+      const W ref_re = std::log1p(W(x) * (W(2) + W(x)) + W(y) * W(y)) / W(2);
+      const W ref_im = std::atan2(W(y), W(1) + W(x));
+      const W err = numext::hypot(W(got.real()) - ref_re, W(got.imag()) - ref_im);
+      VERIFY(err <= W(4) * W(eps) * numext::hypot(ref_re, ref_im));
+    }
+  }
+}
+
 // C99 Annex G: a nonzero finite numerator over a zero divisor gives an infinity, and a finite one over an infinite
 // divisor gives zero, also where the divisor's parts have equal magnitudes. scalar_quotient_op is the coefficient-wise
 // quotient's scalar path.
@@ -982,6 +1000,11 @@ EIGEN_DECLARE_TEST(numext) {
 
     CALL_SUBTEST(check_complex_divide<float>());
     CALL_SUBTEST(check_complex_divide<double>());
+
+    CALL_SUBTEST((check_complex_log1p_accuracy<float, double>()));
+    if (std::numeric_limits<long double>::digits > std::numeric_limits<double>::digits) {
+      CALL_SUBTEST((check_complex_log1p_accuracy<double, long double>()));
+    }
 
     CALL_SUBTEST(check_complex_digits<float>());
     CALL_SUBTEST(check_complex_digits<double>());

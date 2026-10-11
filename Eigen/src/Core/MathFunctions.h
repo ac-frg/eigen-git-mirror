@@ -526,15 +526,10 @@ struct log1p_impl {
   }
 };
 
-// Specialization for complex types that are not supported by std::log1p.
+// Specialization for complex types that are not supported by std::log1p; defined after the numext functions it is
+// built from.
 template <typename RealScalar>
-struct log1p_impl<std::complex<RealScalar>> {
-  EIGEN_STATIC_ASSERT_NON_INTEGER(RealScalar)
-
-  EIGEN_DEVICE_FUNC static inline std::complex<RealScalar> run(const std::complex<RealScalar>& x) {
-    return std_fallback::log1p(x);
-  }
-};
+struct log1p_impl<std::complex<RealScalar>>;
 
 // numext::exp2 of a complex argument; defined after the numext functions it is built from.
 template <typename RealScalar>
@@ -2321,6 +2316,23 @@ struct expm1_impl<std::complex<RealScalar>> {
     const RealScalar real_part = xr < RealScalar(0) ? erm1 - er * one_minus_c : erm1 * c - one_minus_c;
     // exp(x) * sin(0) is NaN for infinite exp(x); keep the exact zero instead.
     return std::complex<RealScalar>(real_part, numext::is_exactly_zero(xi) ? xi : er * s);
+  }
+};
+
+template <typename RealScalar>
+struct log1p_impl<std::complex<RealScalar>> {
+  EIGEN_STATIC_ASSERT_NON_INTEGER(RealScalar)
+
+  EIGEN_DEVICE_FUNC static inline std::complex<RealScalar> run(const std::complex<RealScalar>& z) {
+    const RealScalar x = z.real();
+    const RealScalar y = z.imag();
+    // log|1 + z| = log1p(x (2 + x) + y^2) / 2. Rounding |1 + z| instead loses the real part to cancellation near
+    // |1 + z| = 1, and with it the relative accuracy of log1p(z) for small z off the real axis.
+    if (numext::abs(x) < RealScalar(0.5) && numext::abs(y) < RealScalar(0.5) && !numext::is_exactly_zero(y)) {
+      return std::complex<RealScalar>(numext::log1p(x * (RealScalar(2) + x) + y * y) / RealScalar(2),
+                                      numext::atan2(y, RealScalar(1) + x));
+    }
+    return std_fallback::log1p(z);
   }
 };
 
