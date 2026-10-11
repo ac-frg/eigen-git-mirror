@@ -777,25 +777,28 @@ void test_half_nan_not_equal() {
 #endif
 }
 
-// exp of a real-axis complex keeps the zero imaginary part where the real part overflows.
+// exp of a real-axis complex keeps the zero imaginary part, and its sign, where the real part overflows.
 struct complex_exp_overflow_test {
   EIGEN_DEVICE_FUNC void operator()(int i, const float* in, float* out) const {
     EIGEN_UNUSED_VARIABLE(i);
     const std::complex<float> e = numext::exp(std::complex<float>(in[0], 0.f));
-    const std::complex<double> e2 = numext::exp2(std::complex<double>(in[0] * 20, 0.0));
+    const std::complex<double> e2 = numext::exp(std::complex<double>(in[0] * 10, -0.0));
+    const std::complex<double> p2 = numext::exp2(std::complex<double>(in[0] * 20, 0.0));
     out[0] = e.imag();
     out[1] = float(e2.imag());
+    out[2] = float(p2.imag());
   }
 };
 
 void test_complex_exp_overflow() {
-  Eigen::ArrayXf in(1), out_ref(2), out_gpu(2);
+  Eigen::ArrayXf in(1), out_ref(3), out_gpu(3);
   in << 100.f;
   run_on_cpu(complex_exp_overflow_test(), 1, in, out_ref);
   run_on_gpu(complex_exp_overflow_test(), 1, in, out_gpu);
 #if !defined(EIGEN_GPU_COMPILE_PHASE)
-  VERIFY_IS_CWISE_EQUAL(out_ref, Eigen::Array2f::Zero());
-  VERIFY_IS_CWISE_EQUAL(out_gpu, Eigen::Array2f::Zero());
+  VERIFY_IS_CWISE_EQUAL(out_ref, Eigen::Array3f::Zero());
+  VERIFY_IS_CWISE_EQUAL(out_gpu, Eigen::Array3f::Zero());
+  VERIFY((std::signbit)(out_ref(1)) && (std::signbit)(out_gpu(1)));
 #endif
 }
 
