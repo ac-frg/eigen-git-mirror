@@ -2296,6 +2296,24 @@ struct exp_complex_test_impl {
         }
       }
     }
+
+    // Where exp(x) overflows, exp(x) cos(y) or exp(x) sin(y) can still be finite: here the real part for y = 1.2 and
+    // the imaginary part for y = 3. The reference forms exp(x) = 2^64 exp(x - 64 ln(2)).
+    const RealScalar x_big = numext::log(NumTraits<RealScalar>::highest()) + RealScalar(0.5);
+    const RealScalar exp_scaled = numext::exp(x_big - RealScalar(64) * RealScalar(EIGEN_LN2));
+    for (const RealScalar y : {RealScalar(1.2), RealScalar(3)}) {
+      const Scalar w = pexp1(Scalar(x_big, y));
+      const RealScalar parts[] = {numext::real_ref(w), numext::imag_ref(w)};
+      const RealScalar expected[] = {std::ldexp(exp_scaled * numext::cos(y), 64),
+                                     std::ldexp(exp_scaled * numext::sin(y), 64)};
+      for (int k = 0; k < 2; ++k) {
+        if ((numext::isinf)(expected[k])) {
+          VERIFY_IS_EQUAL(parts[k], expected[k]);
+        } else {
+          VERIFY_IS_APPROX(parts[k], expected[k]);
+        }
+      }
+    }
   }
 };
 

@@ -137,7 +137,11 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet pexp_complex(const Pa
   // The fixups below need x = +-inf or an overflowing exp(x). Such inputs are rare, so packets without
   // |x| >= (max_exponent - 1) ln(2), just below the overflow threshold, skip them.
   const RealScalar large_x = RealScalar(NumTraits<RealScalar>::max_exponent() - 1) * RealScalar(EIGEN_LN2);
+  // exp(x) cos(y) and exp(x) sin(y) can be finite where exp(x) overflows: those packets use exp(x) = h^2 with
+  // h = exp(x / 2), and form (h cis(y)) h.
+  RealPacket expx_half = expx;
   if (predux_any(pcmp_le(pset1<RealPacket>(large_x), pabs(x)))) {
+    expx_half = pexp(pmul(x, pset1<RealPacket>(RealScalar(0.5))));
     const RealPacket cst_pos_inf = pinf<RealPacket>();
     const RealPacket cst_neg_inf = por(psignmask<RealPacket>(), pinf<RealPacket>());
 
@@ -152,16 +156,17 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet pexp_complex(const Pa
     RealPacket y_sign = por(pandnot(y, pabs(y)), pset1<RealPacket>(RealScalar(1)));
     cisy = pselect(pand(pcmp_eq(x, cst_pos_inf), pisnan(cisy)), pand(y_sign, even_mask), cisy);
 
-    // If exp(x) is +inf and y is finite, replace cisy with copysign(1, cisy) to
+    // If exp(x / 2) is +inf and y is finite, replace cisy with copysign(1, cisy) to
     // prevent inf * 0 = NaN. The vectorized sincos may compute exact zero
     // for near-zero values like cos(pi/2), and inf * +-1 = +-inf is correct.
     // The y=0 case is handled separately below.
     RealPacket cisy_sign_one = por(pand(cisy, psignmask<RealPacket>()), pset1<RealPacket>(RealScalar(1)));
-    RealPacket expx_inf_y_finite = pand(pcmp_eq(expx, cst_pos_inf), pcmp_lt(pabs(y), cst_pos_inf));
+    RealPacket expx_inf_y_finite = pand(pcmp_eq(expx_half, cst_pos_inf), pcmp_lt(pabs(y), cst_pos_inf));
     cisy = pselect(expx_inf_y_finite, cisy_sign_one, cisy);
+    cisy = pmul(expx_half, cisy);
   }
 
-  Packet result = Packet(pmul(expx, cisy));
+  Packet result = Packet(pmul(expx_half, cisy));
 
   // If y is +/- 0, the input is real, so take the real result for consistency.
   result = pselect(Packet(pcmp_eq(y, pzero(y))), Packet(por(pand(expx, even_mask), pand(y, odd_mask))), result);
