@@ -160,6 +160,8 @@ EIGEN_DEVICE_FUNC inline void* handmade_aligned_malloc(std::size_t size,
                "Alignment must be at least sizeof(void*), less than or equal to 256, and a power of 2");
 
   check_that_malloc_is_allowed();
+  // size + alignment must not wrap around to a small request.
+  if (size > (std::numeric_limits<std::size_t>::max)() - alignment) return nullptr;
   EIGEN_USING_STD(malloc)
   void* original = malloc(size + alignment);
   if (original == nullptr) return nullptr;
@@ -194,6 +196,8 @@ EIGEN_DEVICE_FUNC inline void* handmade_aligned_realloc(void* ptr, std::size_t n
   void* old_original = static_cast<uint8_t*>(ptr) - old_offset;
 
   check_that_malloc_is_allowed();
+  // new_size + alignment must not wrap either; fail as realloc does, leaving the old block untouched.
+  if (new_size > (std::numeric_limits<std::size_t>::max)() - alignment) return nullptr;
   EIGEN_USING_STD(realloc)
   void* original = realloc(old_original, new_size + alignment);
   if (original == nullptr) return nullptr;
