@@ -889,7 +889,8 @@ void testNistEckerle4(void) {
   VERIFY_IS_APPROX(x[2], 4.5154121844E+02);
 }
 
-// covar() takes the rank to end at the first pivot below tol * |r(0,0)| (MINPACK) and zeroes the rest.
+// covar() takes the rank to end at the first pivot below tol * |r(0,0)| (MINPACK) and zeroes the rest;
+// a NaN pivot is not negligible, so it reaches the result instead of reading as zero variance.
 void testCovarRankDeficient() {
   MatrixXd r(3, 3);
   r << 2, 1, 1, 0, 1e-20, 1, 0, 0, 3;
@@ -899,6 +900,10 @@ void testCovarRankDeficient() {
   MatrixXd expected = MatrixXd::Zero(3, 3);
   expected(0, 0) = 0.25;
   VERIFY_IS_APPROX(r, expected);
+
+  r << 2, 1, 1, 0, NumTraits<double>::quiet_NaN(), 1, 0, 0, 3;
+  internal::covar(r, ipvt);
+  VERIFY(r.hasNaN());
 }
 
 // lmqrsolv() must minimize ||[R; D] z - [qtb; 0]|| and leave the eliminated

@@ -453,7 +453,8 @@ void testLmstrScaling() {
   VERIFY_IS_APPROX(lm.diag, VectorXd(jac.colwise().norm().transpose()));
 }
 
-// covar() takes the rank to end at the first pivot below tol * |r(0,0)| (MINPACK) and zeroes the rest.
+// covar() takes the rank to end at the first pivot below tol * |r(0,0)| (MINPACK) and zeroes the rest;
+// a NaN pivot is not negligible, so it reaches the result instead of reading as zero variance.
 void testCovarRankDeficient() {
   MatrixXd r(3, 3);
   r << 2, 1, 1, 0, 1e-20, 1, 0, 0, 3;
@@ -463,6 +464,10 @@ void testCovarRankDeficient() {
   MatrixXd expected = MatrixXd::Zero(3, 3);
   expected(0, 0) = 0.25;
   VERIFY_IS_APPROX(r, expected);
+
+  r << 2, 1, 1, 0, NumTraits<double>::quiet_NaN(), 1, 0, 0, 3;
+  internal::covar(r, ipvt);
+  VERIFY(r.hasNaN());
 }
 
 void testLmdif1() {
