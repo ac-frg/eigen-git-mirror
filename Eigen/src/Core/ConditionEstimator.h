@@ -158,6 +158,9 @@ typename Decomposition::RealScalar rcond_estimate_helper(typename Decomposition:
   EIGEN_INTERNAL_ASSERT_SQUARE(dec);
   if (dec.rows() == 0) return NumTraits<RealScalar>::infinity();
   if (numext::is_exactly_zero(matrix_norm)) return RealScalar(0);
+  // As in LAPACK's xGECON: a NaN norm gives NaN and an infinite one 0, also for the 1x1 shortcut.
+  if ((numext::isnan)(matrix_norm)) return matrix_norm;
+  if (!(numext::isfinite)(matrix_norm)) return RealScalar(0);
   if (dec.rows() == 1) return RealScalar(1);
   const RealScalar inverse_matrix_norm = rcond_invmatrix_L1_norm_estimate(dec);
   return (numext::is_exactly_zero(inverse_matrix_norm) ? RealScalar(0)

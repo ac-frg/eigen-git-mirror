@@ -184,6 +184,14 @@ void rcond_1x1() {
     LDLT<Mat1> ldlt(m);
     VERIFY_IS_APPROX(ldlt.rcond(), RealScalar(1));
   }
+
+  // The 1x1 shortcut used to report a NaN or infinite matrix as perfectly conditioned.
+  m(0, 0) = NumTraits<RealScalar>::quiet_NaN();
+  VERIFY((numext::isnan)(PartialPivLU<Mat1>(m).rcond()));
+  VERIFY((numext::isnan)(LDLT<Mat1>(m).rcond()));
+  m(0, 0) = NumTraits<RealScalar>::infinity();
+  VERIFY_IS_EQUAL(PartialPivLU<Mat1>(m).rcond(), RealScalar(0));
+  VERIFY_IS_EQUAL(LDLT<Mat1>(m).rcond(), RealScalar(0));
 }
 
 template <typename MatrixType>
