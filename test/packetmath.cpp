@@ -1546,6 +1546,22 @@ void packetmath_real() {
       VERIFY(test::biteq(data2[0], data1[0]));
       h.store(data2, internal::pcos(h.load(data1)));
       VERIFY_IS_EQUAL(data2[0], Scalar(1));
+
+      // Doubles near multiples k pi/2, with |x - k pi/2| from 6e-19 to 9e-7 for |k| from 29 to 6e13: the reduction
+      // needs pi/2 to far beyond double precision, with or without FMA.
+      EIGEN_IF_CONSTEXPR (std::is_same<Scalar, double>::value) {
+        const double hard_cases[] = {-45.553093477052002, -364.42474781641602, 857879.41830474522, 956274858.90980339,
+                                     -93293944418765.062};
+        const Scalar tol = Scalar(4) * NumTraits<Scalar>::epsilon();
+        for (const double x : hard_cases) {
+          for (int i = 0; i < PacketSize; ++i) data1[i] = Scalar(x);
+          h.store(data2, internal::psin(h.load(data1)));
+          h.store(data2 + PacketSize, internal::pcos(h.load(data1)));
+          const Scalar sin_x = Scalar(std::sin(data1[0])), cos_x = Scalar(std::cos(data1[0]));
+          VERIFY(numext::abs(data2[0] - sin_x) <= tol * numext::abs(sin_x));
+          VERIFY(numext::abs(data2[PacketSize] - cos_x) <= tol * numext::abs(cos_x));
+        }
+      }
     }
   }
   if (PacketTraits::HasReciprocal && PacketSize >= 2) {
