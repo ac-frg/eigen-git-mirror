@@ -195,7 +195,7 @@ struct generic_i0 {
     EIGEN_OPTIMIZATION_BARRIER(scaled)
 #endif
     // i0e(inf) = 0 would turn exp(inf) * i0e(inf) into NaN; i0(+-inf) = +inf.
-    const T inf = pset1<T>(NumTraits<ScalarType>::infinity());
+    const T inf = pinf<T>();
     return pselect(pcmp_eq(ax, inf), inf, pmul(half_exp, scaled));
   }
 };
@@ -356,7 +356,7 @@ struct generic_i1 {
     EIGEN_OPTIMIZATION_BARRIER(scaled)
 #endif
     // i1(+-inf) = +-inf; the scaled product would be inf * 0 = NaN.
-    return pselect(pcmp_eq(ax, pset1<T>(NumTraits<ScalarType>::infinity())), x, pmul(half_exp, scaled));
+    return pselect(pcmp_eq(ax, pinf<T>()), x, pmul(half_exp, scaled));
   }
 };
 
