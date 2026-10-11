@@ -390,6 +390,66 @@ void checkBooleanVisitors(const DenseBase<Derived>& matrix) {
   VERIFY_IS_EQUAL(matrix.any(), count != 0);
 }
 
+template <typename VectorType>
+void checkFuzzyPredicates(VectorType&, std::false_type) {}
+
+template <typename VectorType>
+void checkFuzzyPredicates(VectorType& v, std::true_type) {
+  using Scalar = typename VectorType::Scalar;
+  for (Index k = -1; k < v.size(); ++k) {
+    v.setConstant(Scalar(2));
+    if (k >= 0) v(k) = Scalar(3);
+    VERIFY_IS_EQUAL(v.isApproxToConstant(Scalar(2)), k < 0);
+    v.setZero();
+    if (k >= 0) v(k) = Scalar(1);
+    VERIFY_IS_EQUAL(v.isZero(), k < 0);
+    v.setOnes();
+    if (k >= 0) v(k) = Scalar(NumTraits<typename NumTraits<Scalar>::Real>::infinity());
+    VERIFY_IS_EQUAL(v.allFinite(), k < 0);
+  }
+}
+
+// The deciding coefficient at each position of a vector, which for sizes below a packet reaches the masked segment
+// load where the target has one.
+template <typename VectorType>
+void checkPredicatesAtEachPosition(VectorType& v) {
+  using Scalar = typename VectorType::Scalar;
+  for (int value = 0; value <= 1; ++value) {
+    for (Index k = -1; k < v.size(); ++k) {
+      v.setConstant(Scalar(value));
+      if (k >= 0) v(k) = Scalar(!value);
+      checkBooleanVisitors(v);
+    }
+  }
+  checkFuzzyPredicates(v, internal::bool_constant<!NumTraits<Scalar>::IsInteger>());
+}
+
+template <typename Scalar, int Size>
+void checkFixedPartialPacket() {
+  Array<Scalar, Size, 1> v;
+  checkPredicatesAtEachPosition(v);
+}
+
+template <typename Scalar, int... Sizes>
+void checkFixedPartialPackets(std::integer_sequence<int, Sizes...>) {
+  int unused[] = {0, (checkFixedPartialPacket<Scalar, Sizes + 1>(), 0)...};
+  EIGEN_UNUSED_VARIABLE(unused);
+}
+
+// Every runtime size up to two packets, aligned and not, and fixed sizes up to seven.
+template <typename Scalar>
+void checkPartialPackets() {
+  constexpr Index PacketSize = internal::packet_traits<Scalar>::size;
+  std::vector<Scalar> data(2 * PacketSize + 3);
+  for (Index size = 0; size <= 2 * PacketSize + 1; ++size) {
+    Array<Scalar, Dynamic, 1> v(size);
+    checkPredicatesAtEachPosition(v);
+    Map<Array<Scalar, Dynamic, 1>, Unaligned> unaligned(data.data() + 1, size);
+    checkPredicatesAtEachPosition(unaligned);
+  }
+  checkFixedPartialPackets<Scalar>(std::make_integer_sequence<int, 7>());
+}
+
 template <typename Scalar, int Options>
 void checkBooleanVisitorTraversal() {
   constexpr int PacketSize = internal::packet_traits<Scalar>::size;
@@ -684,4 +744,10 @@ EIGEN_DECLARE_TEST(visitor) {
   CALL_SUBTEST_14((checkVisitorShortCircuit<RowMajor, true>()));
   CALL_SUBTEST_15(checkFindCoeffWithoutPacketCmp<ColMajor>());
   CALL_SUBTEST_15(checkFindCoeffWithoutPacketCmp<RowMajor>());
+  CALL_SUBTEST_17(checkPartialPackets<float>());
+  CALL_SUBTEST_17(checkPartialPackets<double>());
+  CALL_SUBTEST_17(checkPartialPackets<int>());
+  CALL_SUBTEST_17(checkPartialPackets<int64_t>());
+  CALL_SUBTEST_17(checkPartialPackets<Eigen::half>());
+  CALL_SUBTEST_17(checkPartialPackets<std::complex<float>>());
 }
