@@ -269,9 +269,14 @@ struct accurate_log2<double> {
     Packet t_hi, t_lo;
     // t = c * (x-1)
     twoprod(cst_2_log2e_hi, cst_2_log2e_lo, psub(x, one), t_hi, t_lo);
-    // r = c * (x-1) / (x+1),
+    // r = c * (x-1) / (x+1). x + 1 = s_hi + s_lo exactly (fast_twosum, as x < 2): rounding it would limit r, and with
+    // it y * log2(x) in pow, to working precision. t / (s_hi + s_lo) = (t / s_hi) (1 - s_lo / s_hi) to relative u^2.
+    Packet s_hi, s_lo;
+    fast_twosum(one, x, s_hi, s_lo);
+    Packet q_hi, q_lo;
+    doubleword_div_fp(t_hi, t_lo, s_hi, q_hi, q_lo);
     Packet r_hi, r_lo;
-    doubleword_div_fp(t_hi, t_lo, padd(x, one), r_hi, r_lo);
+    fast_twosum(q_hi, pnmadd(q_hi, pdiv(s_lo, s_hi), q_lo), r_hi, r_lo);
 
     // r2 = r * r
     Packet r2_hi, r2_lo;

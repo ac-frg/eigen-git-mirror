@@ -406,6 +406,34 @@ void float_pow_test_impl() {
   VERIFY(all_pass);
 }
 
+// pow(x, y) = 2^(y log2(x)) for x in [1/2, 2] and |y log2(x)| up to the exponent range, where y magnifies the error
+// of log2(x). Eigen and std::pow are each within a few ulps.
+template <typename Scalar>
+void pow_magnified_log_test() {
+  const Scalar eps = NumTraits<Scalar>::epsilon();
+  const Scalar max_log2 = Scalar(NumTraits<Scalar>::max_exponent() - 2);
+  const Index n = 1000;
+  ArrayX<Scalar> x(n), y(n);
+  for (Index i = 0; i < n; ++i) {
+    do {
+      x(i) = internal::random<Scalar>(Scalar(0.5), Scalar(2));
+    } while (x(i) == Scalar(1));
+    y(i) = internal::random<Scalar>(-max_log2, max_log2) / numext::log2(x(i));
+  }
+  const ArrayX<Scalar> actual = x.pow(y);
+  bool all_pass = true;
+  for (Index i = 0; i < n; ++i) {
+    const Scalar expected = std::pow(x(i), y(i));
+    const bool success = numext::abs(actual(i) - expected) <= Scalar(4) * eps * numext::abs(expected);
+    all_pass &= success;
+    if (!success) {
+      std::cout << std::setprecision(17) << "pow(" << x(i) << "," << y(i) << ") = " << actual(i) << " != " << expected
+                << std::endl;
+    }
+  }
+  VERIFY(all_pass);
+}
+
 template <typename Scalar, typename ScalarExponent>
 Scalar calc_overflow_threshold(const ScalarExponent exponent) {
   EIGEN_USING_STD(exp2);
@@ -472,6 +500,7 @@ template <typename = void>
 void float_pow_test() {
   float_pow_test_impl<float, float>();
   float_pow_test_impl<double, double>();
+  pow_magnified_log_test<double>();
 }
 
 template <typename = void>
