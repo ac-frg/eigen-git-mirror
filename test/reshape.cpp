@@ -416,6 +416,28 @@ void reshape_reversed_swap() {
   VERIFY_IS_EQUAL(source, originalSource);
 }
 
+// select() evaluates a rewritten temporary of a packet-capable expression, so the evaluator of a coefficient-based
+// reshape must not read through the expression it was built from.
+template <int Order>
+void reshape_evaluator_outlives_expression() {
+  const MatrixXd a = MatrixXd::Random(4, 6), b = MatrixXd::Random(4, 6);
+  using Reshape = std::decay_t<decltype((a + b).reshaped<Order>(6, 4))>;
+  const MatrixXd expected = MatrixXd(a + b).reshaped<Order>(6, 4);
+
+  alignas(Reshape) unsigned char storage[sizeof(Reshape)];
+  Reshape* reshape = new (storage) Reshape((a + b).reshaped<Order>(6, 4));
+  internal::evaluator<Reshape> eval(*reshape);
+  reshape->~Reshape();
+  std::memset(storage, 0xff, sizeof(storage));
+  for (Index j = 0; j < 4; ++j)
+    for (Index i = 0; i < 6; ++i) VERIFY_IS_EQUAL(eval.coeff(i, j), expected(i, j));
+
+  const ArrayXXd x = ArrayXXd::Random(6, 4), y = ArrayXXd::Random(6, 4);
+  ArrayXXd selected = ArrayXXd::Zero(8, 5);
+  selected.block(1, 1, 6, 4) = ((a + b).reshaped<Order>(6, 4).array() < x).select(x, y);
+  VERIFY_IS_CWISE_EQUAL(selected.block(1, 1, 6, 4), (expected.array() < x).select(x, y).eval());
+}
+
 EIGEN_DECLARE_TEST(reshape) {
   typedef Matrix<int, Dynamic, Dynamic, RowMajor> RowMatrixXi;
   typedef Matrix<int, 4, 4, RowMajor> RowMatrix4i;
@@ -445,6 +467,8 @@ EIGEN_DECLARE_TEST(reshape) {
   CALL_SUBTEST_8((reshape_vector_orders<int, ColMajor>()));
   CALL_SUBTEST_8((reshape_vector_orders<int, RowMajor>()));
   CALL_SUBTEST_8(reshape_reversed_swap());
+  CALL_SUBTEST_8(reshape_evaluator_outlives_expression<ColMajor>());
+  CALL_SUBTEST_8(reshape_evaluator_outlives_expression<RowMajor>());
 
   for (int i = 0; i < g_repeat; i++) {
     CALL_SUBTEST_7(reshape_copies<float>(17, 13));
