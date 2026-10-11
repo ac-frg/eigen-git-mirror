@@ -562,11 +562,18 @@ template <typename Scalar>
 struct scalar_log2_op {
   using RealScalar = typename NumTraits<Scalar>::Real;
   EIGEN_DEVICE_FUNC constexpr inline Scalar operator()(const Scalar& a) const {
-    return internal::mul(RealScalar(EIGEN_LOG2E), numext::log(a));
+    return run(a, std::is_floating_point<Scalar>());
   }
   template <typename Packet>
   EIGEN_DEVICE_FUNC inline Packet packetOp(const Packet& a) const {
     return internal::plog2(a);
+  }
+
+ private:
+  // std::log2 is exact at powers of two, like plog2; log2(e) * log(a) can be an ulp off there.
+  EIGEN_DEVICE_FUNC static Scalar run(const Scalar& a, std::true_type) { return numext::log2(a); }
+  EIGEN_DEVICE_FUNC static Scalar run(const Scalar& a, std::false_type) {
+    return internal::mul(RealScalar(EIGEN_LOG2E), numext::log(a));
   }
 };
 template <typename Scalar>

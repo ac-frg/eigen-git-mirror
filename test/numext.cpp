@@ -418,6 +418,17 @@ void check_complex_divide() {
   }
 }
 
+// log2(2^k) = k on the scalar path, as on the vectorized one. A size-1 array takes the scalar path.
+template <typename T>
+void check_log2_powers_of_two() {
+  for (int k = std::numeric_limits<T>::min_exponent - std::numeric_limits<T>::digits;
+       k < std::numeric_limits<T>::max_exponent; ++k) {
+    const T x = numext::ldexp(T(1), k);
+    VERIFY_IS_EQUAL(internal::scalar_log2_op<T>()(x), T(k));
+    VERIFY_IS_EQUAL((Array<T, Dynamic, 1>::Constant(1, x).log2()(0)), T(k));
+  }
+}
+
 // NumTraits<T>::digits() counts significand bits like numeric_limits<T>::digits; std::complex<T>, for which
 // numeric_limits is not specialized, derives it from epsilon() = 2^(1 - digits).
 template <typename T>
@@ -975,6 +986,9 @@ EIGEN_DECLARE_TEST(numext) {
     CALL_SUBTEST(check_complex_digits<float>());
     CALL_SUBTEST(check_complex_digits<double>());
     CALL_SUBTEST(check_complex_digits<long double>());
+
+    CALL_SUBTEST(check_log2_powers_of_two<float>());
+    CALL_SUBTEST(check_log2_powers_of_two<double>());
 
     CALL_SUBTEST(check_twoprod<float>());
     CALL_SUBTEST(check_twoprod<double>());
