@@ -533,6 +533,8 @@ static_assert((EIGEN_ARM64_SVE_VL >= 128) && (EIGEN_ARM64_SVE_VL <= 2048) &&
 
 #define EIGEN_VECTORIZE
 #define EIGEN_VECTORIZE_RVV10
+// pmadd and its variants map to the fused vfmadd/vfmsub/vfnmsub/vfnmadd.
+#define EIGEN_VECTORIZE_FMA
 #include <riscv_vector.h>
 
 // Since we depend on knowing RVV vector length at compile-time, we need
@@ -602,6 +604,8 @@ static_assert((EIGEN_ARM64_SVE_VL >= 128) && (EIGEN_ARM64_SVE_VL <= 2048) &&
 
 #define EIGEN_VECTORIZE
 #define EIGEN_VECTORIZE_LSX
+// pmadd and its variants map to the fused vfmadd/vfmsub/vfnmadd/vfnmsub.
+#define EIGEN_VECTORIZE_FMA
 #include <lsxintrin.h>
 
 #elif defined __HVX__ && (__HVX_LENGTH__ == 128)
