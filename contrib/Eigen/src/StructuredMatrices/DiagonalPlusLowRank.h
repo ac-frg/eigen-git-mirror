@@ -144,7 +144,8 @@ struct dplr_capacitance_impl<0> {
  * \tparam Rank_ the correction rank at compile time, or \c Dynamic (the default).
  *
  * \par Examples
- * \ref StructuredExampleGaussianProcess "a Gaussian-process likelihood".
+ * \ref StructuredExampleGaussianProcess "a Gaussian-process likelihood",
+ * \ref StructuredExampleKalmanUpdate "a Kalman measurement update".
  *
  * \sa makeDiagonalPlusLowRank()
  */

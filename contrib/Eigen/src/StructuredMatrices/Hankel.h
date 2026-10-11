@@ -93,7 +93,8 @@ struct evaluator_traits<Hankel<Scalar_, Rows_, Cols_>> {
  * \tparam Cols_ the number of columns at compile time, or \c Dynamic (the default).
  *
  * \par Examples
- * \ref StructuredExamplePade "Pade approximation".
+ * \ref StructuredExamplePade "Pade approximation",
+ * \ref StructuredExampleProny "Prony's method".
  *
  * \sa class Toeplitz, class Circulant, makeHankel()
  */

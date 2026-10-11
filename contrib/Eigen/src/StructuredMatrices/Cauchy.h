@@ -105,7 +105,8 @@ struct traits<CauchyLU<Scalar_>> : traits<Matrix<Scalar_, Dynamic, Dynamic>> {
  * \tparam Cols_ the number of columns at compile time, or \c Dynamic (the default).
  *
  * \par Examples
- * \ref StructuredExampleRationalApproximation "a discretized Cauchy integral".
+ * \ref StructuredExampleRationalApproximation "a discretized Cauchy integral",
+ * \ref StructuredExamplePolynomialFit "polynomial least squares".
  *
  * \sa class CauchyLU, makeCauchy()
  */
@@ -326,7 +327,8 @@ Cauchy<typename XDerived::Scalar, XDerived::SizeAtCompileTime, YDerived::SizeAtC
  * \tparam Scalar_ the scalar type, real or complex.
  *
  * \par Examples
- * \ref StructuredExampleRationalApproximation "a discretized Cauchy integral".
+ * \ref StructuredExampleRationalApproximation "a discretized Cauchy integral",
+ * \ref StructuredExamplePolynomialFit "polynomial least squares".
  *
  * \sa class Cauchy
  */

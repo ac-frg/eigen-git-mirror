@@ -69,7 +69,8 @@ namespace Eigen {
  *    relies on.
  *
  * \par Examples
- * \ref StructuredExampleImpurity "an impurity bound state".
+ * \ref StructuredExampleImpurity "an impurity bound state",
+ * \ref StructuredExampleDivideAndConquer "the merge step of divide and conquer".
  *
  * \sa class SelfAdjointEigenSolver
  */

@@ -94,7 +94,8 @@ struct evaluator_traits<Circulant<Scalar_, Size_>> {
  *
  * \par Examples
  * \ref StructuredExampleLoveEquation "Love's integral equation and a preconditioned Toeplitz system",
- * \ref StructuredExampleTorusHelmholtz "the screened Poisson equation on a torus".
+ * \ref StructuredExampleTorusHelmholtz "the screened Poisson equation on a torus",
+ * \ref StructuredExampleSpectralDifferentiation "Fourier spectral differentiation".
  *
  * \sa class Toeplitz, makeCirculant()
  */

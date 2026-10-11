@@ -121,7 +121,8 @@ struct evaluator_traits<Bccb<Scalar_, BlockSize_, NumBlocks_>> {
  *         (the default).
  *
  * \par Examples
- * \ref StructuredExampleTorusHelmholtz "the screened Poisson equation on a torus".
+ * \ref StructuredExampleTorusHelmholtz "the screened Poisson equation on a torus",
+ * \ref StructuredExampleDeblurring "image deblurring".
  *
  * \sa class Circulant, makeBccb()
  */

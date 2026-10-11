@@ -153,7 +153,10 @@ struct traits<BjorckPereyra<Scalar_>> : traits<Matrix<Scalar_, Dynamic, Dynamic>
  * \tparam Cols_ the number of columns (powers) at compile time, or \c Dynamic.
  *
  * \par Examples
- * \ref StructuredExampleQuadrature "interpolatory quadrature".
+ * \ref StructuredExampleQuadrature "interpolatory quadrature",
+ * \ref StructuredExampleProny "Prony's method",
+ * \ref StructuredExamplePolynomialFit "polynomial least squares",
+ * \ref StructuredExampleSeparableLeastSquares "separable least squares".
  *
  * \sa class BjorckPereyra, makeVandermonde()
  */
@@ -395,7 +398,8 @@ Vandermonde<typename Derived::Scalar, Derived::SizeAtCompileTime, Derived::SizeA
  * complex node ordering). Integer types are rejected.
  *
  * \par Examples
- * \ref StructuredExampleQuadrature "interpolatory quadrature".
+ * \ref StructuredExampleQuadrature "interpolatory quadrature",
+ * \ref StructuredExampleProny "Prony's method".
  *
  * \sa class Vandermonde
  */

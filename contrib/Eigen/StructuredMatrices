@@ -103,30 +103,51 @@ namespace Eigen {
  *     a \ref StructuredExamplePreconditioner "non-separable potential" with a
  *     fast Poisson preconditioner, and the
  *     \ref StructuredExampleTorusHelmholtz "screened Poisson equation on a torus"
- *     through block circulant matrices [5]
+ *     through block circulant matrices [5], and
+ *     \ref StructuredExampleSpectralDifferentiation "Fourier spectral differentiation"
+ *     on a periodic grid [21]
  *     (\c KroneckerSum, \c BartelsStewart, \c KroneckerOperator,
- *     \c KroneckerSparseView, \c Bccb);
+ *     \c KroneckerSparseView, \c Bccb, \c Circulant);
  *   - matrix equations and spectra: the
  *     \ref StructuredExampleLyapunov "Lyapunov equation" of a damped
  *     mass-spring chain [6], the
  *     \ref StructuredExampleHarmonicOscillator "2-D quantum harmonic oscillator" [7],
  *     and the bound state of a
  *     \ref StructuredExampleImpurity "Koster-Slater impurity" [8] by the
- *     secular equation [9] (\c KroneckerSum, \c DPR1EigenSolver);
+ *     secular equation [9], and the
+ *     \ref StructuredExampleDivideAndConquer "merge step of divide and conquer" [25]
+ *     for the symmetric tridiagonal eigenproblem (\c KroneckerSum,
+ *     \c DPR1EigenSolver);
  *   - integral equations and Toeplitz systems:
  *     \ref StructuredExampleLoveEquation "Love's integral equation" of
  *     electrostatics [10] by look-ahead Levinson [11], and a large Toeplitz
  *     system by conjugate gradients with Strang's circulant preconditioner
  *     [12], [13] (\c Toeplitz, \c LookAheadLevinson, \c Circulant);
+ *   - signal and image processing:
+ *     \ref StructuredExampleDeconvolution "deconvolution" as a rectangular
+ *     Toeplitz least-squares problem for LSMR [22],
+ *     \ref StructuredExampleDeblurring "image deblurring" with periodic
+ *     boundaries by Tikhonov regularization [5], and
+ *     \ref StructuredExampleProny "Prony's method" [23] for sums of
+ *     exponentials (\c Toeplitz, \c Bccb, \c Hankel, \c Vandermonde,
+ *     \c BjorckPereyra);
  *   - approximation: \ref StructuredExamplePade "Padé approximants" [14]
  *     through a Hankel solve,
  *     \ref StructuredExampleQuadrature "interpolatory quadrature weights" [15]
- *     through the dual Björck-Pereyra solve [16], and a
+ *     through the dual Björck-Pereyra solve [16], a
  *     \ref StructuredExampleRationalApproximation "discretized Cauchy integral" [17]
- *     through the pivoted Cauchy factorization [18] (\c Hankel,
- *     \c Vandermonde, \c BjorckPereyra, \c Cauchy, \c CauchyLU);
- *   - statistics: a \ref StructuredExampleGaussianProcess "Gaussian-process likelihood" [19]
- *     with a random-feature covariance [20] (\c DiagonalPlusLowRank).
+ *     through the pivoted Cauchy factorization [18],
+ *     \ref StructuredExamplePolynomialFit "polynomial least squares" through
+ *     the Hilbert matrix [26], and
+ *     \ref StructuredExampleSeparableLeastSquares "separable least squares"
+ *     on a grid through the Kronecker pseudo-inverse [27] (\c Hankel,
+ *     \c Vandermonde, \c BjorckPereyra, \c Cauchy, \c CauchyLU,
+ *     \c KroneckerOperator);
+ *   - statistics and estimation: a
+ *     \ref StructuredExampleGaussianProcess "Gaussian-process likelihood" [19]
+ *     with a random-feature covariance [20], and a
+ *     \ref StructuredExampleKalmanUpdate "Kalman measurement update" [24]
+ *     through the Woodbury identity (\c DiagonalPlusLowRank).
  *
  * \section StructuredMatricesReferences References
  *
@@ -176,6 +197,20 @@ namespace Eigen {
  *  -# A. Rahimi and B. Recht, "Random features for large-scale kernel
  *     machines", <em>Advances in Neural Information Processing Systems</em> 20
  *     (2007).
+ *  -# L. N. Trefethen, <em>Spectral Methods in MATLAB</em>, SIAM, 2000.
+ *  -# D. C.-L. Fong and M. A. Saunders, "LSMR: An iterative algorithm for
+ *     sparse least-squares problems", <em>SIAM J. Sci. Comput.</em> 33 (2011),
+ *     2950-2971.
+ *  -# G. R. de Prony, "Essai expérimental et analytique ...",
+ *     <em>J. de l'École Polytechnique</em> 1 (1795), 24-76.
+ *  -# R. E. Kalman, "A new approach to linear filtering and prediction
+ *     problems", <em>J. Basic Eng.</em> 82 (1960), 35-45.
+ *  -# J. J. M. Cuppen, "A divide and conquer method for the symmetric
+ *     tridiagonal eigenproblem", <em>Numer. Math.</em> 36 (1981), 177-195.
+ *  -# M.-D. Choi, "Tricks or treats with the Hilbert matrix",
+ *     <em>Amer. Math. Monthly</em> 90 (1983), 301-312.
+ *  -# C. F. Van Loan, "The ubiquitous Kronecker product",
+ *     <em>J. Comput. Appl. Math.</em> 123 (2000), 85-100.
  *
  * \code
  * #include <contrib/Eigen/StructuredMatrices>
