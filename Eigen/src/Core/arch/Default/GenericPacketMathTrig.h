@@ -603,7 +603,7 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet generic_atan(const Pa
 // Hyperbolic Functions
 //----------------------------------------------------------------------
 
-#ifdef EIGEN_FAST_MATH
+#if EIGEN_FAST_MATH
 
 /** \internal \returns the hyperbolic tan of \a a (coeff-wise)
     Doesn't do anything fancy, just a 9/8-degree rational interpolant which
@@ -678,9 +678,11 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS T ptanh_float(const T& x) {
   const T x3 = pmul(x2, x);
   const T p = ppolevl<T, 1>::run(x2, alpha);
   const T q = ppolevl<T, 2>::run(x2, beta);
-  const T small_tanh = pmadd(x3, pdiv(p, q), x);
-
   const T sign_mask = psignmask<T>();
+  const T x_sign = pand(sign_mask, x);
+  // x^3 P/Q has the sign opposite to x, so the sum rounds tanh(-0) to +0; the sign of x restores it.
+  const T small_tanh = por(x_sign, pmadd(x3, pdiv(p, q), x));
+
   const T abs_x = pandnot(x, sign_mask);
   constexpr float kSmallThreshold = 1.25f;
   const T large_mask = pcmp_lt(pset1<T>(kSmallThreshold), abs_x);
@@ -698,7 +700,6 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS T ptanh_float(const T& x) {
   // Handle infinite inputs and set sign bit.
   constexpr float kHugeThreshold = 16.0f;
   const T huge_mask = pcmp_lt(pset1<T>(kHugeThreshold), abs_x);
-  const T x_sign = pand(sign_mask, x);
   const T large_tanh = por(x_sign, pselect(huge_mask, one, abs_tanh));
   return pselect(large_mask, large_tanh, small_tanh);
 }
