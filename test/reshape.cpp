@@ -438,6 +438,22 @@ void reshape_evaluator_outlives_expression() {
   VERIFY_IS_CWISE_EQUAL(selected.block(1, 1, 6, 4), (expected.array() < x).select(x, y).eval());
 }
 
+// A coefficient-based reshape exposes DenseBase's InnerIterator, which blueNorm() uses.
+void reshape_inner_iterator() {
+  const MatrixXf a = MatrixXf::Random(4, 3);
+  const MatrixXf rowMajorCopy = a.reshaped<RowMajor>(3, 4);
+  const auto view = a.reshaped<RowMajor>(3, 4);
+  using View = std::decay_t<decltype(view)>;
+  VERIFY(!(internal::traits<View>::Flags & DirectAccessBit));
+  for (Index j = 0; j < view.outerSize(); ++j) {
+    Index count = 0;
+    for (View::InnerIterator it(view, j); it; ++it, ++count)
+      VERIFY_IS_EQUAL(it.value(), rowMajorCopy(it.row(), it.col()));
+    VERIFY_IS_EQUAL(count, view.innerSize());
+  }
+  VERIFY_IS_APPROX(view.blueNorm(), a.blueNorm());
+}
+
 EIGEN_DECLARE_TEST(reshape) {
   typedef Matrix<int, Dynamic, Dynamic, RowMajor> RowMatrixXi;
   typedef Matrix<int, 4, 4, RowMajor> RowMatrix4i;
@@ -469,6 +485,7 @@ EIGEN_DECLARE_TEST(reshape) {
   CALL_SUBTEST_8(reshape_reversed_swap());
   CALL_SUBTEST_8(reshape_evaluator_outlives_expression<ColMajor>());
   CALL_SUBTEST_8(reshape_evaluator_outlives_expression<RowMajor>());
+  CALL_SUBTEST_8(reshape_inner_iterator());
 
   for (int i = 0; i < g_repeat; i++) {
     CALL_SUBTEST_7(reshape_copies<float>(17, 13));

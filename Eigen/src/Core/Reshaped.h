@@ -161,8 +161,6 @@ class ReshapedImpl_dense<XprType, Rows, Cols, Order, false>
   using MatrixTypeNested = typename internal::ref_selector<XprType>::non_const_type;
   using NestedExpression = internal::remove_all_t<XprType>;
 
-  class InnerIterator;
-
   /** Fixed-size constructor
    */
   EIGEN_DEVICE_FUNC constexpr inline ReshapedImpl_dense(XprType& xpr) : m_xpr(xpr), m_rows(Rows), m_cols(Cols) {}
