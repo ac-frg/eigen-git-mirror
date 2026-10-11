@@ -334,9 +334,8 @@ void testNistMisra1d(void) {
   misra1d_functor functor;
   LevenbergMarquardt<misra1d_functor> lm(functor);
   info = lm.minimize(x);
-  EIGEN_UNUSED_VARIABLE(info);
-  // check return value
-  // VERIFY_IS_EQUAL(info, 1);
+  // check return value: MINPACK's, which needs xnorm to carry over from the last accepted step
+  VERIFY_IS_EQUAL(info, LevenbergMarquardtSpace::RelativeErrorAndReductionTooSmall);
   // VERIFY_IS_EQUAL(lm.nfev(), 9);
   // VERIFY_IS_EQUAL(lm.njev(), 7);
   // check norm^2
