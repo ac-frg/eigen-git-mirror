@@ -581,12 +581,15 @@ struct Assignment<DstXprType, SrcXprType, Functor, Diagonal2Dense> {
   static EIGEN_DEVICE_FUNC void run(
       DstXprType& dst, const SrcXprType& src,
       const internal::add_assign_op<typename DstXprType::Scalar, typename SrcXprType::Scalar>& /*func*/) {
+    // dst.diagonal() matches src.diagonal() in size whenever min(rows, cols) == size, so check the shape here.
+    eigen_assert(dst.rows() == src.rows() && dst.cols() == src.cols());
     dst.diagonal() += src.diagonal();
   }
 
   static EIGEN_DEVICE_FUNC void run(
       DstXprType& dst, const SrcXprType& src,
       const internal::sub_assign_op<typename DstXprType::Scalar, typename SrcXprType::Scalar>& /*func*/) {
+    eigen_assert(dst.rows() == src.rows() && dst.cols() == src.cols());
     dst.diagonal() -= src.diagonal();
   }
 };

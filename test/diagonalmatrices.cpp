@@ -299,6 +299,19 @@ void as_scalar_product(const MatrixType& m) {
   VERIFY_IS_APPROX(dm1 * v1.asDiagonal(), dm1 * s);
 }
 
+// A non-square dst has a diagonal of the right size, but not the shape of the diagonal matrix.
+template <int>
+void diagonal_update_shape_mismatch() {
+  const Vector3d d = Vector3d::Random();
+  MatrixXd wide = MatrixXd::Zero(3, 4), tall = MatrixXd::Zero(4, 3);
+  VERIFY_RAISES_ASSERT(wide += d.asDiagonal());
+  VERIFY_RAISES_ASSERT(wide -= d.asDiagonal());
+  VERIFY_RAISES_ASSERT(tall += d.asDiagonal());
+  VERIFY_RAISES_ASSERT(tall -= d.asDiagonal());
+  VERIFY_IS_EQUAL(wide, MatrixXd::Zero(3, 4));
+  VERIFY_IS_EQUAL(tall, MatrixXd::Zero(4, 3));
+}
+
 template <int>
 void bug987() {
   Matrix3Xd points = Matrix3Xd::Random(3, 3);
@@ -735,6 +748,7 @@ EIGEN_DECLARE_TEST(diagonalmatrices) {
     CALL_SUBTEST_9(as_scalar_product(MatrixXf(1, 1)));
   }
   CALL_SUBTEST_10(bug987<0>());
+  CALL_SUBTEST_10(diagonal_update_shape_mismatch<0>());
   CALL_SUBTEST_10(bug2013<0>());
   CALL_SUBTEST_10(selfadjoint_diagonal_products<0>());
   CALL_SUBTEST_10(selfadjoint_diagonal_products_block_path<0>());
