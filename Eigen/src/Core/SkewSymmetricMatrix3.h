@@ -313,8 +313,11 @@ class SkewSymmetricMatrix3 : public SkewSymmetricBase<SkewSymmetricMatrix3<Scala
   using InitializeReturnType =
       SkewSymmetricWrapper<const CwiseNullaryOp<internal::scalar_constant_op<Scalar>, SkewSymmetricVectorType>>;
 
+  using ZeroInitializeReturnType =
+      SkewSymmetricWrapper<const CwiseNullaryOp<internal::scalar_zero_op<Scalar>, SkewSymmetricVectorType>>;
+
   /** Initializes a skew symmetric matrix with coefficients set to zero */
-  EIGEN_DEVICE_FUNC static InitializeReturnType Zero() { return SkewSymmetricVectorType::Zero().asSkewSymmetric(); }
+  EIGEN_DEVICE_FUNC static ZeroInitializeReturnType Zero() { return SkewSymmetricVectorType::Zero().asSkewSymmetric(); }
 
   /** Sets all coefficients to zero. */
   EIGEN_DEVICE_FUNC inline void setZero() { m_vector.setZero(); }

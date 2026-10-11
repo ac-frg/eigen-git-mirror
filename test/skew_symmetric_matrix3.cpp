@@ -31,6 +31,11 @@ void constructors() {
   SkewSymmetricMatrix3<Scalar> s4(v1(0), v1(1), v1(2));
   VERIFY_IS_APPROX(v1, s4.vector());
 
+  // zero
+  const SkewSymmetricMatrix3<Scalar> s5 = SkewSymmetricMatrix3<Scalar>::Zero();
+  VERIFY(s5.vector().isZero(0));
+  VERIFY(s5.toDenseMatrix().isZero(0));
+
   // constructors with four vectors do not compile
   // Matrix<Scalar, 4, 1> vector4 = Matrix<Scalar, 4, 1>::Random();
   // SkewSymmetricMatrix3<Scalar> s5(vector4);
