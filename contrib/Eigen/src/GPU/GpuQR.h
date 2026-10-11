@@ -150,6 +150,8 @@ class QR {
     // the sync — use info() explicitly when failure must be detected.
     eigen_assert(solver_ctx_.info() == Success && "QR::solve called on a failed or uninitialized factorization");
     eigen_assert(B.rows() == m_);
+    // An empty A has the zero minimum-norm solution, as in xGELS; cuSOLVER would reject 0 x 0's ldb = 0.
+    if (m_ == 0 || n_ == 0) return PlainMatrix::Zero(n_, B.cols());
 
     const Ref<const PlainMatrix> rhs(B.derived());
     const Index nrhs = rhs.cols();
@@ -165,6 +167,11 @@ class QR {
   DeviceMatrix<Scalar> solve(const DeviceMatrix<Scalar>& d_B) const {
     eigen_assert(solver_ctx_.info() == Success && "QR::solve called on a failed or uninitialized factorization");
     eigen_assert(d_B.rows() == m_);
+    if (m_ == 0 || n_ == 0) {
+      DeviceMatrix<Scalar> X(n_, d_B.cols());
+      X.setZero(solver_ctx_.stream());
+      return X;
+    }
     d_B.waitReady(solver_ctx_.stream());
 
     if (!transposed_) {

@@ -296,6 +296,8 @@ void test_qr_empty() {
   VERIFY_IS_EQUAL(qr.info(), Success);
   VERIFY_IS_EQUAL(qr.rows(), 0);
   VERIFY_IS_EQUAL(qr.cols(), 0);
+  VERIFY_IS_EQUAL(qr.solve(MatrixXd(0, 2)).cols(), 2);
+  VERIFY_IS_EQUAL(qr.solve(gpu::DeviceMatrix<double>::fromHost(MatrixXd(0, 2))).cols(), 2);
 
   // An empty factor still solves: X is cols() x nrhs, zero for the minimum-norm case.
   for (Index m : {5, 0}) {
