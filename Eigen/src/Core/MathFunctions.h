@@ -2209,16 +2209,18 @@ struct scalar_fuzzy_default_impl<Scalar, false, true> {
   }
 };
 
+// Compares moduli, not their squares: abs2 overflows above sqrt(highest) and underflows below sqrt(min), where unequal
+// values then compared as approximately equal.
 template <typename Scalar>
 struct scalar_fuzzy_default_impl<Scalar, true, false> {
   using RealScalar = typename NumTraits<Scalar>::Real;
   template <typename OtherScalar>
   EIGEN_DEVICE_FUNC static inline bool isMuchSmallerThan(const Scalar& x, const OtherScalar& y,
                                                          const RealScalar& prec) {
-    return numext::abs2(x) <= numext::abs2(y) * prec * prec;
+    return numext::abs(x) <= numext::abs(y) * prec;
   }
   EIGEN_DEVICE_FUNC static inline bool isApprox(const Scalar& x, const Scalar& y, const RealScalar& prec) {
-    return numext::abs2(x - y) <= numext::mini(numext::abs2(x), numext::abs2(y)) * prec * prec;
+    return numext::abs(x - y) <= numext::mini(numext::abs(x), numext::abs(y)) * prec;
   }
 };
 

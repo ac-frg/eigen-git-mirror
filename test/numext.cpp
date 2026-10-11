@@ -396,6 +396,23 @@ void check_complex_log() {
                   std::numeric_limits<T>::infinity());
 }
 
+// Complex fuzzy comparisons at moduli whose squares overflow or underflow.
+template <typename T>
+void check_complex_fuzzy() {
+  using Complex = std::complex<T>;
+  const T prec = NumTraits<T>::dummy_precision();
+  for (const T s :
+       {numext::sqrt((std::numeric_limits<T>::min)()) / T(16), numext::sqrt((std::numeric_limits<T>::max)()) * T(16)}) {
+    VERIFY(!internal::isApprox(Complex(s, T(0)), Complex(T(3) * s, T(0)), prec));
+    VERIFY(!internal::isApprox(Complex(s, -s), Complex(-s, s), prec));
+    VERIFY(internal::isApprox(Complex(s, -s), Complex(s * (T(1) + NumTraits<T>::epsilon()), -s), prec));
+    VERIFY(!internal::isMuchSmallerThan(Complex(T(3) * s, T(0)), Complex(s, T(0)), prec));
+    VERIFY(internal::isMuchSmallerThan(Complex(s * prec / T(4), T(0)), Complex(s, s), prec));
+    Matrix<Complex, 3, 1> v = Matrix<Complex, 3, 1>::Constant(Complex(s, T(0)));
+    VERIFY(!v.isApproxToConstant(Complex(T(3) * s, T(0)), prec));
+  }
+}
+
 // log1p(z) to a few ulps of |log1p(z)| for small z off the real axis, where rounding |1 + z| to 1 loses log|1 + z|.
 // W is wider than T; log|1 + z| = log1p(x (2 + x) + y^2) / 2.
 template <typename T, typename W>
@@ -1000,6 +1017,9 @@ EIGEN_DECLARE_TEST(numext) {
 
     CALL_SUBTEST(check_complex_divide<float>());
     CALL_SUBTEST(check_complex_divide<double>());
+
+    CALL_SUBTEST(check_complex_fuzzy<float>());
+    CALL_SUBTEST(check_complex_fuzzy<double>());
 
     CALL_SUBTEST((check_complex_log1p_accuracy<float, double>()));
     if (std::numeric_limits<long double>::digits > std::numeric_limits<double>::digits) {
