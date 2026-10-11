@@ -1136,6 +1136,8 @@ EIGEN_STRONG_INLINE Packet4f pdiv<Packet4f>(const Packet4f& a, const Packet4f& b
   // Do one Newton-Raphson iteration to get the needed accuracy
   t = vec_nmsub(y_0, b, p4f_ONE);
   y_1 = vec_madd(y_0, t, y_0);
+  // For b = +-0 or +-inf the step computes 0 * inf = NaN, while the estimate +-inf or +-0 is exact.
+  y_1 = vec_sel(y_0, y_1, vec_cmpeq(t, t));
 
   return vec_madd(a, y_1, p4f_MZERO);
 #else

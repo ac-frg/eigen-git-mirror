@@ -978,6 +978,20 @@ void array_real(const ArrayType& m) {
     VERIFY_IS_CWISE_EQUAL(x.tanh(), x.sign());
   }
 
+  // Division by zero and by infinity is exact, also where pdiv refines a reciprocal estimate.
+  {
+    const Scalar inf = NumTraits<Scalar>::infinity();
+    Array<Scalar, Dynamic, 1> num(32), den(32), quotient(32);
+    for (Index i = 0; i < num.size(); ++i) {
+      num(i) = (i % 4 < 2) ? Scalar(3) : Scalar(-3);
+      den(i) = (i % 2) ? inf : Scalar(0);
+      quotient(i) = (i % 2) ? Scalar(0) : num(i) * inf;
+    }
+    // Evaluate into an array: comparing the expression would divide coefficient by coefficient.
+    const Array<Scalar, Dynamic, 1> q = num / den;
+    VERIFY_IS_CWISE_EQUAL(q, quotient);
+  }
+
   VERIFY_IS_APPROX(m1.arg(), arg(m1));
   // carg of a real array is its arg as a real Scalar, on the vectorized path too.
   VERIFY_IS_CWISE_EQUAL(m1.carg(), m1.arg());
