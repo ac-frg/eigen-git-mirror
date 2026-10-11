@@ -213,8 +213,9 @@ class GpuStreamDevice : public StreamInterface {
     return result;
   }
   void deallocate(void* buffer) const override {
+    // The null pointer of a zero-byte allocate(); callers such as TensorForcedEval free it unconditionally.
+    if (buffer == nullptr) return;
     EIGEN_GPU_RUNTIME_CHECK(gpuSetDevice(device_));
-    gpu_assert(buffer != nullptr);
     EIGEN_GPU_RUNTIME_CHECK(gpuFree(buffer));
   }
 
