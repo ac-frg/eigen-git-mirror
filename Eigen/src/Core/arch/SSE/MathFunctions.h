@@ -44,10 +44,13 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet16b psqrt<Packet16b>(c
 }
 
 #if EIGEN_FAST_MATH
-// Even on Skylake, using Newton iteration is a win for reciprocal square root.
+// Even on Skylake, using Newton iteration is a win for reciprocal square root. rsqrtps reads a subnormal x as zero,
+// giving +-inf, so the lanes whose exponent field is zero, x = +-0 included, take 1 / sqrt(x) instead.
 template <>
 EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS EIGEN_UNUSED Packet4f prsqrt<Packet4f>(const Packet4f& x) {
-  return generic_rsqrt_newton_step<Packet4f, /*Steps=*/1>::run(x, _mm_rsqrt_ps(x));
+  const Packet4f r = generic_rsqrt_newton_step<Packet4f, /*Steps=*/1>::run(x, _mm_rsqrt_ps(x));
+  const Packet4f redo = pcmp_eq(pand(x, pset1frombits<Packet4f>(0x7f800000u)), pzero(x));
+  return predux_any(redo) ? pselect(redo, pdiv(pset1<Packet4f>(1.0f), psqrt(x)), r) : r;
 }
 
 #ifdef EIGEN_VECTORIZE_FMA

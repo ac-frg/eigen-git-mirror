@@ -1846,8 +1846,9 @@ template <typename Scalar, typename Packet>
 std::enable_if_t<!NumTraits<Scalar>::IsComplex, void> packetmath_ieee_special_values() {
   typedef internal::packet_traits<Scalar> PacketTraits;
   run_ieee_cases<PacketTraits::HasSqrt, Scalar, Packet>(sqrt_fun());
-  // TODO(rmlarsen): See if we can fix rsqrt for denorms without wreaking performance.
-  run_ieee_cases<PacketTraits::HasRsqrt, Scalar, Packet, true>(rsqrt_fun());
+  // The x86 float rsqrt recomputes the subnormal inputs its estimate flushes; other estimates may still flush them.
+  run_ieee_cases<PacketTraits::HasRsqrt, Scalar, Packet,
+                 !(EIGEN_ARCH_i386_OR_x86_64 && std::is_same<Scalar, float>::value)>(rsqrt_fun());
   run_ieee_cases<PacketTraits::HasCbrt, Scalar, Packet>(cbrt_fun());
   run_ieee_cases<PacketTraits::HasExp, Scalar, Packet>(exp_fun());
   run_ieee_cases<PacketTraits::HasExp, Scalar, Packet>(exp2_fun());

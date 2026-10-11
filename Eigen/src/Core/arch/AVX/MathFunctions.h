@@ -88,13 +88,11 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet4d psqrt<Packet4d>(con
 #if EIGEN_FAST_MATH
 template <>
 EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet8f prsqrt<Packet8f>(const Packet8f& a) {
-  // _mm256_rsqrt_ps returns -inf for negative denormals.
-  // _mm512_rsqrt**_ps returns -NaN for negative denormals.  We may want
-  // consistency here.
-  // const Packet8f rsqrt = pselect(pcmp_lt(a, pzero(a)),
-  //                                pset1<Packet8f>(-NumTraits<float>::quiet_NaN()),
-  //                                _mm256_rsqrt_ps(a));
-  return generic_rsqrt_newton_step<Packet8f, /*Steps=*/1>::run(a, _mm256_rsqrt_ps(a));
+  // vrsqrtps reads a subnormal a as zero, giving +-inf, so the lanes whose exponent field is zero, a = +-0 included,
+  // take 1 / sqrt(a) instead.
+  const Packet8f r = generic_rsqrt_newton_step<Packet8f, /*Steps=*/1>::run(a, _mm256_rsqrt_ps(a));
+  const Packet8f redo = pcmp_eq(pand(a, pset1frombits<Packet8f>(0x7f800000u)), pzero(a));
+  return predux_any(redo) ? pselect(redo, pdiv(pset1<Packet8f>(1.0f), psqrt(a)), r) : r;
 }
 
 template <>
