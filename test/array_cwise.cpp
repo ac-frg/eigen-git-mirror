@@ -970,6 +970,12 @@ void array_real(const ArrayType& m) {
       VERIFY(abs(s(i) - numext::sin(x(i))) <= Scalar(4) * NumTraits<Scalar>::epsilon());
       VERIFY(abs(c(i) - numext::cos(x(i))) <= Scalar(4) * NumTraits<Scalar>::epsilon());
     }
+    // tanh(x) rounds to +-1 for |x| >= 20. The rational approximation clamps |x| where it reaches 1, which depends on
+    // whether pmadd is fused.
+    const Scalar inf = NumTraits<Scalar>::infinity();
+    const Scalar big[] = {inf, -inf, Scalar(20), Scalar(-20)};
+    for (Index i = 0; i < x.size(); ++i) x(i) = big[i % 4];
+    VERIFY_IS_CWISE_EQUAL(x.tanh(), x.sign());
   }
 
   VERIFY_IS_APPROX(m1.arg(), arg(m1));
