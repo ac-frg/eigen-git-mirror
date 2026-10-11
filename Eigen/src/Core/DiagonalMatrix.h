@@ -292,7 +292,7 @@ class DiagonalMatrix : public DiagonalBase<DiagonalMatrix<Scalar_, SizeAtCompile
 
 #ifndef EIGEN_PARSED_BY_DOXYGEN
   /** copy constructor. prevent a default copy constructor from hiding the other templated constructor */
-  inline DiagonalMatrix(const DiagonalMatrix& other) : m_diagonal(other.diagonal()) {}
+  EIGEN_DEVICE_FUNC inline DiagonalMatrix(const DiagonalMatrix& other) : m_diagonal(other.diagonal()) {}
 #endif
 
   /** Move constructor. Moves the stored diagonal vector. */

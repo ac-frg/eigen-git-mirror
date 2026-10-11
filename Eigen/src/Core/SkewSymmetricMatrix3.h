@@ -292,7 +292,7 @@ class SkewSymmetricMatrix3 : public SkewSymmetricBase<SkewSymmetricMatrix3<Scala
 
 #ifndef EIGEN_PARSED_BY_DOXYGEN
   /** copy constructor. prevent a default copy constructor from hiding the other templated constructor */
-  inline SkewSymmetricMatrix3(const SkewSymmetricMatrix3& other) : m_vector(other.vector()) {}
+  EIGEN_DEVICE_FUNC inline SkewSymmetricMatrix3(const SkewSymmetricMatrix3& other) : m_vector(other.vector()) {}
 #endif
 
   /** Copy operator. */
