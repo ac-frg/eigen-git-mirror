@@ -193,9 +193,12 @@ struct evaluator<RealView<Xpr>> : private evaluator<Xpr> {
     if (p) {
       Scalar aux[RealPacketSize + 1] = {};
       pstoreu(aux, result);
-      Index lastr = IsRowMajor ? row : row + actualEnd - 1;
-      Index lastc = IsRowMajor ? col + actualEnd - 1 : col;
-      aux[actualEnd] = coeff(lastr, lastc);
+      // aux[actualEnd] is in the segment only when begin + count is even; otherwise it lies past the end.
+      if (actualEnd == begin + count) {
+        Index lastr = IsRowMajor ? row : row + actualEnd - 1;
+        Index lastc = IsRowMajor ? col + actualEnd - 1 : col;
+        aux[actualEnd] = coeff(lastr, lastc);
+      }
       result = ploadu<PacketType>(aux + 1);
     }
     return result;
@@ -217,7 +220,7 @@ struct evaluator<RealView<Xpr>> : private evaluator<Xpr> {
     if (p) {
       Scalar aux[RealPacketSize + 1] = {};
       pstoreu(aux, result);
-      aux[actualEnd] = coeff(index + actualEnd - 1);
+      if (actualEnd == begin + count) aux[actualEnd] = coeff(index + actualEnd - 1);
       result = ploadu<PacketType>(aux + 1);
     }
     return result;

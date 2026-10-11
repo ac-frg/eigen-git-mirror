@@ -197,9 +197,68 @@ struct test_edge_cases_impl<ComplexScalar, false> {
   static void run() {}
 };
 
+// Complex sequence c(i) = (i, -i) whose scalar path records the largest index it is asked for.
+template <typename ComplexScalar>
+struct index_recording_complex_op {
+  Index* maxIndex;
+  ComplexScalar operator()(Index i) const {
+    *maxIndex = numext::maxi(*maxIndex, i);
+    return value(i);
+  }
+  template <typename Packet>
+  Packet packetOp(Index i) const {
+    ComplexScalar values[internal::unpacket_traits<Packet>::size];
+    for (int k = 0; k < internal::unpacket_traits<Packet>::size; ++k) values[k] = value(i + k);
+    return internal::ploadu<Packet>(values);
+  }
+  static ComplexScalar value(Index i) {
+    using RealScalar = typename NumTraits<ComplexScalar>::Real;
+    return ComplexScalar(RealScalar(i), RealScalar(-i));
+  }
+};
+template <typename ComplexScalar>
+struct Eigen::internal::functor_traits<index_recording_complex_op<ComplexScalar>> {
+  static constexpr int Cost = 1;
+  static constexpr bool PacketAccess = true;
+  static constexpr bool IsRepeatable = true;
+};
+
+// A segment starting at an odd (imaginary) position must not read the coefficient past its end.
+template <typename ComplexScalar>
+void test_odd_segment_bounds() {
+  using namespace internal;
+  using RealScalar = typename NumTraits<ComplexScalar>::Real;
+  using ComplexPacket = typename packet_traits<ComplexScalar>::type;
+  using RealPacket = typename unpacket_traits<ComplexPacket>::as_real;
+  constexpr Index RealSize = 2 * unpacket_traits<ComplexPacket>::size;
+  const Index n = RealSize;
+  Index maxIndex = -1;
+  const auto sequence = VectorX<ComplexScalar>::NullaryExpr(n, index_recording_complex_op<ComplexScalar>{&maxIndex});
+  evaluator<RealView<const std::decay_t<decltype(sequence)>>> eval(sequence.realView());
+  VectorX<RealScalar> expected(2 * n), actual(RealSize);
+  for (Index i = 0; i < n; ++i) expected.template segment<2>(2 * i) << RealScalar(i), RealScalar(-i);
+  for (Index count = 1; count <= RealSize; ++count) {
+    const Index offset = 2 * n - count;
+    RealPacket res = eval.template packetSegment<Unaligned, RealPacket>(offset, 0, count);
+    pstoreSegment(actual.data(), res, 0, count);
+    VERIFY_IS_CWISE_EQUAL(actual.head(count), expected.segment(offset, count));
+    VERIFY(maxIndex < n);
+  }
+}
+
+template <typename ComplexScalar, bool Enable = internal::packet_traits<ComplexScalar>::Vectorizable>
+struct test_odd_segment_bounds_impl {
+  static void run() { test_odd_segment_bounds<ComplexScalar>(); }
+};
+template <typename ComplexScalar>
+struct test_odd_segment_bounds_impl<ComplexScalar, false> {
+  static void run() {}
+};
+
 template <typename ComplexScalar>
 void test_edge_cases(const ComplexScalar&) {
   test_edge_cases_impl<ComplexScalar>::run();
+  test_odd_segment_bounds_impl<ComplexScalar>::run();
 }
 
 // The parts of non-adjacent complex coefficients have no uniform stride, so their RealView has no direct access.
