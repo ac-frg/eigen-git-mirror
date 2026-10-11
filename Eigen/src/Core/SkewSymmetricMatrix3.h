@@ -435,14 +435,28 @@ struct Assignment<DstXprType, SrcXprType, Functor, SkewSymmetric2Dense> {
   }
   EIGEN_DEVICE_FUNC static void run(
       DstXprType& dst, const SrcXprType& src,
-      const internal::add_assign_op<typename DstXprType::Scalar, typename SrcXprType::Scalar>& /*func*/) {
-    dst.vector() += src.vector();
+      const internal::add_assign_op<typename DstXprType::Scalar, typename SrcXprType::Scalar>& func) {
+    update(dst, src, func);
   }
 
   EIGEN_DEVICE_FUNC static void run(
       DstXprType& dst, const SrcXprType& src,
-      const internal::sub_assign_op<typename DstXprType::Scalar, typename SrcXprType::Scalar>& /*func*/) {
-    dst.vector() -= src.vector();
+      const internal::sub_assign_op<typename DstXprType::Scalar, typename SrcXprType::Scalar>& func) {
+    update(dst, src, func);
+  }
+
+ private:
+  // dst ?= src at the six off-diagonal entries; the diagonal of src is zero.
+  template <typename UpdateFunctor>
+  EIGEN_DEVICE_FUNC static void update(DstXprType& dst, const SrcXprType& src, const UpdateFunctor& func) {
+    eigen_assert(dst.rows() == 3 && dst.cols() == 3);
+    const Matrix<typename SrcXprType::Scalar, 3, 1> v = src.vector();
+    func.assignCoeff(dst.coeffRef(0, 1), -v(2));
+    func.assignCoeff(dst.coeffRef(1, 0), v(2));
+    func.assignCoeff(dst.coeffRef(0, 2), v(1));
+    func.assignCoeff(dst.coeffRef(2, 0), -v(1));
+    func.assignCoeff(dst.coeffRef(1, 2), -v(0));
+    func.assignCoeff(dst.coeffRef(2, 1), v(0));
   }
 };
 

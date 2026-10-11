@@ -90,6 +90,21 @@ void plusMinus() {
   VERIFY((sk1 - sk1).vector().isZero());
   VERIFY((sk1 - sk1).toDenseMatrix().isZero());
 
+  // dense ?= skew
+  {
+    const SquareMatrix A = SquareMatrix::Random();
+    SquareMatrix acc = A;
+    acc += v1.asSkewSymmetric();
+    VERIFY_IS_APPROX(acc, A + sq1);
+    acc -= sk2;
+    VERIFY_IS_APPROX(acc, A + sq1 - sq2);
+    Matrix<Scalar, Dynamic, Dynamic> dyn = A;
+    dyn -= sk1;
+    VERIFY_IS_APPROX(dyn, A - sq1);
+    dyn.resize(2, 2);
+    VERIFY_RAISES_ASSERT(dyn += sk1);
+  }
+
   // Mixed dense / skew-symmetric +/- operators (see issue #2925, MR !2308).
   // Cases c1/c2/c3 below are exactly the three expressions from the issue.
   {
