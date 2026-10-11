@@ -778,8 +778,7 @@ EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC bfloat16 fmax(const bfloat16& a, const bfl
 }
 
 EIGEN_DEVICE_FUNC inline bfloat16 fma(const bfloat16& a, const bfloat16& b, const bfloat16& c) {
-  // Emulate FMA via float.
-  return bfloat16(numext::fma(static_cast<float>(a), static_cast<float>(b), static_cast<float>(c)));
+  return bfloat16(half_impl::fma_round_to_odd(static_cast<float>(a), static_cast<float>(b), static_cast<float>(c)));
 }
 
 #ifndef EIGEN_NO_IO

@@ -912,6 +912,22 @@ EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC half(min)(const half& a, const half& b) { 
 
 EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC half(max)(const half& a, const half& b) { return a < b ? b : a; }
 
+// a * b + c for half or bfloat16 a, b and c, rounded to odd in double: narrowing the result to half or bfloat16, which
+// rounds to odd in float and then to nearest, then rounds a * b + c once. A float fma rounds twice instead: for half,
+// fma(33/32, 65/64, 2^-24) rounds to the midpoint 2145/2048 in float, then to even, 1 + 3/64, not up to 1 + 49/1024.
+// a * b is exact in double, and TwoSum (Knuth) gives the error e of s = a * b + c exactly.
+EIGEN_DEVICE_FUNC inline double fma_round_to_odd(float a, float b, float c) {
+  const double p = static_cast<double>(a) * static_cast<double>(b);
+  const double c_wide = static_cast<double>(c);
+  const double s = p + c_wide;
+  const double p_part = s - c_wide;
+  const double e = (p - p_part) + (c_wide - (s - p_part));
+  if (!(numext::isfinite)(s) || e == 0) return s;
+  // Inexact: truncate toward zero, then set the last bit.
+  const bool away = (s > 0) != (e > 0);
+  return numext::bit_cast<double>((numext::bit_cast<numext::uint64_t>(s) - (away ? 1u : 0u)) | 1u);
+}
+
 EIGEN_DEVICE_FUNC inline half fma(const half& a, const half& b, const half& c) {
 #if defined(EIGEN_HAS_ARM64_FP16_SCALAR_ARITHMETIC)
   return half_from_rep(vfmah_f16(c.x, a.x, b.x));
@@ -919,8 +935,7 @@ EIGEN_DEVICE_FUNC inline half fma(const half& a, const half& b, const half& c) {
   // Reduces to vfmadd213sh.
   return half(_mm_cvtsh_h(_mm_fmadd_ph(_mm_set_sh(a.x), _mm_set_sh(b.x), _mm_set_sh(c.x))));
 #else
-  // Emulate FMA via float.
-  return half(numext::fma(static_cast<float>(a), static_cast<float>(b), static_cast<float>(c)));
+  return half(fma_round_to_odd(static_cast<float>(a), static_cast<float>(b), static_cast<float>(c)));
 #endif
 }
 

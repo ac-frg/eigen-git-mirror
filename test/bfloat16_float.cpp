@@ -225,6 +225,12 @@ void test_arithmetic() {
   VERIFY_IS_APPROX(static_cast<float>(bfloat16(1.0f) / bfloat16(3.0f)), 0.3339f);
   VERIFY_IS_EQUAL(static_cast<float>(-bfloat16(4096.0f)), -4096.0f);
   VERIFY_IS_EQUAL(static_cast<float>(-bfloat16(-4096.0f)), 4096.0f);
+
+  // fma rounds once: a * b = 289/256 is a midpoint of bfloat16, and c = 2^-30 rounds the sum up, not to even. A float
+  // fma rounds the sum to that midpoint first.
+  const bfloat16 tiny = bfloat16(std::ldexp(1.0f, -30));
+  VERIFY_IS_EQUAL(static_cast<float>(numext::fma(bfloat16(17.f / 16), bfloat16(17.f / 16), tiny)), 145.f / 128);
+  VERIFY_IS_EQUAL(static_cast<float>(numext::fma(bfloat16(17.f / 16), bfloat16(-17.f / 16), -tiny)), -145.f / 128);
 }
 
 void test_comparison() {

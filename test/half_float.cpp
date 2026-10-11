@@ -184,6 +184,12 @@ void test_arithmetic() {
   VERIFY_IS_EQUAL(float(-half(4096.0f)), -4096.0f);
   VERIFY_IS_EQUAL(float(-half(-4096.0f)), 4096.0f);
 
+  // fma rounds once: a * b = 2145/2048 is a midpoint of half, and c = 2^-24 rounds the sum up, not to even. A float
+  // fma rounds the sum to that midpoint first.
+  const half tiny = half(std::ldexp(1.0f, -24));
+  VERIFY_IS_EQUAL(float(numext::fma(half(33.f / 32), half(65.f / 64), tiny)), 1.f + 49.f / 1024);
+  VERIFY_IS_EQUAL(float(numext::fma(half(-33.f / 32), half(65.f / 64), -tiny)), -1.f - 49.f / 1024);
+
   half x(3);
   half y = ++x;
   VERIFY_IS_EQUAL(x, half(4));
