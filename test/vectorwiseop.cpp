@@ -649,6 +649,25 @@ void vectorwiseop_rowmajor() {
   VERIFY_IS_APPROX(ColMajorMatrix(mc.rowwise() - rv), ColMajorMatrix(mr.rowwise() - rv));
 }
 
+// The packet path of a partial reduction must follow its functor's PacketAccess: bool has packets
+// on x86 but no pmin/pmax, so these failed to compile when the reduction runs along the inner dimension.
+void vectorwiseop_bool_minmax() {
+  Array<bool, Dynamic, Dynamic, RowMajor> rowMajor = Array<bool, Dynamic, Dynamic, RowMajor>::Constant(3, 37, false);
+  rowMajor(1, 33) = true;
+  rowMajor.col(2).setConstant(true);
+  Array<bool, Dynamic, Dynamic> colMajor = rowMajor.transpose();
+  Array<bool, 1, Dynamic> anyInCol = rowMajor.colwise().maxCoeff();
+  Array<bool, 1, Dynamic> allInCol = rowMajor.colwise().minCoeff();
+  Array<bool, Dynamic, 1> anyInRow = colMajor.rowwise().maxCoeff();
+  Array<bool, Dynamic, 1> allInRow = colMajor.rowwise().minCoeff();
+  for (Index j = 0; j < rowMajor.cols(); ++j) {
+    VERIFY_IS_EQUAL(anyInCol(j), j == 2 || j == 33);
+    VERIFY_IS_EQUAL(allInCol(j), j == 2);
+    VERIFY_IS_EQUAL(anyInRow(j), j == 2 || j == 33);
+    VERIFY_IS_EQUAL(allInRow(j), j == 2);
+  }
+}
+
 EIGEN_DECLARE_TEST(vectorwiseop) {
   CALL_SUBTEST_11(vectorwiseop_operand_order());
   CALL_SUBTEST_11(vectorwiseop_minmax_nan<PropagateNaN>());
@@ -674,6 +693,7 @@ EIGEN_DECLARE_TEST(vectorwiseop) {
   CALL_SUBTEST_10(vectorwiseop_rowmajor<float>());
   CALL_SUBTEST_10(vectorwiseop_rowmajor<double>());
   CALL_SUBTEST_10(vectorwiseop_rowmajor<std::complex<float>>());
+  CALL_SUBTEST_10(vectorwiseop_bool_minmax());
   CALL_SUBTEST_11(vectorwiseop_array_extensions(Array<float, 3, 4>()));
   CALL_SUBTEST_11(vectorwiseop_array_extensions(ArrayXXd(3, 4)));
   CALL_SUBTEST_12(vectorwiseop_matrix_extensions(Matrix<float, 4, 5>()));
