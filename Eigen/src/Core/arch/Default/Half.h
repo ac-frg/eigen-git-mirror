@@ -183,37 +183,48 @@ struct narrow_to_float_path
                                   : std::numeric_limits<T>::digits <= 64                                ? 3
                                                                                                         : 0> {};
 
-template <typename T, std::enable_if_t<narrow_to_float_path<T>::value == 0, int> = 0>
-EIGEN_DEVICE_FUNC inline float narrow_to_float(const T& val) {
-  return static_cast<float>(val);
-}
-template <typename T, std::enable_if_t<narrow_to_float_path<T>::value == 1, int> = 0>
-EIGEN_DEVICE_FUNC inline float narrow_to_float(const T& val) {
-  const float f = static_cast<float>(val);
-  if (static_cast<T>(f) == val || (numext::isnan)(val)) return f;
-  // Inexact: truncate toward zero, then set the last bit.
-  const bool away = numext::abs(static_cast<T>(f)) > numext::abs(val);
-  return numext::bit_cast<float>((numext::bit_cast<numext::uint32_t>(f) - (away ? 1u : 0u)) | 1u);
-}
+template <typename T, int Path = narrow_to_float_path<T>::value>
+struct narrow_to_float_impl {
+  EIGEN_DEVICE_FUNC static float run(const T& val) { return static_cast<float>(val); }
+};
+template <typename T>
+struct narrow_to_float_impl<T, 1> {
+  EIGEN_DEVICE_FUNC static float run(const T& val) {
+    const float f = static_cast<float>(val);
+    if (static_cast<T>(f) == val || (numext::isnan)(val)) return f;
+    // Inexact: truncate toward zero, then set the last bit.
+    const bool away = numext::abs(static_cast<T>(f)) > numext::abs(val);
+    return numext::bit_cast<float>((numext::bit_cast<numext::uint32_t>(f) - (away ? 1u : 0u)) | 1u);
+  }
+};
 // In two's complement, clearing the low bits rounds toward -inf for either sign; setting the next bit then picks the
 // odd neighbor.
-template <typename T, std::enable_if_t<narrow_to_float_path<T>::value == 2, int> = 0>
+template <typename T>
+struct narrow_to_float_impl<T, 2> {
+  EIGEN_DEVICE_FUNC static float run(const T& val) {
+    using U = std::make_unsigned_t<T>;
+    const U u = static_cast<U>(val);
+    const U low = 0xff;
+    const U odd = (u & ~low) | ((u & low) != 0 ? U(0x100) : U(0));
+    const U magnitude = std::is_signed<T>::value && (u >> (sizeof(U) * CHAR_BIT - 1)) ? U(0) - u : u;
+    return static_cast<float>(magnitude >= (U(1) << 24) ? numext::bit_cast<T>(odd) : val);
+  }
+};
+template <typename T>
+struct narrow_to_float_impl<T, 3> {
+  EIGEN_DEVICE_FUNC static float run(const T& val) {
+    using U = std::make_unsigned_t<T>;
+    const U u = static_cast<U>(val);
+    const U low = 0x7ff;
+    const U odd = (u & ~low) | ((u & low) != 0 ? U(0x800) : U(0));
+    const U magnitude = std::is_signed<T>::value && (u >> (sizeof(U) * CHAR_BIT - 1)) ? U(0) - u : u;
+    return narrow_to_float_impl<double>::run(
+        static_cast<double>(magnitude >= (U(1) << 53) ? numext::bit_cast<T>(odd) : val));
+  }
+};
+template <typename T>
 EIGEN_DEVICE_FUNC inline float narrow_to_float(const T& val) {
-  using U = std::make_unsigned_t<T>;
-  const U u = static_cast<U>(val);
-  const U low = 0xff;
-  const U odd = (u & ~low) | ((u & low) != 0 ? U(0x100) : U(0));
-  const U magnitude = std::is_signed<T>::value && (u >> (sizeof(U) * CHAR_BIT - 1)) ? U(0) - u : u;
-  return static_cast<float>(magnitude >= (U(1) << 24) ? numext::bit_cast<T>(odd) : val);
-}
-template <typename T, std::enable_if_t<narrow_to_float_path<T>::value == 3, int> = 0>
-EIGEN_DEVICE_FUNC inline float narrow_to_float(const T& val) {
-  using U = std::make_unsigned_t<T>;
-  const U u = static_cast<U>(val);
-  const U low = 0x7ff;
-  const U odd = (u & ~low) | ((u & low) != 0 ? U(0x800) : U(0));
-  const U magnitude = std::is_signed<T>::value && (u >> (sizeof(U) * CHAR_BIT - 1)) ? U(0) - u : u;
-  return narrow_to_float(static_cast<double>(magnitude >= (U(1) << 53) ? numext::bit_cast<T>(odd) : val));
+  return narrow_to_float_impl<T>::run(val);
 }
 
 struct half_base : public __half_raw {
