@@ -377,9 +377,10 @@ void test_autodiff_atan2_constant() {
 
 // The zero-padded derivatives of a sum must read column 0 of a non-plain derivative expression.
 void test_autodiff_padded_block_derivatives() {
-  MatrixXd store(3, 2);
+  using ColMajorMatrixXd = Matrix<double, Dynamic, Dynamic, ColMajor>;
+  ColMajorMatrixXd store(3, 2);
   store << 1, 10, 2, 20, 3, 30;
-  AutoDiffScalar<Block<MatrixXd, Dynamic, 1, true>> a(1.0, store.col(0));
+  AutoDiffScalar<Block<ColMajorMatrixXd, Dynamic, 1, true>> a(1.0, store.col(0));
   AutoDiffScalar<VectorXd> b(2.0);
   MatrixXd jac = MatrixXd::Zero(3, 2);
   jac.topRows(3).leftCols(1) = (a + b).derivatives();
