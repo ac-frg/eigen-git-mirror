@@ -141,6 +141,14 @@ void syrk(const MatrixType& m) {
                         .template triangularView<Upper>()
                         .toDenseMatrix()));
 
+  // The product of a matrix with itself, rather than with its adjoint, shares its storage without being a rank update.
+  m2.setZero();
+  m2.template triangularView<Lower>() = m1 * m1;
+  VERIFY_IS_APPROX(m2, (m1 * m1).eval().template triangularView<Lower>().toDenseMatrix());
+  rm2.setZero();
+  rm2.template triangularView<Upper>() += s1 * m1 * m1;
+  VERIFY_IS_APPROX(rm2, (s1 * m1 * m1).eval().template triangularView<Upper>().toDenseMatrix());
+
   // A scalar factor of the update enters twice: (s u) (s u)^* = s conj(s) u u^*.
   {
     const Scalar s2 = internal::random<Scalar>();
