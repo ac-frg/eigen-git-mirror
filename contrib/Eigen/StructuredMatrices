@@ -87,6 +87,10 @@ namespace Eigen {
  * (minimum-norm least-squares) solve, \c rank(), \c inverse() and
  * \c determinant().
  *
+ * \code
+ * #include <contrib/Eigen/StructuredMatrices>
+ * \endcode
+ *
  * \section StructuredMatricesApplications Applications
  *
  * The \ref StructuredMatricesExamples "worked examples" apply these classes to
@@ -145,7 +149,7 @@ namespace Eigen {
  *     \c KroneckerOperator);
  *   - statistics and estimation: a
  *     \ref StructuredExampleGaussianProcess "Gaussian-process likelihood" [19]
- *     with a random-feature covariance [20], and a
+ *     with a low-rank Fourier-feature covariance [20], and a
  *     \ref StructuredExampleKalmanUpdate "Kalman measurement update" [24]
  *     through the Woodbury identity (\c DiagonalPlusLowRank).
  *
@@ -211,10 +215,6 @@ namespace Eigen {
  *     <em>Amer. Math. Monthly</em> 90 (1983), 301-312.
  *  -# C. F. Van Loan, "The ubiquitous Kronecker product",
  *     <em>J. Comput. Appl. Math.</em> 123 (2000), 85-100.
- *
- * \code
- * #include <contrib/Eigen/StructuredMatrices>
- * \endcode
  */
 
 }  // namespace Eigen

@@ -6,9 +6,10 @@
 // as the fast index, the design matrix is the Kronecker product V_y (x) V_x of
 // the two rectangular Vandermonde matrices, and KroneckerOperator solves the
 // least-squares problem through one complete orthogonal decomposition per
-// factor, (A (x) B)^+ = A^+ (x) B^+, in O(m (P^2 + Q^2)) for m grid points
-// instead of the O(m P^2 Q^2) of the assembled matrix. Its rank and singular
-// values also come from the factors.
+// factor, (A (x) B)^+ = A^+ (x) B^+: for m points per direction and degrees
+// P, Q, the two decompositions cost O(m (P^2 + Q^2)) and applying them
+// O(m^2 (P + Q)), against O(m^2 P^2 Q^2) for the assembled m^2 x (P+1)(Q+1)
+// matrix. Its rank and singular values also come from the factors.
 
 #include <contrib/Eigen/StructuredMatrices>
 #include <cmath>

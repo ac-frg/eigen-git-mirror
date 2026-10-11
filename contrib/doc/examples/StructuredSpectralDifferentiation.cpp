@@ -51,5 +51,5 @@ int main() {
               << (D2mI.solve(VectorXd(d2u - u)) - u).cwiseAbs().maxCoeff() << "\n";
   }
   const auto D = makeCirculant(spectralColumn(8, 1));
-  std::cout << "N = 8, eigenvalues / i: " << D.eigenvalues().imag().array().round().transpose() << "\n";
+  std::cout << "N = 8, eigenvalues / i: " << D.eigenvalues().imag().array().round().cast<int>().transpose() << "\n";
 }
