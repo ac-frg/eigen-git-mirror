@@ -98,6 +98,12 @@ void test_spmv_strided_dest(Index n) {
   ctx.multiply(A, x, row);
   M_cpu.row(1) = A * x;
   VERIFY_IS_APPROX(M, M_cpu);
+
+  // A 1 x n block shaped at run time: innerStride() is 1, its elements are outerStride() apart.
+  M.setZero();
+  auto block_row = M.middleRows(1, 1);
+  ctx.multiply(A, x, block_row);
+  VERIFY_IS_APPROX(M, M_cpu);
 }
 
 // ---- Transpose: y = A^T * x ------------------------------------------------
