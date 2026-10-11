@@ -480,9 +480,9 @@ class TriangularView
   /** \returns the determinant of the triangular matrix
    * \sa MatrixBase::determinant() */
   EIGEN_DEVICE_FUNC Scalar determinant() const {
-    EIGEN_IF_CONSTEXPR (Mode & UnitDiag) {
+    EIGEN_IF_CONSTEXPR (int(Mode) & int(UnitDiag)) {
       return 1;
-    } else EIGEN_IF_CONSTEXPR (Mode & ZeroDiag) {
+    } else EIGEN_IF_CONSTEXPR (int(Mode) & int(ZeroDiag)) {
       return 0;
     } else {
       return m_matrix.diagonal().prod();
