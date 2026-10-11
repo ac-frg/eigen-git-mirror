@@ -187,8 +187,10 @@ struct functor_traits<scalar_carg_op<Scalar>> {
   using RealScalar = typename NumTraits<Scalar>::Real;
   enum {
     Cost = functor_traits<scalar_atan2_op<RealScalar>>::Cost,
-    // The generic pcarg lowers to patan2, whose quotient-based reduction needs pdiv.
-    PacketAccess = packet_traits<RealScalar>::HasATan && packet_traits<RealScalar>::HasDiv
+    // The generic pcarg lowers to patan2, whose quotient-based reduction needs pdiv. It takes complex packets only; a
+    // real argument is 0 or pi, which the scalar path returns.
+    PacketAccess =
+        NumTraits<Scalar>::IsComplex && packet_traits<RealScalar>::HasATan && packet_traits<RealScalar>::HasDiv
   };
 };
 
