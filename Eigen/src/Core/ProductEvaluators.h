@@ -2003,9 +2003,20 @@ template <typename ExpressionType, int Side, bool Transposed>
 struct permutation_matrix_product<ExpressionType, Side, Transposed, TriangularShape>
     : permutation_densified_matrix_product<ExpressionType, Side, Transposed> {};
 
+// The scalar factor of a self-adjoint view, folded in from s * (A.selfadjointView() * P), scales the whole view as
+// in the other self-adjoint products, not only its stored triangle.
 template <typename ExpressionType, int Side, bool Transposed>
-struct permutation_matrix_product<ExpressionType, Side, Transposed, SelfAdjointShape>
-    : permutation_densified_matrix_product<ExpressionType, Side, Transposed> {};
+struct permutation_matrix_product<ExpressionType, Side, Transposed, SelfAdjointShape> {
+  using DenseType = typename ExpressionType::DenseMatrixType;
+
+  template <typename Dest, typename PermutationType>
+  static void run(Dest& dst, const PermutationType& perm, const ExpressionType& xpr) {
+    DenseType dense(xpr.rows(), xpr.cols());
+    const typename ExpressionType::Scalar factor = densified_view_operand<ExpressionType>::run(dense, xpr);
+    EIGEN_IF_CONSTEXPR (blas_traits<typename ExpressionType::MatrixType>::HasScalarFactor) dense *= factor;
+    permutation_matrix_product<DenseType, Side, Transposed, DenseShape>::run(dst, perm, dense);
+  }
+};
 
 template <typename Lhs, typename Rhs, int ProductTag, typename MatrixShape>
 struct generic_product_impl<Lhs, Rhs, PermutationShape, MatrixShape, ProductTag> {
