@@ -411,9 +411,12 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS std::enable_if_t<!is_scalar<
   const Packet y_div_2 = pmul(y, pset1<Packet>(Scalar(0.5)));
   const Packet y_is_even = pcmp_eq(pround(y_div_2), y_div_2);
   const Packet y_is_odd_int = pandnot(y_is_int, y_is_even);
-  // Smallest exponent for which (1 + epsilon) overflows to infinity.
+  // From this |y| on, x^y is 0 or inf for every |x| != 1. The |x| nearest 1 is 1 - eps/2, with |log(x)| > eps/2,
+  // and |y| eps/2 >= (digits - min_exponent + 1) ln(2) takes x^y below half the smallest subnormal or past the
+  // largest finite value.
   constexpr Scalar huge_exponent =
-      (NumTraits<Scalar>::max_exponent() * Scalar(EIGEN_LN2)) / NumTraits<Scalar>::epsilon();
+      Scalar(2 * (numext::numeric_limits<Scalar>::digits - numext::numeric_limits<Scalar>::min_exponent + 1)) *
+      Scalar(EIGEN_LN2) / NumTraits<Scalar>::epsilon();
   const Packet y_abs_is_huge = pcmp_le(pset1<Packet>(huge_exponent), y_abs);
 
   // *  pow(base, exp) returns NaN if base is finite and negative

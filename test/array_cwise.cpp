@@ -434,6 +434,36 @@ void pow_magnified_log_test() {
   VERIFY(all_pass);
 }
 
+// pow(x, +-y) for x = +-(1 - eps/2), the |x| nearest 1, and y = 1.5 max_exponent ln(2) / eps: x^y = 2^(-0.75
+// max_exponent) and x^-y = 2^(0.75 max_exponent) are normal, although (1 + eps)^y overflows. Both the array and the
+// scalar exponent take the vectorized generic pow (y is an integer far above the repeated squaring limit).
+template <typename Scalar>
+void pow_near_one_huge_exponent_test() {
+  const Scalar eps = NumTraits<Scalar>::epsilon();
+  const Scalar below_one = Scalar(1) - eps / Scalar(2);
+  const Scalar huge = Scalar(1.5) * Scalar(NumTraits<Scalar>::max_exponent()) * Scalar(EIGEN_LN2) / eps;
+  const Index n = 2 * internal::packet_traits<Scalar>::size + 1;
+  bool all_pass = true;
+  for (const Scalar base : {below_one, -below_one}) {
+    for (const Scalar exponent : {huge, -huge}) {
+      const ArrayX<Scalar> x = ArrayX<Scalar>::Constant(n, base);
+      const ArrayX<Scalar> binary = x.pow(ArrayX<Scalar>::Constant(n, exponent));
+      const ArrayX<Scalar> unary = x.pow(exponent);
+      const Scalar expected = std::pow(base, exponent);
+      for (Index i = 0; i < n; ++i) {
+        for (const Scalar actual : {binary(i), unary(i)}) {
+          const bool success = numext::abs(actual - expected) <= Scalar(4) * eps * numext::abs(expected);
+          all_pass &= success;
+          if (!success) {
+            std::cout << "pow(" << base << "," << exponent << ") = " << actual << " != " << expected << std::endl;
+          }
+        }
+      }
+    }
+  }
+  VERIFY(all_pass);
+}
+
 template <typename Scalar, typename ScalarExponent>
 Scalar calc_overflow_threshold(const ScalarExponent exponent) {
   EIGEN_USING_STD(exp2);
@@ -501,6 +531,8 @@ void float_pow_test() {
   float_pow_test_impl<float, float>();
   float_pow_test_impl<double, double>();
   pow_magnified_log_test<double>();
+  pow_near_one_huge_exponent_test<float>();
+  pow_near_one_huge_exponent_test<double>();
 }
 
 template <typename = void>
