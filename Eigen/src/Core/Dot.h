@@ -507,6 +507,27 @@ struct lpNorm_selector<Derived, Infinity> {
   }
 };
 
+// |<v, w>|^2 <= prec^2 |v|^2 |w|^2 is homogeneous of degree four, so for |v_i| above ~4e9 or below ~1e-11 in float
+// both sides overflow to inf <= inf or underflow to 0 <= 0 and parallel vectors pass. Unit vectors keep the same test
+// in range; integers keep the exact form.
+template <typename Derived, typename OtherDerived, bool IsInteger = NumTraits<typename Derived::Scalar>::IsInteger>
+struct is_orthogonal_impl {
+  template <typename RealScalar>
+  static bool run(const Derived& v, const OtherDerived& w, const RealScalar& prec) {
+    return numext::abs2(v.stableNormalized().dot(w.stableNormalized())) <= prec * prec;
+  }
+};
+
+template <typename Derived, typename OtherDerived>
+struct is_orthogonal_impl<Derived, OtherDerived, true> {
+  template <typename RealScalar>
+  static bool run(const Derived& v, const OtherDerived& w, const RealScalar& prec) {
+    typename nested_eval<Derived, 2>::type nested(v);
+    typename nested_eval<OtherDerived, 2>::type otherNested(w);
+    return numext::abs2(nested.dot(otherNested)) <= prec * prec * nested.squaredNorm() * otherNested.squaredNorm();
+  }
+};
+
 }  // end namespace internal
 
 /** \returns the \b coefficient-wise \f$ \ell^p \f$ norm of \c *this, that is, returns the p-th root of the sum of the
@@ -545,9 +566,7 @@ MatrixBase<Derived>::lpNorm() const {
 template <typename Derived>
 template <typename OtherDerived>
 bool MatrixBase<Derived>::isOrthogonal(const MatrixBase<OtherDerived>& other, const RealScalar& prec) const {
-  typename internal::nested_eval<Derived, 2>::type nested(derived());
-  typename internal::nested_eval<OtherDerived, 2>::type otherNested(other.derived());
-  return numext::abs2(nested.dot(otherNested)) <= prec * prec * nested.squaredNorm() * otherNested.squaredNorm();
+  return internal::is_orthogonal_impl<Derived, OtherDerived>::run(derived(), other.derived(), prec);
 }
 
 /** \returns true if *this is approximately an unitary matrix,

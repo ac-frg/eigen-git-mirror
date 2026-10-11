@@ -369,6 +369,33 @@ void inner_product_exact_values() {
   }
 }
 
+// isOrthogonal() compares |<v, w>|^2 with prec^2 |v|^2 |w|^2: both sides must stay in range for every
+// representable scale, including scales whose fourth power overflows or underflows.
+template <typename Scalar>
+void is_orthogonal_scaling() {
+  using RealScalar = typename NumTraits<Scalar>::Real;
+  using Vec = Matrix<Scalar, Dynamic, 1>;
+  Vec v = Vec::Zero(5), w = Vec::Zero(5);
+  v(1) = Scalar(1);
+  v(3) = Scalar(2);
+  w(0) = Scalar(3);
+  w(4) = Scalar(-1);
+  const RealScalar scales[] = {RealScalar(1), RealScalar(1) / NumTraits<RealScalar>::epsilon(),
+                               NumTraits<RealScalar>::highest() / RealScalar(4),
+                               NumTraits<RealScalar>::epsilon() * NumTraits<RealScalar>::epsilon(),
+                               (std::numeric_limits<RealScalar>::min)() * RealScalar(4)};
+  for (RealScalar sv : scales) {
+    for (RealScalar sw : scales) {
+      const Vec a = v * sv, b = w * sw, c = (v + w) * sw;
+      VERIFY(a.isOrthogonal(b));
+      VERIFY(!a.isOrthogonal(a));
+      VERIFY(!a.isOrthogonal(Vec(v * sw)));
+      VERIFY(!a.isOrthogonal(c));
+    }
+  }
+  VERIFY(Vec::Zero(5).isOrthogonal(v));
+}
+
 // Test transposeInPlace at vectorization boundary sizes.
 // BlockedInPlaceTranspose uses PacketSize-blocked loops with a scalar remainder (line 273),
 // exercising off-by-one-prone transitions.
@@ -501,6 +528,9 @@ EIGEN_DECLARE_TEST(adjoint) {
   CALL_SUBTEST_24(inner_product_exact_values<bool>());
   CALL_SUBTEST_24(inner_product_exact_values<half>());
   CALL_SUBTEST_24(inner_product_exact_values<bfloat16>());
+  CALL_SUBTEST_24(is_orthogonal_scaling<float>());
+  CALL_SUBTEST_24(is_orthogonal_scaling<double>());
+  CALL_SUBTEST_24(is_orthogonal_scaling<std::complex<float>>());
 
   // transposeInPlace at vectorization boundaries (deterministic, outside g_repeat).
   CALL_SUBTEST_18(transposeInPlace_boundary<float>());
