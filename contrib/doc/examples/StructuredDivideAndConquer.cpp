@@ -36,7 +36,7 @@ int main() {
   z << half1.eigenvectors().row(m - 1).transpose(), half2.eigenvectors().row(0).transpose();
 
   const DPR1EigenSolver<double> merged(d, b, z);
-  const VectorXd lambda = merged.eigenvalues();
+  const VectorXd& lambda = merged.eigenvalues();
   MatrixXd V(n, n);
   V.topRows(m) = half1.eigenvectors() * merged.eigenvectors().topRows(m);
   V.bottomRows(n - m) = half2.eigenvectors() * merged.eigenvectors().bottomRows(n - m);
