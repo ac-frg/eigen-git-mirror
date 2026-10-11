@@ -652,13 +652,15 @@ EIGEN_DEVICE_FUNC inline int popcount(BitsType bits) {
 // nvcc's device code has only __builtin_clz, __builtin_clzll, __builtin_popcount and __builtin_popcountll. The other
 // builtins are host functions there, and with warning 20014 silenced, a call from here compiles and returns garbage:
 // ctz at every width, and clz and popcount where long has 64 bits. __clz and __clzll return the full width for zero.
+// From CUDA 13.2, their parameter and return types are unsigned on aarch64 with GCC 11.4 or later as the host compiler
+// and signed elsewhere and in earlier toolkits; the conversions below keep the bits under either declaration.
 template <typename BitsType>
 struct count_bits_impl<
     BitsType, std::enable_if_t<std::is_integral<BitsType>::value && sizeof(BitsType) <= sizeof(unsigned int)>> {
   static constexpr int kNumBits = static_cast<int>(sizeof(BitsType) * CHAR_BIT);
   static EIGEN_DEVICE_FUNC inline int clz(BitsType bits) {
     static constexpr int kLeadingBitsOffset = (sizeof(unsigned int) - sizeof(BitsType)) * CHAR_BIT;
-    return __clz(static_cast<int>(static_cast<unsigned int>(bits))) - kLeadingBitsOffset;
+    return static_cast<int>(__clz(static_cast<unsigned int>(bits))) - kLeadingBitsOffset;
   }
 
   static EIGEN_DEVICE_FUNC inline int ctz(BitsType bits) {
@@ -675,7 +677,7 @@ struct count_bits_impl<BitsType,
   static constexpr int kNumBits = static_cast<int>(sizeof(BitsType) * CHAR_BIT);
   static EIGEN_DEVICE_FUNC inline int clz(BitsType bits) {
     static constexpr int kLeadingBitsOffset = (sizeof(unsigned long long) - sizeof(BitsType)) * CHAR_BIT;
-    return __clzll(static_cast<long long>(static_cast<unsigned long long>(bits))) - kLeadingBitsOffset;
+    return static_cast<int>(__clzll(static_cast<unsigned long long>(bits))) - kLeadingBitsOffset;
   }
 
   static EIGEN_DEVICE_FUNC inline int ctz(BitsType bits) {
