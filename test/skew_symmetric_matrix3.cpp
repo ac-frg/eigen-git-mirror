@@ -248,6 +248,14 @@ void exponentialIdentity() {
   const auto precision = static_cast<Scalar>(1.1) * NumTraits<Scalar>::dummy_precision();
   v3 << 0, 0, precision;
   VERIFY(v3.asSkewSymmetric().exponential().isIdentity(precision));
+
+  // a small rotation is I + K(v) + O(|v|^2), not the identity
+  typedef Matrix<Scalar, 3, 3> SquareMatrix;
+  const Scalar angle = Scalar(0.5) * NumTraits<Scalar>::dummy_precision();
+  const Vector v4(0, 0, angle);
+  const SquareMatrix r4 = v4.asSkewSymmetric().exponential();
+  VERIFY_IS_APPROX(r4(1, 0), angle);
+  VERIFY_IS_APPROX(r4(0, 1), -angle);
 }
 
 template <typename Scalar>

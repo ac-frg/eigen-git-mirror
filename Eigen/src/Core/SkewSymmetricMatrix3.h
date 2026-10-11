@@ -76,10 +76,12 @@ class SkewSymmetricBase : public EigenBase<Derived> {
   EIGEN_DEVICE_FUNC DenseMatrixType exponential() const {
     DenseMatrixType retVal = DenseMatrixType::Identity();
     const SkewSymmetricVectorType& v = vector();
-    if (v.isZero()) {
+    const Scalar norm2 = v.squaredNorm();
+    // exp(K) = I + K + O(|v|^2), so only a v whose squared norm is zero (or underflows) skips the formula.
+    if (numext::is_exactly_zero(norm2)) {
+      retVal += derived().toDenseMatrix();
       return retVal;
     }
-    const Scalar norm2 = v.squaredNorm();
     const Scalar norm = numext::sqrt(norm2);
     retVal += ((((1 - numext::cos(norm)) / norm2) * derived()) * derived()) +
               (numext::sin(norm) / norm) * derived().toDenseMatrix();
