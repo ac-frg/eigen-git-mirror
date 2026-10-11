@@ -555,6 +555,17 @@ MatrixBase<Derived>::lpNorm() const {
   return internal::lpNorm_selector<Derived, p>::run(*this);
 }
 
+/** \returns the coefficient-wise \f$ \ell^p \f$ norm of an array expression, as MatrixBase::lpNorm() does for
+ * matrices; this also serves VectorwiseOp::lpNorm() on arrays.
+ *
+ * \sa MatrixBase::lpNorm()
+ */
+template <typename Derived>
+template <int p>
+typename DenseBase<Derived>::RealScalar DenseBase<Derived>::lpNorm() const {
+  return derived().matrix().template lpNorm<p>();
+}
+
 //---------- implementation of isOrthogonal / isUnitary ----------
 
 /** \returns true if *this is approximately orthogonal to \a other,

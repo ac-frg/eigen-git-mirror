@@ -477,6 +477,14 @@ void vectorwiseop_array_extensions(const ArrayType& m) {
   expected = m1.cwiseMax(Scalar(-0.25));
   VERIFY_IS_APPROX(expected, m1.colwise().cwiseMax(Scalar(-0.25)));
   VERIFY_IS_APPROX(expected, m1.rowwise().cwiseMax(Scalar(-0.25)));
+
+  // DenseBase declares lpNorm(); arrays and their partial reductions must link.
+  VERIFY_IS_APPROX(m1.template lpNorm<1>(), m1.matrix().template lpNorm<1>());
+  VERIFY_IS_APPROX(m1.template lpNorm<2>(), m1.matrix().norm());
+  VERIFY_IS_APPROX(m1.template lpNorm<3>(), m1.matrix().template lpNorm<3>());
+  VERIFY_IS_APPROX(m1.template lpNorm<Infinity>(), m1.abs().maxCoeff());
+  VERIFY_IS_APPROX(m1.colwise().template lpNorm<1>(), m1.abs().colwise().sum());
+  VERIFY_IS_APPROX(m1.rowwise().template lpNorm<Infinity>(), m1.abs().rowwise().maxCoeff());
 }
 
 template <typename MatrixType>
