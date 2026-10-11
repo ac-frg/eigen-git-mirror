@@ -396,6 +396,28 @@ void check_complex_log() {
                   std::numeric_limits<T>::infinity());
 }
 
+// C99 Annex G: a nonzero finite numerator over a zero divisor gives an infinity, and a finite one over an infinite
+// divisor gives zero, also where the divisor's parts have equal magnitudes. scalar_quotient_op is the coefficient-wise
+// quotient's scalar path.
+template <typename T>
+void check_complex_divide() {
+  using Complex = std::complex<T>;
+  const T zero(0), one(1), inf = std::numeric_limits<T>::infinity();
+  for (const Complex a : {Complex(one, zero), Complex(-T(3), T(0.5)), Complex(one, one)}) {
+    for (const Complex b : {Complex(zero, zero), Complex(-zero, zero), Complex(zero, -zero)}) {
+      for (const Complex q : {numext::divide(a, b), internal::scalar_quotient_op<Complex, Complex>()(a, b)}) {
+        VERIFY((numext::isinf)(q.real()) || (numext::isinf)(q.imag()));
+      }
+    }
+    for (const Complex b : {Complex(inf, inf), Complex(-inf, inf), Complex(inf, zero)}) {
+      for (const Complex q : {numext::divide(a, b), internal::scalar_quotient_op<Complex, Complex>()(a, b)}) {
+        VERIFY_IS_EQUAL(q.real(), zero);
+        VERIFY_IS_EQUAL(q.imag(), zero);
+      }
+    }
+  }
+}
+
 // The FMA implementation must retain the product's rounding error even when scalar madd is unfused.
 template <typename T>
 void check_twoprod_pair(const T& x, const T& y) {
@@ -937,6 +959,9 @@ EIGEN_DECLARE_TEST(numext) {
 
     CALL_SUBTEST(check_complex_log<float>());
     CALL_SUBTEST(check_complex_log<double>());
+
+    CALL_SUBTEST(check_complex_divide<float>());
+    CALL_SUBTEST(check_complex_divide<double>());
 
     CALL_SUBTEST(check_twoprod<float>());
     CALL_SUBTEST(check_twoprod<double>());

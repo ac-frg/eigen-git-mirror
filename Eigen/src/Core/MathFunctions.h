@@ -2446,7 +2446,11 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE std::complex<T> complex_divide_smith(const
   // guards against over/under-flow.
   const bool scale_imag = numext::abs(b_imag) <= numext::abs(b_real);
   const T rscale = scale_imag ? T(1) : b_real / b_imag;
-  const T iscale = scale_imag ? b_imag / b_real : T(1);
+  // d / c = +-1 for |c| = |d|, which the quotient misses as 0 / 0 or inf / inf when b = 0 or both parts of b are
+  // infinite; a zero divisor then gives an infinity and an infinite one zero, as in pdiv_complex.
+  const T iscale = !scale_imag                                  ? T(1)
+                   : numext::abs(b_imag) == numext::abs(b_real) ? numext::copysign(T(1), b_real * b_imag)
+                                                                : b_imag / b_real;
   const T denominator = b_real * rscale + b_imag * iscale;
   return std::complex<T>((a_real * rscale + a_imag * iscale) / denominator,
                          (a_imag * rscale - a_real * iscale) / denominator);
