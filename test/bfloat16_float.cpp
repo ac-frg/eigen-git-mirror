@@ -246,6 +246,10 @@ void test_comparison() {
   VERIFY(!(bfloat16(-0.0f) < bfloat16(0.0f)));
   VERIFY(!(bfloat16(0.0f) > bfloat16(-0.0f)));
   VERIFY(!(bfloat16(-0.0f) > bfloat16(0.0f)));
+#if EIGEN_HAS_STD_HASH
+  // Equal values hash alike.
+  VERIFY_IS_EQUAL(std::hash<bfloat16>()(bfloat16(0.0f)), std::hash<bfloat16>()(bfloat16(-0.0f)));
+#endif
 
   VERIFY(bfloat16(0.2f) > bfloat16(-1.0f));
   VERIFY(bfloat16(-1.0f) < bfloat16(0.2f));

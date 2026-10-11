@@ -910,7 +910,9 @@ namespace std {
 template <>
 struct hash<Eigen::bfloat16> {
   EIGEN_STRONG_INLINE std::size_t operator()(const Eigen::bfloat16& a) const {
-    return static_cast<std::size_t>(Eigen::numext::bit_cast<Eigen::numext::uint16_t>(a));
+    // -0 == +0, so both must hash alike.
+    const Eigen::numext::uint16_t bits = Eigen::numext::bit_cast<Eigen::numext::uint16_t>(a);
+    return static_cast<std::size_t>((bits & 0x7fff) == 0 ? 0 : bits);
   }
 };
 }  // namespace std

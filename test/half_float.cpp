@@ -218,6 +218,10 @@ void test_comparison() {
   VERIFY(!(half(-0.0f) < half(0.0f)));
   VERIFY(!(half(0.0f) > half(-0.0f)));
   VERIFY(!(half(-0.0f) > half(0.0f)));
+#if EIGEN_HAS_STD_HASH
+  // Equal values hash alike.
+  VERIFY_IS_EQUAL(std::hash<half>()(half(0.0f)), std::hash<half>()(half(-0.0f)));
+#endif
 
   VERIFY(half(0.2f) > half(-1.0f));
   VERIFY(half(-1.0f) < half(0.2f));

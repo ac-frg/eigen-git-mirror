@@ -1136,7 +1136,9 @@ namespace std {
 template <>
 struct hash<Eigen::half> {
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE std::size_t operator()(const Eigen::half& a) const {
-    return static_cast<std::size_t>(Eigen::numext::bit_cast<Eigen::numext::uint16_t>(a));
+    // -0 == +0, so both must hash alike.
+    const Eigen::numext::uint16_t bits = Eigen::numext::bit_cast<Eigen::numext::uint16_t>(a);
+    return static_cast<std::size_t>((bits & 0x7fff) == 0 ? 0 : bits);
   }
 };
 }  // end namespace std
