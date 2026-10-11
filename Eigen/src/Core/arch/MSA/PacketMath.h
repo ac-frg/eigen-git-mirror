@@ -544,6 +544,21 @@ EIGEN_STRONG_INLINE Packet4i pabs(const Packet4i& a) {
   return __builtin_msa_add_a_w(zero, a);
 }
 
+template <int N>
+EIGEN_STRONG_INLINE Packet4i parithmetic_shift_right(const Packet4i& a) {
+  return __builtin_msa_srai_w(a, N);
+}
+
+template <int N>
+EIGEN_STRONG_INLINE Packet4i plogical_shift_right(const Packet4i& a) {
+  return __builtin_msa_srli_w(a, N);
+}
+
+template <int N>
+EIGEN_STRONG_INLINE Packet4i plogical_shift_left(const Packet4i& a) {
+  return __builtin_msa_slli_w(a, N);
+}
+
 template <>
 EIGEN_STRONG_INLINE float predux<Packet4f>(const Packet4f& a) {
   EIGEN_MSA_DEBUG;
