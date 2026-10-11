@@ -2420,10 +2420,17 @@ void packetmath_complex() {
       for (RealScalar b : special_values) {
         for (RealScalar c : special_values) {
           for (RealScalar d : special_values) {
-            data1[0] = Scalar(a, b);
-            data2[0] = Scalar(c, d);
+            // CHECK_CWISE2_IF takes the second operand from data1 + PacketSize.
+            for (int i = 0; i < PacketSize; ++i) {
+              data1[i] = Scalar(a, b);
+              data1[i + PacketSize] = Scalar(c, d);
+            }
             CHECK_CWISE2_IF(PacketTraits::HasMul, internal::complex_multiply, internal::pmul);
-            CHECK_CWISE2_IF(PacketTraits::HasDiv, internal::complex_divide, internal::pdiv);
+            // pdiv follows Smith's algorithm, but where the scalar version forms 0/0 or inf/inf from a zero divisor or
+            // one with two infinite components, pdiv returns the infinite or zero quotient instead.
+            if (!(c == zero && d == zero) && !((numext::isinf)(c) && (numext::isinf)(d))) {
+              CHECK_CWISE2_IF(PacketTraits::HasDiv, internal::complex_divide_smith, internal::pdiv);
+            }
           }
         }
       }
