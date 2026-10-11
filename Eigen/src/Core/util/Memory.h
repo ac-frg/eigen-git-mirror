@@ -341,7 +341,9 @@ EIGEN_DEVICE_FUNC inline void* conditional_aligned_realloc<false>(void* ptr, std
 
   check_that_malloc_is_allowed();
   EIGEN_USING_STD(realloc)
-  return realloc(ptr, new_size);
+  void* result = realloc(ptr, new_size);
+  if (!result) throw_std_bad_alloc();
+  return result;
 }
 
 /*****************************************************************************
