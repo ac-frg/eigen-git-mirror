@@ -628,6 +628,13 @@ static_assert((EIGEN_ARM64_SVE_VL >= 128) && (EIGEN_ARM64_SVE_VL <= 2048) &&
 #define EIGEN_VECTORIZE_FMA
 #endif
 
+// The generic clang backend skips the x86 detection above but fuses its pmadd where __FMA__ is defined, and the
+// kernels that choose constants or error-free products by EIGEN_VECTORIZE_FMA must know it.
+#if defined(EIGEN_VECTORIZE_GENERIC) && !defined(EIGEN_DONT_VECTORIZE) && defined(__FMA__) && \
+    !defined(EIGEN_VECTORIZE_FMA)
+#define EIGEN_VECTORIZE_FMA
+#endif
+
 #if defined(__F16C__) && !defined(EIGEN_GPUCC)
 // We can use the optimized fp16 to float and float to fp16 conversion routines
 #define EIGEN_HAS_FP16_C

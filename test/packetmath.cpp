@@ -1399,6 +1399,18 @@ void packetmath_real() {
   }
   data1[0] = Scalar(1e-20);
   CHECK_CWISE1_IF(PacketTraits::HasTanh, std::tanh, internal::ptanh);
+  if (PacketTraits::HasTanh && PacketSize >= 2) {
+    // tanh(x) rounds to +-1 for |x| >= 20 in every type here; the rational approximations clamp |x| where they reach 1,
+    // which depends on whether pmadd is fused.
+    test::packet_helper<PacketTraits::HasTanh, Packet> h;
+    for (const Scalar x : {NumTraits<Scalar>::infinity(), Scalar(20)}) {
+      data1[0] = x;
+      data1[1] = -x;
+      h.store(data2, internal::ptanh(h.load(data1)));
+      VERIFY_IS_EQUAL(data2[0], Scalar(1));
+      VERIFY_IS_EQUAL(data2[1], Scalar(-1));
+    }
+  }
   if (PacketTraits::HasExp && PacketSize >= 2) {
     const Scalar small = NumTraits<Scalar>::epsilon();
     data1[0] = NumTraits<Scalar>::quiet_NaN();
