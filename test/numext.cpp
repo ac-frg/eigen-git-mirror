@@ -418,6 +418,15 @@ void check_complex_divide() {
   }
 }
 
+// NumTraits<T>::digits() counts significand bits like numeric_limits<T>::digits; std::complex<T>, for which
+// numeric_limits is not specialized, derives it from epsilon() = 2^(1 - digits).
+template <typename T>
+void check_complex_digits() {
+  VERIFY_IS_EQUAL(NumTraits<std::complex<T>>::digits(), std::numeric_limits<T>::digits);
+  VERIFY_IS_EQUAL(NumTraits<std::complex<T>>::digits10(), std::numeric_limits<T>::digits10);
+  VERIFY_IS_EQUAL(NumTraits<std::complex<T>>::max_digits10(), std::numeric_limits<T>::max_digits10);
+}
+
 // The FMA implementation must retain the product's rounding error even when scalar madd is unfused.
 template <typename T>
 void check_twoprod_pair(const T& x, const T& y) {
@@ -962,6 +971,10 @@ EIGEN_DECLARE_TEST(numext) {
 
     CALL_SUBTEST(check_complex_divide<float>());
     CALL_SUBTEST(check_complex_divide<double>());
+
+    CALL_SUBTEST(check_complex_digits<float>());
+    CALL_SUBTEST(check_complex_digits<double>());
+    CALL_SUBTEST(check_complex_digits<long double>());
 
     CALL_SUBTEST(check_twoprod<float>());
     CALL_SUBTEST(check_twoprod<double>());
