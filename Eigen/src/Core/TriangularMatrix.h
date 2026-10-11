@@ -483,7 +483,8 @@ class TriangularView
     EIGEN_IF_CONSTEXPR (int(Mode) & int(UnitDiag)) {
       return 1;
     } else EIGEN_IF_CONSTEXPR (int(Mode) & int(ZeroDiag)) {
-      return 0;
+      // A zero diagonal makes the product vanish unless it is empty.
+      return m_matrix.rows() == 0 ? 1 : 0;
     } else {
       return m_matrix.diagonal().prod();
     }
