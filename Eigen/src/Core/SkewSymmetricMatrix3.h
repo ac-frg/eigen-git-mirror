@@ -423,8 +423,9 @@ struct Assignment<DstXprType, SrcXprType, Functor, SkewSymmetric2Dense> {
     if ((dst.rows() != 3) || (dst.cols() != 3)) {
       dst.resize(3, 3);
     }
+    // The vector may be read from dst, so it is evaluated before dst is written.
+    const Matrix<typename SrcXprType::Scalar, 3, 1> v = src.vector();
     dst.diagonal().setZero();
-    const typename SrcXprType::SkewSymmetricVectorType v = src.vector();
     dst(0, 1) = -v(2);
     dst(1, 0) = v(2);
     dst(0, 2) = v(1);

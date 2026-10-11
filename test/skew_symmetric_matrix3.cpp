@@ -52,6 +52,12 @@ void assignments() {
   SkewSymmetricMatrix3<Scalar> sk;
   sk = v.asSkewSymmetric();
   VERIFY_IS_APPROX(v, sk.vector());
+
+  // the vector is read from the destination
+  SquareMatrix aliased = SquareMatrix::Random();
+  const SquareMatrix expected = Vector(aliased.col(0)).asSkewSymmetric();
+  aliased = aliased.col(0).asSkewSymmetric();
+  VERIFY_IS_EQUAL(aliased, expected);
 }
 
 template <typename Scalar>
