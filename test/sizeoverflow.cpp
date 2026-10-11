@@ -31,6 +31,9 @@ void triggerMatrixBadAlloc(Index rows, Index cols) {
   VERIFY_THROWS_BADALLOC(MatrixType m(rows, cols));
   VERIFY_THROWS_BADALLOC(MatrixType m; m.resize(rows, cols));
   VERIFY_THROWS_BADALLOC(MatrixType m; m.conservativeResize(rows, cols));
+  // The failed resize of a non-empty object must leave it destructible.
+  VERIFY_THROWS_BADALLOC(MatrixType m(3, 3); m.resize(rows, cols));
+  VERIFY_THROWS_BADALLOC(MatrixType m(3, 3); m.conservativeResize(rows, cols));
 }
 
 template <typename VectorType>
@@ -38,6 +41,8 @@ void triggerVectorBadAlloc(Index size) {
   VERIFY_THROWS_BADALLOC(VectorType v(size));
   VERIFY_THROWS_BADALLOC(VectorType v; v.resize(size));
   VERIFY_THROWS_BADALLOC(VectorType v; v.conservativeResize(size));
+  VERIFY_THROWS_BADALLOC(VectorType v(3); v.resize(size));
+  VERIFY_THROWS_BADALLOC(VectorType v(3); v.conservativeResize(size));
 }
 
 EIGEN_DECLARE_TEST(sizeoverflow) {
