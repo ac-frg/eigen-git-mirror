@@ -1,24 +1,38 @@
 // SPDX-FileCopyrightText: The Eigen Authors
 // SPDX-License-Identifier: MPL-2.0
 
-// all(), any(), allFinite(), isZero() and isApproxToConstant() over full scans: no coefficient decides the result
-// early. Dynamic sizes hide the size and data pointer from the compiler on every iteration, as a caller whose sizes
-// vary would; fixed sizes and a block of a matrix cover the other traversals.
+// all(), any(), allFinite(), isZero() and isApproxToConstant(). The plain cases are full scans: no coefficient decides
+// the result early. The "/first" cases are decided by coefficient 0, which measures the reads past the deciding one.
+// Dynamic sizes hide the size and data pointer from the compiler on every iteration, as a caller whose sizes vary
+// would; fixed sizes and a block of a matrix cover the other traversals.
+//
+// Each binary measures one family, selected by EIGEN_BENCH_PREDICATE_SCALAR and EIGEN_BENCH_PREDICATE_OP (dynamic),
+// EIGEN_BENCH_PREDICATE_XPR and EIGEN_BENCH_PREDICATE_OP (fixed), or neither (block).
 
 #include <benchmark/benchmark.h>
 
 #include <Eigen/Core>
 
 #include <cstdint>
+#include <limits>
+#include <string>
 
 namespace Eigen {
 namespace {
+
+using std::int16_t;
 
 enum Op { All, Any, AllFinite, IsZero, ApproxConstant };
 
 template <typename T, Op op>
 T fill() {
   return op == Any || op == IsZero ? T(0) : op == ApproxConstant ? T(2) : T(1);
+}
+
+// A coefficient that decides the result on its own.
+template <typename T, Op op>
+T decider() {
+  return op == All ? T(0) : op == AllFinite ? std::numeric_limits<T>::infinity() : op == ApproxConstant ? T(3) : T(1);
 }
 
 template <Op op, typename Xpr>
@@ -38,10 +52,11 @@ bool apply(const Xpr& x) {
   }
 }
 
-template <typename T, Op op>
+template <typename T, Op op, bool First>
 void BM_Dynamic(benchmark::State& state) {
   const Index n = state.range(0);
   ArrayX<T> a = ArrayX<T>::Constant(n, fill<T, op>());
+  if (First) a(0) = decider<T, op>();
   for (auto _ : state) {
     Index m = n;
     benchmark::DoNotOptimize(m);
@@ -77,35 +92,43 @@ void BM_BlockIsZero(benchmark::State& state) {
   state.SetItemsProcessed(state.iterations() * n * 64);
 }
 
-template <typename T, Op op>
-void registerDynamic(const char* name) {
-  auto* b = benchmark::RegisterBenchmark(name, BM_Dynamic<T, op>);
-  b->DenseRange(1, 16)->Arg(32)->Arg(64)->Arg(1024)->Arg(16384);
-}
+using Array16f = Array<float, 16, 1>;
+using Array33f = Array<float, 33, 1>;
 
+const char* const opNames[] = {"all", "any", "allFinite", "isZero", "isApproxToConstant"};
+
+#if defined(EIGEN_BENCH_PREDICATE_SCALAR)
 const bool registered = [] {
-  registerDynamic<float, All>("all<float>");
-  registerDynamic<float, Any>("any<float>");
-  registerDynamic<float, AllFinite>("allFinite<float>");
-  registerDynamic<float, IsZero>("isZero<float>");
-  registerDynamic<float, ApproxConstant>("isApproxToConstant<float>");
-  registerDynamic<double, All>("all<double>");
-  registerDynamic<double, AllFinite>("allFinite<double>");
-  registerDynamic<double, IsZero>("isZero<double>");
-  registerDynamic<int, All>("all<int>");
-  registerDynamic<int, Any>("any<int>");
-  registerDynamic<std::int16_t, All>("all<int16_t>");
-  registerDynamic<std::int16_t, Any>("any<int16_t>");
-  registerDynamic<bool, All>("all<bool>");
-  registerDynamic<bool, Any>("any<bool>");
-  benchmark::RegisterBenchmark("any<Array4f>", BM_Fixed<Array4f, Any>);
-  benchmark::RegisterBenchmark("allFinite<Array<float,16,1>>", BM_Fixed<Array<float, 16, 1>, AllFinite>);
-  benchmark::RegisterBenchmark("isZero<Array<float,33,1>>", BM_Fixed<Array<float, 33, 1>, IsZero>);
-  benchmark::RegisterBenchmark("isZero<Matrix4d>", BM_Fixed<Matrix4d, IsZero>);
-  benchmark::RegisterBenchmark("all<Vector3f>", BM_Fixed<Vector3f, All>);
+  using T = EIGEN_BENCH_PREDICATE_SCALAR;
+  constexpr Op op = EIGEN_BENCH_PREDICATE_OP;
+  const std::string name = std::string(opNames[op]) + "<" EIGEN_MAKESTRING(EIGEN_BENCH_PREDICATE_SCALAR) ">";
+  benchmark::RegisterBenchmark(name.c_str(), BM_Dynamic<T, op, false>)
+      ->DenseRange(1, 16)
+      ->Arg(32)
+      ->Arg(64)
+      ->Arg(1024)
+      ->Arg(16384);
+  benchmark::RegisterBenchmark((name + "/first").c_str(), BM_Dynamic<T, op, true>)
+      ->Arg(16)
+      ->Arg(64)
+      ->Arg(256)
+      ->Arg(1024)
+      ->Arg(16384);
+  return true;
+}();
+#elif defined(EIGEN_BENCH_PREDICATE_XPR)
+const bool registered = [] {
+  constexpr Op op = EIGEN_BENCH_PREDICATE_OP;
+  const std::string name = std::string(opNames[op]) + "<" EIGEN_MAKESTRING(EIGEN_BENCH_PREDICATE_XPR) ">";
+  benchmark::RegisterBenchmark(name.c_str(), BM_Fixed<EIGEN_BENCH_PREDICATE_XPR, op>);
+  return true;
+}();
+#else
+const bool registered = [] {
   benchmark::RegisterBenchmark("blockIsZero<float>", BM_BlockIsZero)->Arg(4)->Arg(16)->Arg(64)->Arg(256);
   return true;
 }();
+#endif
 
 }  // namespace
 }  // namespace Eigen
