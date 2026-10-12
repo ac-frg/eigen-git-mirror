@@ -107,8 +107,8 @@ class NumericalDiff : public Functor_ {
    * Computes the Jacobian of the functor at \a _x into \a jac and returns the number of functor evaluations.
    *
    * The step along coordinate \c j is <tt>h = max(|x[j]| * rel_tol, abs_tol)</tt> with rel_tol and abs_tol selected by
-   * the user. The rel_tol selected by the user must be greater than or equal to <tt> sqrt(epsilon) </tt>, and abs_tol
-   * must be greater than or equal to 0, where \c epsilon is the machine precision NumTraits<Scalar>::epsilon(); the
+   * the user. The rel_tol selected by the user must be greater than or equal to epsilon, and abs_tol
+   * must be greater than 0, where \c epsilon is the machine precision NumTraits<Scalar>::epsilon(); the
    * difference quotient divides by the representable step <tt>fl(x[j] + h) - x[j]</tt> actually applied.
    *
    * In forward mode, the default rel_tol is <tt> sqrt(NumTraits<Scalar>::epsilon()) </tt> and the default abs_tol
