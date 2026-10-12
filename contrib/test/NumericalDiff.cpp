@@ -133,7 +133,7 @@ void test_central() {
   VERIFY_IS_APPROX(jac, actual_jac);
 
   // With the default changed to cbrt(epsilon), the maximum error has become lower
-  // This verifies we
+  // This verifies we get the new, lower maximum error.
   VERIFY_LE((jac - actual_jac).cwiseAbs().maxCoeff(), 1e-10);
 }
 
@@ -179,26 +179,30 @@ void test_step_size() {
   MatrixXd expected(1, 1);
 
   // Test that setting relative step size and absolute step sizes gives the expected answer
-  NumericalDiff<step_size_functor> numDiffBothSet(functor, 1e-4, 1e-6);
+  NumericalDiff<step_size_functor> numDiffBothSet(functor);
+  numDiffBothSet.setRelTol(1e-4);
+  numDiffBothSet.setAbsTol(1e-6);
   x << 1000.0;
   numDiffBothSet.df(x, jac);
   expected << 1e-1;  // rel_tol * 1000.0
   VERIFY_IS_APPROX(jac, expected);
 
-  NumericalDiff<step_size_functor_abs> numDiffBothSetAbs(functor_abs, 1e-4, 1e-6);
+  NumericalDiff<step_size_functor_abs> numDiffBothSetAbs(functor_abs);
+  numDiffBothSetAbs.setRelTol(1e-4);
+  numDiffBothSetAbs.setAbsTol(1e-6);
   x << 0.0;
   numDiffBothSetAbs.df(x, jac);
   expected << 1e-6;  // abs_tol
   VERIFY_IS_APPROX(jac, expected);
 
   // Test that setting relative step size only gives abs_tol = rel_tol
-  NumericalDiff<step_size_functor> numDiffRelOnly(functor, 1e-4);
+  NumericalDiff<step_size_functor> numDiffRelOnly(functor, 1e-8);
   x << 1000.0;
   expected << 1e-1;  // rel_tol * 1000.0
   numDiffRelOnly.df(x, jac);
   VERIFY_IS_APPROX(jac, expected);
 
-  NumericalDiff<step_size_functor_abs> numDiffRelOnlyAbs(functor_abs, 1e-4);
+  NumericalDiff<step_size_functor_abs> numDiffRelOnlyAbs(functor_abs, 1e-8);
   x << 0.0;
   numDiffRelOnlyAbs.df(x, jac);
   expected << 1e-4;  // abs_tol = rel_tol
@@ -220,26 +224,30 @@ void test_step_size() {
   // Run the same tests, but for central differences
 
   // Test that setting relative step size and absolute step sizes gives the expected answer
-  NumericalDiff<step_size_functor, Central> numDiffCentralBothSet(functor, 1e-4, 1e-6);
+  NumericalDiff<step_size_functor, Central> numDiffCentralBothSet(functor);
+  numDiffCentralBothSet.setRelTol(1e-4);
+  numDiffCentralBothSet.setAbsTol(1e-6);
   x << 1000.0;
   numDiffCentralBothSet.df(x, jac);
   expected << 1e-1;  // rel_tol * 1000.0
   VERIFY_IS_APPROX(jac, expected);
-  //
-  NumericalDiff<step_size_functor_abs, Central> numDiffCentralBothSetAbs(functor_abs, 1e-4, 1e-6);
+
+  NumericalDiff<step_size_functor_abs, Central> numDiffCentralBothSetAbs(functor_abs);
+  numDiffCentralBothSetAbs.setRelTol(1e-4);
+  numDiffCentralBothSetAbs.setAbsTol(1e-6);
   x << 0.0;
   numDiffCentralBothSetAbs.df(x, jac);
   expected << 1e-6;  // abs_tol
   VERIFY_IS_APPROX(jac, expected);
 
   // Test that setting relative step size only gives abs_tol = rel_tol
-  NumericalDiff<step_size_functor, Central> numDiffCentralRelOnly(functor, 1e-4);
+  NumericalDiff<step_size_functor, Central> numDiffCentralRelOnly(functor, 1e-12);
   x << 1000.0;
   expected << 1e-1;  // rel_tol * 1000.0
   numDiffCentralRelOnly.df(x, jac);
   VERIFY_IS_APPROX(jac, expected);
 
-  NumericalDiff<step_size_functor_abs, Central> numDiffCentralRelOnlyAbs(functor_abs, 1e-4);
+  NumericalDiff<step_size_functor_abs, Central> numDiffCentralRelOnlyAbs(functor_abs, 1e-12);
   x << 0.0;
   numDiffCentralRelOnlyAbs.df(x, jac);
   expected << 1e-4;  // abs_tol = rel_tol

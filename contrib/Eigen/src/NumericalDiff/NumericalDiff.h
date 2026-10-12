@@ -58,49 +58,38 @@ class NumericalDiff : public Functor_ {
 
  private:
   // Fallback/Forward mode helper
-  template <NumericalDiffMode M = mode, typename std::enable_if_t<M == Forward, int> = 0>
   static Scalar defaultRelTol() {
-    return numext::sqrt(NumTraits<Scalar>::epsilon());
-  }
-
-  // Central mode helper
-  template <NumericalDiffMode M = mode, typename std::enable_if_t<M == Central, int> = 0>
-  static Scalar defaultRelTol() {
-    return numext::cbrt(NumTraits<Scalar>::epsilon());
+    return mode == Central ? numext::cbrt(NumTraits<Scalar>::epsilon()) : numext::sqrt(NumTraits<Scalar>::epsilon());
   }
 
  public:
-  NumericalDiff(Scalar _rel_tol = defaultRelTol()) : Functor(), rel_tol(_rel_tol), abs_tol(_rel_tol) {
-    // Ensure the rel_tol and abs_tol values h >= epsilon |x_j| >= ulp(xj)
-    eigen_assert(rel_tol >= NumTraits<Scalar>::epsilon() && abs_tol > 0);
+  NumericalDiff(Scalar epsfcn = 0.)
+      : Functor(),
+        rel_tol(mode == Central ? numext::cbrt(numext::maxi(epsfcn, NumTraits<Scalar>::epsilon()))
+                                : numext::sqrt(numext::maxi(epsfcn, NumTraits<Scalar>::epsilon()))) {
+    setAbsTol(rel_tol);
   }
-  NumericalDiff(const Functor& f, Scalar _rel_tol = defaultRelTol())
-      : Functor(f), rel_tol(_rel_tol), abs_tol(_rel_tol) {
-    // Ensure the rel_tol and abs_tol values h >= epsilon |x_j| >= ulp(xj)
-    eigen_assert(rel_tol >= NumTraits<Scalar>::epsilon() && abs_tol > 0);
-  }
-  NumericalDiff(const Functor& f, Scalar _rel_tol, Scalar _abs_tol) : Functor(f), rel_tol(_rel_tol), abs_tol(_abs_tol) {
-    // Ensure the rel_tol and abs_tol values h >= epsilon |x_j| >= ulp(xj)
-    eigen_assert(rel_tol >= NumTraits<Scalar>::epsilon() && abs_tol > 0);
+  NumericalDiff(const Functor& f, Scalar epsfcn = 0.)
+      : Functor(f),
+        rel_tol(mode == Central ? numext::cbrt(numext::maxi(epsfcn, NumTraits<Scalar>::epsilon()))
+                                : numext::sqrt(numext::maxi(epsfcn, NumTraits<Scalar>::epsilon()))) {
+    setAbsTol(rel_tol);
   }
 
   // forward constructors
   template <typename T0>
-  NumericalDiff(const T0& a0) : Functor(a0), rel_tol(defaultRelTol()), abs_tol(defaultRelTol()) {
-    // Ensure the rel_tol and abs_tol values h >= epsilon |x_j| >= ulp(xj)
-    eigen_assert(rel_tol >= NumTraits<Scalar>::epsilon() && abs_tol > 0);
-  }
+  NumericalDiff(const T0& a0) : Functor(a0), rel_tol(defaultRelTol()), abs_tol(defaultRelTol()) {}
   template <typename T0, typename T1>
-  NumericalDiff(const T0& a0, const T1& a1) : Functor(a0, a1), rel_tol(defaultRelTol()), abs_tol(defaultRelTol()) {
-    // Ensure the rel_tol and abs_tol values h >= epsilon |x_j| >= ulp(xj)
-    eigen_assert(rel_tol >= NumTraits<Scalar>::epsilon() && abs_tol > 0);
-  }
+  NumericalDiff(const T0& a0, const T1& a1) : Functor(a0, a1), rel_tol(defaultRelTol()), abs_tol(defaultRelTol()) {}
   template <typename T0, typename T1, typename T2>
   NumericalDiff(const T0& a0, const T1& a1, const T2& a2)
-      : Functor(a0, a1, a2), rel_tol(defaultRelTol()), abs_tol(defaultRelTol()) {
-    // Ensure the rel_tol and abs_tol values h >= epsilon |x_j| >= ulp(xj)
-    eigen_assert(rel_tol >= NumTraits<Scalar>::epsilon() && abs_tol > 0);
-  }
+      : Functor(a0, a1, a2), rel_tol(defaultRelTol()), abs_tol(defaultRelTol()) {}
+
+  // Setters/getters for tolerances
+  void setRelTol(Scalar _rel_tol) { eigen_assert(rel_tol >= NumTraits<Scalar>::epsilon()) rel_tol = _rel_tol; }
+  void setAbsTol(Scalar _abs_tol) { eigen_assert(_abs_tol > 0) abs_tol = _abs_tol; }
+  Scalar relTol() const { return rel_tol; }
+  Scalar absTol() const { return abs_tol; }
 
   enum { InputsAtCompileTime = Functor::InputsAtCompileTime, ValuesAtCompileTime = Functor::ValuesAtCompileTime };
 
