@@ -9,6 +9,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 #include "main.h"
+#include "fp_control.h"
 
 // |value|, promoted so that the error bounds below accumulate in the widest available type.
 template <typename T>
@@ -369,8 +370,8 @@ void inner_product_exact_values() {
   }
 }
 
-// isOrthogonal() compares |<v, w>|^2 with prec^2 |v|^2 |w|^2: both sides must stay in range for every
-// representable scale, including scales whose fourth power overflows or underflows.
+// isOrthogonal() must hold at every representable scale, including scales whose squares or fourth powers overflow or
+// underflow.
 template <typename Scalar>
 void is_orthogonal_scaling() {
   using RealScalar = typename NumTraits<Scalar>::Real;
@@ -396,15 +397,109 @@ void is_orthogonal_scaling() {
   VERIFY(Vec::Zero(5).isOrthogonal(v));
 }
 
-// A tight prec must not be squared away: <a/|a|, b/|b|> = t, where t^2 rounds to zero.
+// A tight prec must not be squared away: <a/|a|, b/|b|> = t, where t^2 rounds to zero. This holds at every
+// power-of-two scale that keeps t |a| normal, including scales where the product in <a, b> underflows.
 template <typename RealScalar>
 void is_orthogonal_tight_prec() {
   using Vec = Matrix<RealScalar, 2, 1>;
   const RealScalar t = numext::sqrt(std::numeric_limits<RealScalar>::denorm_min()) / RealScalar(2);
-  const Vec a(RealScalar(1), t), b(RealScalar(0), RealScalar(1));
-  VERIFY(!a.isOrthogonal(b, RealScalar(0)));
-  VERIFY(!a.isOrthogonal(b, t / RealScalar(2)));
-  VERIFY(a.isOrthogonal(b, RealScalar(2) * t));
+  const int minExponent = std::numeric_limits<RealScalar>::min_exponent;
+  const int maxExponent = std::numeric_limits<RealScalar>::max_exponent;
+  for (int ea = minExponent; ea < maxExponent; ea += 7) {
+    const RealScalar sa = std::ldexp(RealScalar(1), ea);
+    if (!(t * sa >= (std::numeric_limits<RealScalar>::min)())) continue;
+    for (int eb = minExponent; eb < maxExponent; eb += 5) {
+      const Vec a(sa, t * sa), b(RealScalar(0), std::ldexp(RealScalar(1), eb));
+      VERIFY(!a.isOrthogonal(b, RealScalar(0)));
+      VERIFY(!a.isOrthogonal(b, t / RealScalar(2)));
+      VERIFY(a.isOrthogonal(b, RealScalar(2) * t));
+    }
+  }
+}
+
+// <a, b> = 0 exactly must stay zero for prec = 0 and tiny positive prec at power-of-two scales near both ends of the
+// exponent range; for float and double, their squares overflow or underflow.
+template <typename Scalar>
+void is_orthogonal_exact_cancellation(const Scalar& phaseA = Scalar(1), const Scalar& phaseB = Scalar(1)) {
+  using RealScalar = typename NumTraits<Scalar>::Real;
+  using Vec = Matrix<Scalar, 3, 1>;
+  const Vec a = Vec(Scalar(1), Scalar(3), Scalar(1)) * phaseA;
+  const Vec b = Vec(Scalar(3), Scalar(-1), Scalar(0)) * phaseB;
+  const RealScalar scales[] = {RealScalar(1),
+                               RealScalar(std::ldexp(1.0, std::numeric_limits<RealScalar>::max_exponent - 4)),
+                               RealScalar(std::ldexp(1.0, std::numeric_limits<RealScalar>::min_exponent + 1))};
+  const RealScalar eps = NumTraits<RealScalar>::epsilon();
+  const RealScalar precs[] = {RealScalar(0), std::numeric_limits<RealScalar>::denorm_min(), eps * eps};
+  for (RealScalar sa : scales) {
+    for (RealScalar sb : scales) {
+      const Vec x = a * sa, y = b * sb;
+      for (RealScalar prec : precs) {
+        VERIFY(x.isOrthogonal(y, prec));
+        VERIFY(y.isOrthogonal(x, prec));
+        VERIFY(!x.isOrthogonal(x, prec));
+      }
+    }
+  }
+}
+
+// <v, w> = 0 exactly although v spans more exponents than scaling its maximum to 1 keeps normal. In float,
+// v = (2^63, 16393 * 2^-90) and w = (-245895 * 2^-126, 15 * 2^27), with 16393 * 15 = 245895.
+template <typename RealScalar>
+void is_orthogonal_wide_range_cancellation() {
+  using Vec = Matrix<RealScalar, 2, 1>;
+  const int p = std::numeric_limits<RealScalar>::max_exponent / 2 - 1;
+  const int q = p + std::numeric_limits<RealScalar>::min_exponent - std::numeric_limits<RealScalar>::digits - 4;
+  const int s = std::numeric_limits<RealScalar>::digits + 3;
+  const Vec v(std::ldexp(RealScalar(1), p), std::ldexp(RealScalar(16393), q));
+  const Vec w(std::ldexp(RealScalar(-245895), q + s - p), std::ldexp(RealScalar(15), s));
+  VERIFY_IS_EQUAL(v.dot(w), RealScalar(0));
+  const RealScalar eps = NumTraits<RealScalar>::epsilon();
+  for (RealScalar prec : {RealScalar(0), std::numeric_limits<RealScalar>::denorm_min(), eps * eps, eps}) {
+    VERIFY(v.isOrthogonal(w, prec));
+    VERIFY(w.isOrthogonal(v, prec));
+  }
+}
+
+// A non-finite coefficient is orthogonal to nothing; a zero or empty vector is orthogonal to everything.
+template <typename Scalar>
+void is_orthogonal_special_values() {
+  using RealScalar = typename NumTraits<Scalar>::Real;
+  using Vec = Matrix<Scalar, Dynamic, 1>;
+  Vec v(3), w(3);
+  v << Scalar(1), Scalar(3), Scalar(1);
+  w << Scalar(3), Scalar(-1), Scalar(0);
+  for (const RealScalar special :
+       {NumTraits<RealScalar>::quiet_NaN(), NumTraits<RealScalar>::infinity(), -NumTraits<RealScalar>::infinity()}) {
+    for (Index i = 0; i < 3; ++i) {
+      Vec x = v;
+      x(i) = Scalar(special);
+      VERIFY(!x.isOrthogonal(w));
+      VERIFY(!w.isOrthogonal(x));
+      VERIFY(!x.isOrthogonal(Vec::Zero(3)));
+      VERIFY(!x.isOrthogonal(x));
+    }
+  }
+  VERIFY(Vec::Zero(3).isOrthogonal(v, RealScalar(0)));
+  VERIFY(v.isOrthogonal(Vec::Zero(3), RealScalar(0)));
+  VERIFY(Vec().isOrthogonal(Vec(), RealScalar(0)));
+}
+
+// Under FTZ and DAZ, a vector whose largest coefficient is subnormal is still nonzero.
+template <typename Scalar>
+void is_orthogonal_flush_to_zero() {
+  using RealScalar = typename NumTraits<Scalar>::Real;
+  using Bits = typename internal::binary_floating_point_traits<RealScalar>::Bits;
+  using Vec = Matrix<Scalar, 2, 1>;
+  // A runtime bit pattern keeps the subnormal out of constant-folded floating-point arithmetic.
+  volatile Bits subnormalBits = Bits(1);
+  const Scalar tiny(numext::bit_cast<RealScalar>(Bits(subnormalBits)));
+  const Vec v(tiny, Scalar(0)), w(Scalar(0), tiny), u(tiny, tiny);
+  ScopedFlushToZero flushToZero(FlushToZeroMode::Both);
+  if (!flushToZero.isSupported()) return;
+  VERIFY(!v.isOrthogonal(v));
+  VERIFY(!v.isOrthogonal(v, RealScalar(0)));
+  VERIFY(!v.isOrthogonal(u));
+  VERIFY(v.isOrthogonal(w));
 }
 
 // Test transposeInPlace at vectorization boundary sizes.
@@ -544,6 +639,22 @@ EIGEN_DECLARE_TEST(adjoint) {
   CALL_SUBTEST_24(is_orthogonal_scaling<std::complex<float>>());
   CALL_SUBTEST_24(is_orthogonal_tight_prec<float>());
   CALL_SUBTEST_24(is_orthogonal_tight_prec<double>());
+  CALL_SUBTEST_24(is_orthogonal_exact_cancellation<float>());
+  CALL_SUBTEST_24(is_orthogonal_exact_cancellation<double>());
+  CALL_SUBTEST_24(is_orthogonal_exact_cancellation<half>());
+  CALL_SUBTEST_24(is_orthogonal_exact_cancellation<bfloat16>());
+  // conj(1 + i) (2 - i) = 1 - 3i multiplies every product exactly.
+  CALL_SUBTEST_24(is_orthogonal_exact_cancellation<std::complex<float>>({1, 1}, {2, -1}));
+  CALL_SUBTEST_24(is_orthogonal_exact_cancellation<std::complex<double>>({1, 1}, {2, -1}));
+  CALL_SUBTEST_24(is_orthogonal_wide_range_cancellation<float>());
+  CALL_SUBTEST_24(is_orthogonal_wide_range_cancellation<double>());
+  CALL_SUBTEST_24(is_orthogonal_special_values<float>());
+  CALL_SUBTEST_24(is_orthogonal_special_values<double>());
+  CALL_SUBTEST_24(is_orthogonal_special_values<std::complex<float>>());
+  CALL_SUBTEST_24(is_orthogonal_special_values<half>());
+  CALL_SUBTEST_24(is_orthogonal_flush_to_zero<float>());
+  CALL_SUBTEST_24(is_orthogonal_flush_to_zero<double>());
+  CALL_SUBTEST_24(is_orthogonal_flush_to_zero<std::complex<float>>());
 
   // transposeInPlace at vectorization boundaries (deterministic, outside g_repeat).
   CALL_SUBTEST_18(transposeInPlace_boundary<float>());
