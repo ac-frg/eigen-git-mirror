@@ -70,39 +70,37 @@ class NumericalDiff : public Functor_ {
   }
 
  public:
-  NumericalDiff(Scalar _rel_tol = defaultRelTol())
-      : Functor(), rel_tol(_rel_tol), abs_tol(_rel_tol) {
-          // Ensure the rel_tol and abs_tol values h >= epsilon |x_j| >= ulp(xj)
-          eigen_assert(rel_tol >= NumTraits<Scalar>::epsilon() && abs_tol > 0);
-      }
+  NumericalDiff(Scalar _rel_tol = defaultRelTol()) : Functor(), rel_tol(_rel_tol), abs_tol(_rel_tol) {
+    // Ensure the rel_tol and abs_tol values h >= epsilon |x_j| >= ulp(xj)
+    eigen_assert(rel_tol >= NumTraits<Scalar>::epsilon() && abs_tol > 0);
+  }
   NumericalDiff(const Functor& f, Scalar _rel_tol = defaultRelTol())
       : Functor(f), rel_tol(_rel_tol), abs_tol(_rel_tol) {
-          // Ensure the rel_tol and abs_tol values h >= epsilon |x_j| >= ulp(xj)
-          eigen_assert(rel_tol >= NumTraits<Scalar>::epsilon() && abs_tol > 0);
-      }
-  NumericalDiff(const Functor& f, Scalar _rel_tol, Scalar _abs_tol)
-      : Functor(f), rel_tol(_rel_tol), abs_tol(_abs_tol) {
-          // Ensure the rel_tol and abs_tol values h >= epsilon |x_j| >= ulp(xj)
-          eigen_assert(rel_tol >= NumTraits<Scalar>::epsilon() && abs_tol > 0);
-      }
+    // Ensure the rel_tol and abs_tol values h >= epsilon |x_j| >= ulp(xj)
+    eigen_assert(rel_tol >= NumTraits<Scalar>::epsilon() && abs_tol > 0);
+  }
+  NumericalDiff(const Functor& f, Scalar _rel_tol, Scalar _abs_tol) : Functor(f), rel_tol(_rel_tol), abs_tol(_abs_tol) {
+    // Ensure the rel_tol and abs_tol values h >= epsilon |x_j| >= ulp(xj)
+    eigen_assert(rel_tol >= NumTraits<Scalar>::epsilon() && abs_tol > 0);
+  }
 
   // forward constructors
   template <typename T0>
   NumericalDiff(const T0& a0) : Functor(a0), rel_tol(defaultRelTol()), abs_tol(defaultRelTol()) {
-          // Ensure the rel_tol and abs_tol values h >= epsilon |x_j| >= ulp(xj)
-          eigen_assert(rel_tol >= NumTraits<Scalar>::epsilon() && abs_tol > 0);
+    // Ensure the rel_tol and abs_tol values h >= epsilon |x_j| >= ulp(xj)
+    eigen_assert(rel_tol >= NumTraits<Scalar>::epsilon() && abs_tol > 0);
   }
   template <typename T0, typename T1>
   NumericalDiff(const T0& a0, const T1& a1) : Functor(a0, a1), rel_tol(defaultRelTol()), abs_tol(defaultRelTol()) {
-          // Ensure the rel_tol and abs_tol values h >= epsilon |x_j| >= ulp(xj)
-          eigen_assert(rel_tol >= NumTraits<Scalar>::epsilon() && abs_tol > 0);
+    // Ensure the rel_tol and abs_tol values h >= epsilon |x_j| >= ulp(xj)
+    eigen_assert(rel_tol >= NumTraits<Scalar>::epsilon() && abs_tol > 0);
   }
   template <typename T0, typename T1, typename T2>
   NumericalDiff(const T0& a0, const T1& a1, const T2& a2)
       : Functor(a0, a1, a2), rel_tol(defaultRelTol()), abs_tol(defaultRelTol()) {
-          // Ensure the rel_tol and abs_tol values h >= epsilon |x_j| >= ulp(xj)
-          eigen_assert(rel_tol >= NumTraits<Scalar>::epsilon() && abs_tol > 0);
-      }
+    // Ensure the rel_tol and abs_tol values h >= epsilon |x_j| >= ulp(xj)
+    eigen_assert(rel_tol >= NumTraits<Scalar>::epsilon() && abs_tol > 0);
+  }
 
   enum { InputsAtCompileTime = Functor::InputsAtCompileTime, ValuesAtCompileTime = Functor::ValuesAtCompileTime };
 
@@ -110,12 +108,12 @@ class NumericalDiff : public Functor_ {
    * Computes the Jacobian of the functor at \a _x into \a jac and returns the number of functor evaluations.
    *
    * The step along coordinate \c j is <tt>h = max(|x[j]| * rel_tol, abs_tol)</tt> with rel_tol and abs_tol selected by
-   * the user. The rel_tol selected by the user must be greater than or equal to <tt> sqrt(epsilon) </tt>, and abs_tol 
-   * must be greater than or equal to 0, where \c epsilon is the machine precision NumTraits<Scalar>::epsilon(); the 
+   * the user. The rel_tol selected by the user must be greater than or equal to <tt> sqrt(epsilon) </tt>, and abs_tol
+   * must be greater than or equal to 0, where \c epsilon is the machine precision NumTraits<Scalar>::epsilon(); the
    * difference quotient divides by the representable step <tt>fl(x[j] + h) - x[j]</tt> actually applied.
    *
    * In forward mode, the default rel_tol is <tt> sqrt(NumTraits<Scalar>::epsilon()) </tt> and the default abs_tol
-   * is abs_tol = rel_tol. In central mode, the default rel_tol is <tt> cbrt(NumTraits<Scalar>::epsilon()) </tt> 
+   * is abs_tol = rel_tol. In central mode, the default rel_tol is <tt> cbrt(NumTraits<Scalar>::epsilon()) </tt>
    * and the default abs_tol = rel_tol.
    */
   int df(const InputType& _x, JacobianType& jac) const {
