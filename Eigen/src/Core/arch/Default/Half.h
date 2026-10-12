@@ -915,7 +915,8 @@ EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC half(max)(const half& a, const half& b) { 
 // a * b + c for half or bfloat16 a, b and c, rounded to odd in double: narrowing the result to half or bfloat16, which
 // rounds to odd in float and then to nearest, then rounds a * b + c once. A float fma rounds twice instead: for half,
 // fma(33/32, 65/64, 2^-24) rounds to the midpoint 2145/2048 in float, then to even, 1 + 3/64, not up to 1 + 49/1024.
-// a * b is exact in double, and TwoSum (Knuth) gives the error e of s = a * b + c exactly.
+// a * b is exact in double, and TwoSum (Knuth) gives the error e of s = a * b + c exactly. Device code does not use
+// it: GPUs run double at a fraction of the float rate, and SYCL devices need not support it.
 EIGEN_DEVICE_FUNC inline double fma_round_to_odd(float a, float b, float c) {
   const double p = static_cast<double>(a) * static_cast<double>(b);
   const double c_wide = static_cast<double>(c);
@@ -929,7 +930,13 @@ EIGEN_DEVICE_FUNC inline double fma_round_to_odd(float a, float b, float c) {
 }
 
 EIGEN_DEVICE_FUNC inline half fma(const half& a, const half& b, const half& c) {
-#if defined(EIGEN_HAS_ARM64_FP16_SCALAR_ARITHMETIC)
+#if defined(EIGEN_HAS_NATIVE_GPU_FP16)
+  // Rounded once in hardware.
+  return __hfma(::__half(a), ::__half(b), ::__half(c));
+#elif defined(SYCL_DEVICE_ONLY)
+  // Rounds twice; see fma_round_to_odd.
+  return half(numext::fma(static_cast<float>(a), static_cast<float>(b), static_cast<float>(c)));
+#elif defined(EIGEN_HAS_ARM64_FP16_SCALAR_ARITHMETIC)
   return half_from_rep(vfmah_f16(c.x, a.x, b.x));
 #elif defined(EIGEN_VECTORIZE_AVX512FP16)
   // Reduces to vfmadd213sh.

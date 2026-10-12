@@ -778,7 +778,12 @@ EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC bfloat16 fmax(const bfloat16& a, const bfl
 }
 
 EIGEN_DEVICE_FUNC inline bfloat16 fma(const bfloat16& a, const bfloat16& b, const bfloat16& c) {
+#if defined(EIGEN_GPU_COMPILE_PHASE) || defined(SYCL_DEVICE_ONLY)
+  // Rounds twice; see half_impl::fma_round_to_odd.
+  return bfloat16(numext::fma(static_cast<float>(a), static_cast<float>(b), static_cast<float>(c)));
+#else
   return bfloat16(half_impl::fma_round_to_odd(static_cast<float>(a), static_cast<float>(b), static_cast<float>(c)));
+#endif
 }
 
 #ifndef EIGEN_NO_IO
