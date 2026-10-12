@@ -145,12 +145,13 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet pexp_complex(const Pa
   // The fixups below need x = +-inf or an overflowing exp(x). Such inputs are rare, so packets without
   // |x| >= (max_exponent - 1) ln(2), just below the overflow threshold, skip them.
   const RealScalar large_x = RealScalar(NumTraits<RealScalar>::max_exponent() - 1) * RealScalar(EIGEN_LN2);
-  // exp(x) cos(y) and exp(x) sin(y) can be finite where exp(x) overflows: those packets use exp(x) = h^2 with
-  // h = exp(x / 2), and form (h cis(y)) h.
+  // exp(x) cos(y) and exp(x) sin(y) can be finite where exp(x) overflows: those elements use exp(x) = h^2 with
+  // h = exp(x / 2), and form (h cis(y)) h. The others keep exp(x) cis(y), whatever shares their packet.
   RealPacket expx_half = expx;
   if (predux_any(pcmp_le(pset1<RealPacket>(large_x), pabs(x)))) {
-    expx_half = pexp(pmul(x, pset1<RealPacket>(RealScalar(0.5))));
     const RealPacket cst_pos_inf = pinf<RealPacket>();
+    const RealPacket split = pcmp_eq(expx, cst_pos_inf);
+    expx_half = pselect(split, pexp(pmul(x, pset1<RealPacket>(RealScalar(0.5)))), expx);
     const RealPacket cst_neg_inf = por(psignmask<RealPacket>(), pinf<RealPacket>());
 
     // If x is -inf, we know that cossin(y) is bounded,
@@ -171,7 +172,7 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet pexp_complex(const Pa
     RealPacket cisy_sign_one = por(pand(cisy, psignmask<RealPacket>()), pset1<RealPacket>(RealScalar(1)));
     RealPacket expx_inf_y_finite = pand(pcmp_eq(expx_half, cst_pos_inf), pcmp_lt(pabs(y), cst_pos_inf));
     cisy = pselect(expx_inf_y_finite, cisy_sign_one, cisy);
-    cisy = pmul(expx_half, cisy);
+    cisy = pselect(split, pmul(expx_half, cisy), cisy);
   }
 
   Packet result = Packet(pmul(expx_half, cisy));

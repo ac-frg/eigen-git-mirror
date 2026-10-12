@@ -2314,6 +2314,19 @@ struct exp_complex_test_impl {
         }
       }
     }
+
+    // An element whose exp(x) is finite gets the same result whatever shares its packet.
+    if (PacketSize > 1) {
+      Scalar data[PacketSize], alone[PacketSize], mixed[PacketSize];
+      for (int i = 0; i < PacketSize; ++i) data[i] = Scalar(RealScalar(1.75) + RealScalar(i), RealScalar(0.5));
+      internal::pstoreu(alone, internal::pexp(internal::ploadu<Packet>(data)));
+      data[0] = Scalar(x_big, RealScalar(1.2));
+      internal::pstoreu(mixed, internal::pexp(internal::ploadu<Packet>(data)));
+      for (int i = 1; i < PacketSize; ++i) {
+        VERIFY_IS_EQUAL(numext::real(mixed[i]), numext::real(alone[i]));
+        VERIFY_IS_EQUAL(numext::imag(mixed[i]), numext::imag(alone[i]));
+      }
+    }
   }
 };
 
