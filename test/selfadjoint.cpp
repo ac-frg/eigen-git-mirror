@@ -141,6 +141,19 @@ void selfadjoint_l1norm_integer() {
   }
 }
 
+// nestedExpression() on a non-const view keeps the operand's constness: callable for a const operand, writable for a
+// mutable one.
+template <typename = void>
+void selfadjoint_nested_expression() {
+  const Matrix3d a = Matrix3d::Identity();
+  auto lower = a.selfadjointView<Lower>();
+  VERIFY(&lower.nestedExpression() == &a);
+  Matrix3d b = Matrix3d::Zero();
+  auto upper = b.selfadjointView<Upper>();
+  upper.nestedExpression()(0, 1) = 1;
+  VERIFY_IS_EQUAL(b(0, 1), 1.0);
+}
+
 void bug_159() {
   Matrix3d m = Matrix3d::Random().selfadjointView<Lower>();
   EIGEN_UNUSED_VARIABLE(m);
@@ -161,6 +174,7 @@ EIGEN_DECLARE_TEST(selfadjoint) {
   }
 
   CALL_SUBTEST_1(bug_159());
+  CALL_SUBTEST_1(selfadjoint_nested_expression<>());
   CALL_SUBTEST_4(selfadjoint_l1norm_sizes<double>());
   CALL_SUBTEST_4(selfadjoint_l1norm_sizes<std::complex<double> >());
   CALL_SUBTEST_6(selfadjoint_l1norm_sizes<std::complex<float> >());
