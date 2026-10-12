@@ -2428,31 +2428,22 @@ void exp_complex_test(Scalar* data1, Scalar* data2, Scalar* ref, int size) {
 }
 
 // Checks pdiv(x, y) against its exact value, expected, in every element, and returns the FE_DIVBYZERO, FE_INVALID and
-// FE_OVERFLOW flags it raised. The volatile accesses keep the compiler from folding the division or moving it across
-// the flag accesses.
+// FE_OVERFLOW flags it raised.
 template <typename Scalar, typename Packet>
 int pdiv_complex_exceptions(const Scalar& x, const Scalar& y, const Scalar& expected) {
-  using RealScalar = typename Scalar::value_type;
   constexpr int PacketSize = internal::unpacket_traits<Packet>::size;
-  volatile RealScalar parts[4] = {numext::real(x), numext::imag(x), numext::real(y), numext::imag(y)};
-  volatile RealScalar output[2 * PacketSize];
-  Scalar a[PacketSize], b[PacketSize], q[PacketSize];
-  std::fenv_t saved_environment;
-  if (std::feholdexcept(&saved_environment) != 0) return 0;
+  Scalar operands[2 * PacketSize], q[PacketSize];
   for (int i = 0; i < PacketSize; ++i) {
-    a[i] = Scalar(parts[0], parts[1]);
-    b[i] = Scalar(parts[2], parts[3]);
+    operands[i] = x;
+    operands[PacketSize + i] = y;
   }
-  internal::pstoreu(q, internal::pdiv(internal::ploadu<Packet>(a), internal::ploadu<Packet>(b)));
+  const int raised = raised_exceptions<2 * PacketSize, PacketSize>(operands, q, [](const Scalar* in, Scalar* out) {
+    internal::pstoreu(out, internal::pdiv(internal::ploadu<Packet>(in),
+                                          internal::ploadu<Packet>(in + internal::unpacket_traits<Packet>::size)));
+  });
   for (int i = 0; i < PacketSize; ++i) {
-    output[2 * i] = numext::real(q[i]);
-    output[2 * i + 1] = numext::imag(q[i]);
-  }
-  const int raised = std::fetestexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW);
-  std::fesetenv(&saved_environment);
-  for (int i = 0; i < PacketSize; ++i) {
-    VERIFY_IS_EQUAL(RealScalar(output[2 * i]), numext::real(expected));
-    VERIFY_IS_EQUAL(RealScalar(output[2 * i + 1]), numext::imag(expected));
+    VERIFY_IS_EQUAL(numext::real(q[i]), numext::real(expected));
+    VERIFY_IS_EQUAL(numext::imag(q[i]), numext::imag(expected));
   }
   return raised;
 }
@@ -2533,6 +2524,7 @@ void packetmath_complex() {
       VERIFY_IS_EQUAL((pdiv_complex_exceptions<Scalar, Packet>(operands[0], operands[1], operands[2])), 0);
     }
 
+#if !EIGEN_ARCH_ARM  // 32-bit ARM flushes subnormals.
     // A large component beside a subnormal one, divided by one, must come back exactly: scaling the numerator by 1/4
     // would flush the subnormal component.
     const RealScalar tiny = std::numeric_limits<RealScalar>::denorm_min();
@@ -2548,6 +2540,7 @@ void packetmath_complex() {
         VERIFY_IS_EQUAL(numext::imag(pval[i]), numext::imag(mixed[(i + k) % 2]));
       }
     }
+#endif
   }
 
   // Test pisnan.
