@@ -90,8 +90,14 @@ class NumericalDiff : public Functor_ {
       : Functor(a0, a1, a2), rel_tol(defaultRelTol()), abs_tol(defaultRelTol()) {}
 
   // Setters/getters for tolerances
-  void setRelTol(Scalar _rel_tol) { eigen_assert(rel_tol >= NumTraits<Scalar>::epsilon()) rel_tol = _rel_tol; }
-  void setAbsTol(Scalar _abs_tol) { eigen_assert(_abs_tol > 0) abs_tol = _abs_tol; }
+  void setRelTol(Scalar _rel_tol) {
+    eigen_assert(rel_tol >= NumTraits<Scalar>::epsilon());
+    rel_tol = _rel_tol;
+  }
+  void setAbsTol(Scalar _abs_tol) {
+    eigen_assert(_abs_tol > 0);
+    abs_tol = _abs_tol;
+  }
   Scalar relTol() const { return rel_tol; }
   Scalar absTol() const { return abs_tol; }
 
