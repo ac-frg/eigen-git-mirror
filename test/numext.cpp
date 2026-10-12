@@ -552,6 +552,60 @@ void check_log2_powers_of_two() {
   }
 }
 
+// log2|z| = k for z = 2^k (+-1, +-0 i) and +-2^k i, on the scalar path and in vectorized lanes, the imaginary part
+// arg(z) log2(e) with the sign of a zero. Padding to a multiple of 64 elements puts every z in a full packet.
+template <typename T>
+void check_complex_log2_powers_of_two() {
+  using Complex = std::complex<T>;
+#if EIGEN_ARCH_ARM  // 32-bit ARM flushes subnormals.
+  const int k_min = std::numeric_limits<T>::min_exponent - 1;
+#else
+  const int k_min = std::numeric_limits<T>::min_exponent - std::numeric_limits<T>::digits;
+#endif
+  const int k_max = std::numeric_limits<T>::max_exponent - 1;
+  constexpr int kPerExponent = 6;
+  const Index count = kPerExponent * (k_max - k_min + 1);
+  Array<Complex, Dynamic, 1> z = Array<Complex, Dynamic, 1>::Ones((count + 63) / 64 * 64);
+  for (int k = k_min; k <= k_max; ++k) {
+    const T x = numext::ldexp(T(1), k), zero(0);
+    z.template segment<kPerExponent>(kPerExponent * (k - k_min)) << Complex(x, zero), Complex(x, -zero),
+        Complex(-x, zero), Complex(-x, -zero), Complex(zero, x), Complex(zero, -x);
+  }
+  const Array<Complex, Dynamic, 1> vectorized = z.log2();
+  for (int k = k_min; k <= k_max; ++k) {
+    for (Index i = kPerExponent * (k - k_min); i < kPerExponent * (k - k_min + 1); ++i) {
+      const T arg_log2 = T(EIGEN_LOG2E) * std::atan2(z(i).imag(), z(i).real());
+      const Complex scalar = internal::scalar_log2_op<Complex>()(z(i));
+      VERIFY_IS_EQUAL(scalar.real(), T(k));
+      VERIFY_IS_EQUAL(scalar.imag(), arg_log2);
+      VERIFY_IS_EQUAL(std::signbit(scalar.imag()), std::signbit(arg_log2));
+      VERIFY_IS_EQUAL(vectorized(i).real(), T(k));
+      VERIFY_IS_APPROX(vectorized(i).imag(), arg_log2);
+      VERIFY_IS_EQUAL(std::signbit(vectorized(i).imag()), std::signbit(arg_log2));
+    }
+  }
+}
+
+// The scalar complex log2 where |z| overflows or is subnormal, against log2|z| in the wider type W: within 2 ulps.
+template <typename T, typename W>
+void check_complex_log2_extreme_modulus() {
+  // W must hold |z| for the largest z.
+  if (std::numeric_limits<W>::max_exponent <= std::numeric_limits<T>::max_exponent) return;
+  using Complex = std::complex<T>;
+  const T highest = (std::numeric_limits<T>::max)();
+  std::vector<Complex> zs = {Complex(highest, highest), Complex(-highest, highest / 3)};
+#if !EIGEN_ARCH_ARM  // 32-bit ARM flushes subnormals.
+  const T denorm_min = std::numeric_limits<T>::denorm_min();
+  zs.push_back(Complex(3 * denorm_min, 4 * denorm_min));
+  zs.push_back(Complex((std::numeric_limits<T>::min)() / 3, -denorm_min));
+#endif
+  for (const Complex& z : zs) {
+    const W ref = std::log2(std::hypot(W(z.real()), W(z.imag())));
+    const T got = internal::scalar_log2_op<Complex>()(z).real();
+    VERIFY(numext::abs(W(got) - ref) <= W(2) * W(NumTraits<T>::epsilon()) * numext::abs(ref));
+  }
+}
+
 // NumTraits<T>::digits() counts significand bits like numeric_limits<T>::digits; std::complex<T>, for which
 // numeric_limits is not specialized, derives it from epsilon() = 2^(1 - digits).
 template <typename T>
@@ -1124,6 +1178,10 @@ EIGEN_DECLARE_TEST(numext) {
 
     CALL_SUBTEST(check_log2_powers_of_two<float>());
     CALL_SUBTEST(check_log2_powers_of_two<double>());
+    CALL_SUBTEST(check_complex_log2_powers_of_two<float>());
+    CALL_SUBTEST(check_complex_log2_powers_of_two<double>());
+    CALL_SUBTEST((check_complex_log2_extreme_modulus<float, double>()));
+    CALL_SUBTEST((check_complex_log2_extreme_modulus<double, long double>()));
 
     CALL_SUBTEST(check_twoprod<float>());
     CALL_SUBTEST(check_twoprod<double>());
