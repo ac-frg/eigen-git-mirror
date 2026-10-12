@@ -509,13 +509,17 @@ struct lpNorm_selector<Derived, Infinity> {
 };
 
 // |<v, w>|^2 <= prec^2 |v|^2 |w|^2 is homogeneous of degree four, so for |v_i| above ~4e9 or below ~1e-11 in float
-// both sides overflow to inf <= inf or underflow to 0 <= 0 and parallel vectors pass. Unit vectors keep the same test
-// in range; integers keep the exact form.
-template <typename Derived, typename OtherDerived, bool IsInteger = NumTraits<typename Derived::Scalar>::IsInteger>
+// both sides overflow to inf <= inf or underflow to 0 <= 0 and parallel vectors pass. For IEEE floating-point scalars,
+// |<v/|v|, w/|w|>| <= prec stays in range and is not squared, so a tight prec does not underflow either. Other scalars,
+// integers and exact custom types included, keep the exact form, which needs no square root.
+template <typename Derived, typename OtherDerived,
+          bool Normalize = std::numeric_limits<typename NumTraits<typename Derived::Scalar>::Real>::is_iec559>
 struct is_orthogonal_impl {
   template <typename RealScalar>
   static bool run(const Derived& v, const OtherDerived& w, const RealScalar& prec) {
-    return numext::abs2(v.stableNormalized().dot(w.stableNormalized())) <= prec * prec;
+    typename nested_eval<Derived, 2>::type nested(v);
+    typename nested_eval<OtherDerived, 2>::type otherNested(w);
+    return numext::abs2(nested.dot(otherNested)) <= prec * prec * nested.squaredNorm() * otherNested.squaredNorm();
   }
 };
 
@@ -523,9 +527,7 @@ template <typename Derived, typename OtherDerived>
 struct is_orthogonal_impl<Derived, OtherDerived, true> {
   template <typename RealScalar>
   static bool run(const Derived& v, const OtherDerived& w, const RealScalar& prec) {
-    typename nested_eval<Derived, 2>::type nested(v);
-    typename nested_eval<OtherDerived, 2>::type otherNested(w);
-    return numext::abs2(nested.dot(otherNested)) <= prec * prec * nested.squaredNorm() * otherNested.squaredNorm();
+    return numext::abs(v.stableNormalized().dot(w.stableNormalized())) <= prec;
   }
 };
 

@@ -396,6 +396,17 @@ void is_orthogonal_scaling() {
   VERIFY(Vec::Zero(5).isOrthogonal(v));
 }
 
+// A tight prec must not be squared away: <a/|a|, b/|b|> = t, where t^2 rounds to zero.
+template <typename RealScalar>
+void is_orthogonal_tight_prec() {
+  using Vec = Matrix<RealScalar, 2, 1>;
+  const RealScalar t = numext::sqrt(std::numeric_limits<RealScalar>::denorm_min()) / RealScalar(2);
+  const Vec a(RealScalar(1), t), b(RealScalar(0), RealScalar(1));
+  VERIFY(!a.isOrthogonal(b, RealScalar(0)));
+  VERIFY(!a.isOrthogonal(b, t / RealScalar(2)));
+  VERIFY(a.isOrthogonal(b, RealScalar(2) * t));
+}
+
 // Test transposeInPlace at vectorization boundary sizes.
 // BlockedInPlaceTranspose uses PacketSize-blocked loops with a scalar remainder (line 273),
 // exercising off-by-one-prone transitions.
@@ -531,6 +542,8 @@ EIGEN_DECLARE_TEST(adjoint) {
   CALL_SUBTEST_24(is_orthogonal_scaling<float>());
   CALL_SUBTEST_24(is_orthogonal_scaling<double>());
   CALL_SUBTEST_24(is_orthogonal_scaling<std::complex<float>>());
+  CALL_SUBTEST_24(is_orthogonal_tight_prec<float>());
+  CALL_SUBTEST_24(is_orthogonal_tight_prec<double>());
 
   // transposeInPlace at vectorization boundaries (deterministic, outside g_repeat).
   CALL_SUBTEST_18(transposeInPlace_boundary<float>());
