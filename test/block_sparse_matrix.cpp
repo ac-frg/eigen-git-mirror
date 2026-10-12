@@ -693,7 +693,12 @@ void test_block_sparse_isapprox_extreme_scales() {
   using BSM = BlockSparseMatrix<Scalar, Options, 2, 2>;
   const RealScalar highest = NumTraits<RealScalar>::highest();
   const RealScalar min = (std::numeric_limits<RealScalar>::min)();
-  const RealScalar scales[] = {RealScalar(1), highest / RealScalar(2), highest / RealScalar(8), min * RealScalar(16),
+  const RealScalar scales[] = {RealScalar(1),
+                               highest / RealScalar(2),
+                               highest / RealScalar(8),
+                               numext::sqrt(highest),
+                               RealScalar(1) / numext::sqrt(highest),
+                               min * RealScalar(16),
                                std::numeric_limits<RealScalar>::denorm_min() * RealScalar(64)};
   for (const RealScalar s : scales) {
     SparseMatrix<Scalar, Options> sparse(4, 6);
