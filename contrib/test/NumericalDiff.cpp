@@ -70,12 +70,24 @@ struct pow2_scaling_functor : Functor<double> {
   VectorXd scale;
 };
 
-// When used with forward or central differences about x=1, this will just return the step size, h, used.
+// When used with forward or central differences about x=1000, this will just return the relative step size used * 1000.0.
 struct step_size_functor : Functor<double> {
   step_size_functor() : Functor<double>(1, 1) {}
   int operator()(const VectorXd &x, VectorXd &fvec) const {
-    fvec[0] = (x[0] - 1) * (x[0] - 1);
-    if (x[0] < 1.0) {
+    fvec[0] = (x[0] - 1000.0) * (x[0] - 1000.0);
+    if (x[0] < 1000.0) {
+      fvec[0] *= -1.0;
+    }
+    return 0;
+  }
+};
+
+// When used with forward or central difference about x=0, this will return the absolute step size used.
+struct step_size_functor_abs : Functor<double> {
+  step_size_functor_abs() : Functor<double>(1, 1) {}
+  int operator()(const VectorXd &x, VectorXd &fvec) const {
+    fvec[0] = x[0] * x[0];
+    if (x[0] < 0.0) {
       fvec[0] *= -1.0;
     }
     return 0;
@@ -118,6 +130,10 @@ void test_central() {
   numDiff.df(x, jac);
 
   VERIFY_IS_APPROX(jac, actual_jac);
+
+  // With the default changed to cbrt(epsilon), the maximum error has become lower
+  // This verifies we 
+  VERIFY_LE((jac - actual_jac).cwiseAbs().maxCoeff(), 1e-10);
 }
 
 void test_small() {
@@ -156,50 +172,90 @@ void test_step_alignment(double epsfcn) {
 
 void test_step_size() {
   step_size_functor functor;
+  step_size_functor_abs functor_abs;
   VectorXd x(1);
   MatrixXd jac(1, 1);
   MatrixXd expected(1, 1);
 
-  x << 1.0;
-
-  // Test that setting relative step size gives the expected answer
-  NumericalDiff<step_size_functor> numDiffRel(functor, 1e-4);
-  numDiffRel.df(x, jac);
-  expected << 1e-4;
+  // Test that setting relative step size and absolute step sizes gives the expected answer
+  NumericalDiff<step_size_functor> numDiffBothSet(functor, 1e-4, 1e-6);
+  x << 1000.0;
+  numDiffBothSet.df(x, jac);
+  expected << 1e-1; // rel_tol * 1000.0
   VERIFY_IS_APPROX(jac, expected);
 
-  // Test that setting absolute step size higher than relative step gives the
-  // absolute step size here since 1 * rel_tol < abs_tol
-  NumericalDiff<step_size_functor> numDiffAbs(functor, 1e-4, 1e-2);
-  expected << 1e-2;
-  numDiffAbs.df(x, jac);
+  NumericalDiff<step_size_functor_abs> numDiffBothSetAbs(functor_abs, 1e-4, 1e-6);
+  x << 0.0;
+  numDiffBothSetAbs.df(x, jac);
+  expected << 1e-6; // abs_tol
   VERIFY_IS_APPROX(jac, expected);
 
-  // Test that setting absolute step size lower than relative step gives the
-  // absolute step size here since 1 * rel_tol > abs_tol
-  NumericalDiff<step_size_functor> numDiffAbsLow(functor, 1e-4, 1e-6);
-  expected << 1e-4;
-  numDiffAbsLow.df(x, jac);
+  // Test that setting relative step size only gives abs_tol = rel_tol
+  NumericalDiff<step_size_functor> numDiffRelOnly(functor, 1e-4);
+  x << 1000.0;
+  expected << 1e-1; // rel_tol * 1000.0
+  numDiffRelOnly.df(x, jac);
   VERIFY_IS_APPROX(jac, expected);
 
-  // Test that setting relative step size gives the expected answer for central differences
-  NumericalDiff<step_size_functor, Central> numDiffCentralRel(functor, 1e-4);
-  numDiffCentralRel.df(x, jac);
-  expected << 1e-4;
+  NumericalDiff<step_size_functor_abs> numDiffRelOnlyAbs(functor_abs, 1e-4);
+  x << 0.0;
+  numDiffRelOnlyAbs.df(x, jac);
+  expected << 1e-4; // abs_tol = rel_tol
   VERIFY_IS_APPROX(jac, expected);
 
-  // Test that setting absolute step size higher than relative step gives the
-  // absolute step size here since 1 * rel_tol < abs_tol
-  NumericalDiff<step_size_functor, Central> numDiffCentralAbs(functor, 1e-4, 1e-2);
-  expected << 1e-2;
-  numDiffCentralAbs.df(x, jac);
+
+  // Test that setting neither gives rel_tol = abs_tol = sqrt(eps) 
+  NumericalDiff<step_size_functor> numDiffDefaults(functor);
+  x << 1000.0;
+  expected << 1000.0 * std::sqrt(std::numeric_limits<double>::epsilon()); // 1000.0 * rel_tol
+  numDiffDefaults.df(x, jac);
   VERIFY_IS_APPROX(jac, expected);
 
-  // Test that setting absolute step size lower than relative step gives the
-  // absolute step size here since 1 * rel_tol > abs_tol
-  NumericalDiff<step_size_functor> numDiffCentralAbsLow(functor, 1e-4, 1e-6);
-  expected << 1e-4;
-  numDiffCentralAbsLow.df(x, jac);
+  NumericalDiff<step_size_functor_abs> numDiffDefaultsAbs(functor_abs);
+  x << 0.0;
+  numDiffDefaultsAbs.df(x, jac);
+  expected << std::sqrt(std::numeric_limits<double>::epsilon()); // abs_tol = rel_tol
+  VERIFY_IS_APPROX(jac, expected);
+
+  // Run the same tests, but for central differences
+  
+  // Test that setting relative step size and absolute step sizes gives the expected answer
+  NumericalDiff<step_size_functor, Central> numDiffCentralBothSet(functor, 1e-4, 1e-6);
+  x << 1000.0;
+  numDiffCentralBothSet.df(x, jac);
+  expected << 1e-1; // rel_tol * 1000.0
+  VERIFY_IS_APPROX(jac, expected);
+                    //
+  NumericalDiff<step_size_functor_abs, Central> numDiffCentralBothSetAbs(functor_abs, 1e-4, 1e-6);
+  x << 0.0;
+  numDiffCentralBothSetAbs.df(x, jac);
+  expected << 1e-6; // abs_tol
+  VERIFY_IS_APPROX(jac, expected);
+
+  // Test that setting relative step size only gives abs_tol = rel_tol
+  NumericalDiff<step_size_functor, Central> numDiffCentralRelOnly(functor, 1e-4);
+  x << 1000.0;
+  expected << 1e-1; // rel_tol * 1000.0
+  numDiffCentralRelOnly.df(x, jac);
+  VERIFY_IS_APPROX(jac, expected);
+
+  NumericalDiff<step_size_functor_abs, Central> numDiffCentralRelOnlyAbs(functor_abs, 1e-4);
+  x << 0.0;
+  numDiffCentralRelOnlyAbs.df(x, jac);
+  expected << 1e-4; // abs_tol = rel_tol
+  VERIFY_IS_APPROX(jac, expected);
+
+  // Test that setting neither gives rel_tol = abs_tol = cbrt(eps) 
+  NumericalDiff<step_size_functor, Central> numDiffCentralDefaults(functor);
+  x << 1000.0;
+  expected << 1000.0 * std::cbrt(std::numeric_limits<double>::epsilon()); // 1000.0 * rel_tol
+  numDiffCentralDefaults.df(x, jac);
+  VERIFY_IS_APPROX(jac, expected);
+
+  NumericalDiff<step_size_functor_abs, Central> numDiffCentralDefaultsAbs(functor_abs);
+  x << 0.0;
+  numDiffCentralDefaultsAbs.df(x, jac);
+  expected << std::cbrt(std::numeric_limits<double>::epsilon()); // abs_tol = rel_tol
   VERIFY_IS_APPROX(jac, expected);
 }
 
