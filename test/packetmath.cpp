@@ -2166,6 +2166,27 @@ void test_conj_helper(Scalar* data1, Scalar* data2, Scalar* ref, Scalar* pval) {
   VERIFY(test::areApprox(ref, pval, PacketSize) && "conj_helper pmadd");
 }
 
+// The FE_DIVBYZERO, FE_INVALID and FE_OVERFLOW flags raised by op(operands, results), where operands are copies of
+// in[0, NumIn) and results are copied to out[0, NumOut). The copies go through volatile bytes after feholdexcept and
+// before fetestexcept, which keeps the compiler from folding op or moving it across the flag accesses: glibc marks
+// those functions leaf, so data that only escapes through a pointer may be moved across them.
+template <int NumIn, int NumOut, typename Scalar, typename Op>
+int raised_exceptions(const Scalar* in, Scalar* out, Op op) {
+  Scalar operands[NumIn], results[NumOut];
+  std::fenv_t saved_environment;
+  if (std::feholdexcept(&saved_environment) != 0) return 0;
+  const volatile unsigned char* in_bytes = reinterpret_cast<const volatile unsigned char*>(in);
+  unsigned char* operand_bytes = reinterpret_cast<unsigned char*>(operands);
+  for (std::size_t k = 0; k < sizeof(operands); ++k) operand_bytes[k] = in_bytes[k];
+  op(operands, results);
+  const unsigned char* result_bytes = reinterpret_cast<const unsigned char*>(results);
+  volatile unsigned char* out_bytes = reinterpret_cast<volatile unsigned char*>(out);
+  for (std::size_t k = 0; k < sizeof(results); ++k) out_bytes[k] = result_bytes[k];
+  const int raised = std::fetestexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW);
+  std::fesetenv(&saved_environment);
+  return raised;
+}
+
 template <typename Scalar, typename Packet, bool HasExp = internal::packet_traits<Scalar>::HasExp>
 struct exp_complex_test_impl {
   typedef typename Scalar::value_type RealScalar;
@@ -2315,19 +2336,68 @@ struct exp_complex_test_impl {
       }
     }
 
-    // Where exp(x / 2) overflows too, exp(x) sin(y) is still finite for a subnormal y, which is sin(y) exactly. The
-    // reference forms exp(x) y = (((y h) h) h) h with h = exp(x / 4), whose partial products are normal.
-    const RealScalar denorm_min = std::numeric_limits<RealScalar>::denorm_min();
+    const RealScalar inf = std::numeric_limits<RealScalar>::infinity();
     const RealScalar log_highest = numext::log(NumTraits<RealScalar>::highest());
+#if !EIGEN_ARCH_ARM  // 32-bit ARM flushes subnormals.
+    // Where exp(x / 2) overflows too, exp(x) sin(y) is still finite for a subnormal y, which is sin(y) exactly. The
+    // reference is exp(x) y in a wider type that holds exp(x); without one, it is (((y h) h) h) h with h = exp(x / 4),
+    // whose partial products are normal.
+    using Wide = std::conditional_t<std::is_same<RealScalar, float>::value, double, long double>;
+    constexpr bool kWideHoldsExp =
+        std::numeric_limits<Wide>::max_exponent > 4 * std::numeric_limits<RealScalar>::max_exponent &&
+        std::numeric_limits<Wide>::digits > std::numeric_limits<RealScalar>::digits + 8;
+    const RealScalar denorm_min = std::numeric_limits<RealScalar>::denorm_min();
     const RealScalar huge_args[][2] = {
         {RealScalar(2) * log_highest + RealScalar(2), RealScalar(12345) * denorm_min},
         {log_highest - numext::log(RealScalar(4)) - numext::log(denorm_min), denorm_min}};
     for (const auto& arg : huge_args) {
       for (const RealScalar y : {arg[1], -arg[1]}) {
         const Scalar w = pexp1(Scalar(arg[0], y));
-        const RealScalar h = numext::exp(arg[0] / RealScalar(4));
-        VERIFY_IS_EQUAL(numext::real(w), std::numeric_limits<RealScalar>::infinity());
-        VERIFY_IS_APPROX(numext::imag(w), y * h * h * h * h);
+        VERIFY_IS_EQUAL(numext::real(w), inf);
+        if (kWideHoldsExp) {
+          // Within 4 eps (the implementation is within about 2.1 ulps).
+          const Wide expected = std::exp(Wide(arg[0])) * Wide(y);
+          VERIFY(std::abs(Wide(numext::imag(w)) - expected) <=
+                 Wide(4) * Wide(NumTraits<RealScalar>::epsilon()) * std::abs(expected));
+        } else {
+          const RealScalar h = numext::exp(arg[0] / RealScalar(4));
+          VERIFY_IS_APPROX(numext::imag(w), y * h * h * h * h);
+        }
+      }
+    }
+
+    // From (max_exponent - min_exponent + digits) ln(2) on, even exp(x) denorm_min overflows.
+    const int max_shift = std::numeric_limits<RealScalar>::max_exponent -
+                          std::numeric_limits<RealScalar>::min_exponent + std::numeric_limits<RealScalar>::digits;
+    for (const RealScalar shift : {RealScalar(0.5), RealScalar(4)}) {
+      for (const RealScalar y : {denorm_min, -denorm_min}) {
+        const Scalar w = pexp1(Scalar((RealScalar(max_shift) + shift) * RealScalar(EIGEN_LN2), y));
+        VERIFY_IS_EQUAL(numext::real(w), inf);
+        VERIFY_IS_EQUAL(numext::imag(w), y > 0 ? inf : -inf);
+      }
+    }
+#endif
+
+    // pexp raises no FE_DIVBYZERO, FE_INVALID or FE_OVERFLOW beyond those of the real pexp of the real parts, which it
+    // starts from: also not for x = +-inf or -highest while another element takes the overflow branch.
+    {
+      using RealPacket = typename internal::unpacket_traits<Packet>::as_real;
+      const RealScalar near_overflow = log_highest - RealScalar(0.25);
+      for (const RealScalar x0 : {inf, -inf, -NumTraits<RealScalar>::highest()}) {
+        Scalar z[PacketSize], w[PacketSize];
+        RealScalar x[2 * PacketSize], expx[2 * PacketSize];
+        for (int i = 0; i < PacketSize; ++i) {
+          z[i] = i == 0 ? Scalar(x0, RealScalar(1)) : Scalar(near_overflow, RealScalar(0.5));
+          x[2 * i] = x[2 * i + 1] = numext::real(z[i]);
+        }
+        const int complex_raised = raised_exceptions<PacketSize, PacketSize>(z, w, [](const Scalar* in, Scalar* out) {
+          internal::pstoreu(out, internal::pexp(internal::ploadu<Packet>(in)));
+        });
+        const int real_raised =
+            raised_exceptions<2 * PacketSize, 2 * PacketSize>(x, expx, [](const RealScalar* in, RealScalar* out) {
+              internal::pstoreu(out, internal::pexp(internal::ploadu<RealPacket>(in)));
+            });
+        VERIFY_IS_EQUAL(complex_raised & ~real_raised, 0);
       }
     }
 

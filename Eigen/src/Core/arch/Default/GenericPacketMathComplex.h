@@ -172,20 +172,21 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet pexp_complex(const Pa
     RealPacket x_inf_y_finite = pand(is_x_pos_inf, pcmp_lt(pabs(y), cst_pos_inf));
     cisy = pselect(x_inf_y_finite, cisy_sign_one, cisy);
 
-    // exp(x) cis(y) can have a finite part where exp(x) overflows, up to x_max = (max_exponent - min_exponent +
-    // digits) ln(2), where exp(x) denorm_min overflows. Those elements (finite x) use x = n ln(2) + r, |r| <= ln(2)/2:
+    // exp(x) cis(y) can have a finite part where exp(x) overflows, up to (max_exponent - min_exponent + digits) ln(2),
+    // where exp(x) denorm_min overflows. Those elements (finite x) use x = n ln(2) + r, |r| <= ln(2)/2:
     //   exp(x) cis(y) = (exp(r) (2^digits cis(y))) 2^(n - digits),
     // where 2^digits cis(y) is exact and normal and the result is normal or overflows, so only exp(r) and one product
-    // round. r = (x - n ln2_hi) - n ln2_lo as in pexp_float/pexp_double, the first difference exact for x <= x_max.
-    // Other elements keep exp(x) cis(y), whatever shares their packet.
+    // round. x is clamped to x_max, one ln(2) further so that its rounding stays past the overflow point, and
+    // r = (x - n ln2_hi) - n ln2_lo as in pexp_float/pexp_double, the first difference exact for x <= x_max. Other
+    // elements use x = 0, which raises no exception, and keep exp(x) cis(y), whatever shares their packet.
     const int digits = NumTraits<RealScalar>::digits();
     const RealScalar x_max =
-        RealScalar(NumTraits<RealScalar>::max_exponent() - NumTraits<RealScalar>::min_exponent() + digits) *
+        RealScalar(NumTraits<RealScalar>::max_exponent() - NumTraits<RealScalar>::min_exponent() + digits + 1) *
         RealScalar(EIGEN_LN2);
     constexpr bool is_float = std::is_same<RealScalar, float>::value;
     const RealScalar ln2_hi = is_float ? RealScalar(0.693359375f) : RealScalar(0.693145751953125);
     const RealScalar ln2_lo = is_float ? RealScalar(-2.12194440e-4f) : RealScalar(1.42860682030941723212e-6);
-    const RealPacket x_split = pmin(x, pset1<RealPacket>(x_max));
+    const RealPacket x_split = pselect(split, pmin(x, pset1<RealPacket>(x_max)), pzero(x));
     const RealPacket n = print(pmul(x_split, pset1<RealPacket>(RealScalar(EIGEN_LOG2E))));
     const RealPacket r = pnmadd(n, pset1<RealPacket>(ln2_lo), pnmadd(n, pset1<RealPacket>(ln2_hi), x_split));
     const RealPacket scaled_cisy = pmul(cisy, pset1<RealPacket>(RealScalar(numext::uint64_t(1) << digits)));
