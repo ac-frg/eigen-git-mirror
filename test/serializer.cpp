@@ -8,11 +8,19 @@
 // with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // SPDX-License-Identifier: MPL-2.0
 
+#if defined(EIGEN_TEST_PART_2)
+#define EIGEN_DEFAULT_DENSE_INDEX_TYPE int
+#endif
+
 #include "main.h"
 
 #include <Eigen/Core>
 #include <Eigen/SparseCore>
 #include <vector>
+
+#if defined(__unix__)
+#include <sys/mman.h>
+#endif
 
 template <typename T>
 struct RandomImpl {
@@ -190,6 +198,25 @@ void test_malformed_dense_headers() {
   test_malformed_dense_header<VectorXd>(4, 4);
 }
 
+#if defined(EIGEN_TEST_PART_2) && defined(__unix__) && defined(MAP_NORESERVE) && SIZE_MAX > 0xFFFFFFFFu
+// 65536 x 65536 chars fit in a 4 GiB buffer, but resize() forms rows * cols in the 32-bit Index, where it overflows.
+// The mapping only reserves address space: the header must be rejected before the payload is read.
+void test_dense_header_index_overflow() {
+  STATIC_CHECK(sizeof(Index) == 4);
+  using T = Matrix<char, Dynamic, Dynamic>;
+  using Header = Serializer<T>::Header;
+  const std::size_t bytes = sizeof(Header) + (std::size_t(1) << 32);
+  void* map = mmap(nullptr, bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+  VERIFY(map != MAP_FAILED);
+  const Header header = {65536, 65536};
+  std::memcpy(map, &header, sizeof(header));
+  const uint8_t* begin = static_cast<const uint8_t*>(map);
+  T value;
+  VERIFY(Serializer<T>().deserialize(begin, begin + bytes, value) == nullptr);
+  VERIFY_IS_EQUAL(munmap(map, bytes), 0);
+}
+#endif
+
 // Test a collection of dense types.
 template <typename T1, typename T2, typename T3>
 void test_dense_types(const T1& type1, const T2& type2, const T3& type3) {
@@ -236,18 +263,23 @@ void test_dense_types(const T1& type1, const T2& type2, const T3& type3) {
 }
 
 EIGEN_DECLARE_TEST(serializer) {
-  CALL_SUBTEST(test_pod_type());
-  CALL_SUBTEST(test_malformed_dense_headers());
+  CALL_SUBTEST_1(test_pod_type());
+  CALL_SUBTEST_1(test_malformed_dense_headers());
 
   for (int i = 0; i < g_repeat; i++) {
-    CALL_SUBTEST(test_eigen_type(Eigen::Array33f()));
-    CALL_SUBTEST(test_eigen_type(Eigen::ArrayXd(10)));
-    CALL_SUBTEST(test_eigen_type(Eigen::Vector3f()));
-    CALL_SUBTEST(test_eigen_type(Eigen::Matrix4d()));
-    CALL_SUBTEST(test_eigen_type(Eigen::MatrixXd(15, 17)));
-    CALL_SUBTEST(test_eigen_type(Eigen::SparseMatrix<float>(13, 12)));
-    CALL_SUBTEST(test_eigen_type(Eigen::SparseVector<float>(17)));
+    CALL_SUBTEST_1(test_eigen_type(Eigen::Array33f()));
+    CALL_SUBTEST_1(test_eigen_type(Eigen::ArrayXd(10)));
+    CALL_SUBTEST_1(test_eigen_type(Eigen::Vector3f()));
+    CALL_SUBTEST_1(test_eigen_type(Eigen::Matrix4d()));
+    CALL_SUBTEST_1(test_eigen_type(Eigen::MatrixXd(15, 17)));
+    CALL_SUBTEST_1(test_eigen_type(Eigen::SparseMatrix<float>(13, 12)));
+    CALL_SUBTEST_1(test_eigen_type(Eigen::SparseVector<float>(17)));
 
-    CALL_SUBTEST(test_dense_types(Eigen::Array33f(), Eigen::ArrayXd(10), Eigen::MatrixXd(15, 17)));
+    CALL_SUBTEST_1(test_dense_types(Eigen::Array33f(), Eigen::ArrayXd(10), Eigen::MatrixXd(15, 17)));
   }
+
+  CALL_SUBTEST_2(test_malformed_dense_headers());
+#if defined(EIGEN_TEST_PART_2) && defined(__unix__) && defined(MAP_NORESERVE) && SIZE_MAX > 0xFFFFFFFFu
+  CALL_SUBTEST_2(test_dense_header_index_overflow());
+#endif
 }
