@@ -69,30 +69,51 @@ Packet tanh_kernel(const Packet& x, double) {
   return internal::ptanh_double(x);
 }
 
-// tanh of large and infinite arguments is +-1 and raises no FE_OVERFLOW, FE_INVALID or FE_DIVBYZERO. The volatile
-// accesses keep the compiler from folding the kernel or moving it across the flag accesses.
+// The FE_OVERFLOW, FE_INVALID and FE_DIVBYZERO flags the tanh kernel raises on the packet in, with the result in out.
+// The operands and results go through volatile copies after feholdexcept and before fetestexcept, which keeps the
+// compiler from folding the kernel or moving it across the flag accesses.
+template <typename Packet, typename Scalar>
+int tanh_exceptions(const Scalar* in, Scalar* out) {
+  constexpr int PacketSize = internal::unpacket_traits<Packet>::size;
+  const volatile Scalar* volatile_in = in;
+  volatile Scalar* volatile_out = out;
+  Scalar x[PacketSize], y[PacketSize];
+  std::fenv_t saved_environment;
+  if (std::feholdexcept(&saved_environment) != 0) return 0;
+  for (int k = 0; k < PacketSize; ++k) x[k] = volatile_in[k];
+  internal::pstoreu(y, tanh_kernel(internal::ploadu<Packet>(x), Scalar()));
+  for (int k = 0; k < PacketSize; ++k) volatile_out[k] = y[k];
+  const int raised = std::fetestexcept(FE_OVERFLOW | FE_INVALID | FE_DIVBYZERO);
+  std::fesetenv(&saved_environment);
+  return raised;
+}
+
+// tanh of large and infinite arguments is +-1 and raises no FE_OVERFLOW, FE_INVALID or FE_DIVBYZERO. A large element
+// beside a NaN raises nothing that a small one does not: the NaN's own comparison may raise FE_INVALID.
 template <typename Packet>
 void tanh_saturation_exceptions() {
   using Scalar = typename internal::unpacket_traits<Packet>::type;
   constexpr int PacketSize = internal::unpacket_traits<Packet>::size;
   const Scalar inf = NumTraits<Scalar>::infinity();
   const Scalar values[] = {Scalar(20), Scalar(100), Scalar(1e20f), NumTraits<Scalar>::highest(), inf};
+  Scalar x[PacketSize], y[PacketSize];
   for (const Scalar value : values) {
     for (const Scalar s : {value, -value}) {
-      volatile Scalar input = s;
-      volatile Scalar output[PacketSize];
-      Scalar x[PacketSize], y[PacketSize];
-      std::fenv_t saved_environment;
-      if (std::feholdexcept(&saved_environment) != 0) return;
-      for (int k = 0; k < PacketSize; ++k) x[k] = input;
-      internal::pstoreu(y, tanh_kernel(internal::ploadu<Packet>(x), Scalar()));
-      for (int k = 0; k < PacketSize; ++k) output[k] = y[k];
-      const int raised = std::fetestexcept(FE_OVERFLOW | FE_INVALID | FE_DIVBYZERO);
-      std::fesetenv(&saved_environment);
+      for (int k = 0; k < PacketSize; ++k) x[k] = s;
+      const int raised = tanh_exceptions<Packet>(x, y);
       if (raised != 0) std::cout << "tanh(" << s << ") raised " << raised << std::endl;
       VERIFY_IS_EQUAL(raised, 0);
-      for (int k = 0; k < PacketSize; ++k) VERIFY_IS_EQUAL(Scalar(output[k]), s > 0 ? Scalar(1) : Scalar(-1));
+      for (int k = 0; k < PacketSize; ++k) VERIFY_IS_EQUAL(y[k], s > 0 ? Scalar(1) : Scalar(-1));
     }
+  }
+  if (PacketSize > 1) {
+    int raised[2];
+    for (int j = 0; j < 2; ++j) {
+      for (int k = 0; k < PacketSize; ++k) x[k] = k == 0 ? NumTraits<Scalar>::quiet_NaN() : Scalar(j == 0 ? 0.5 : 100);
+      raised[j] = tanh_exceptions<Packet>(x, y);
+      VERIFY((numext::isnan)(y[0]));
+    }
+    VERIFY_IS_EQUAL(raised[1] & ~raised[0], 0);
   }
 }
 

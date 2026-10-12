@@ -693,11 +693,11 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS T ptanh_float(const T& x) {
   }
 
   // Compute as 1 - (2 / (1 + exp(2*x))) for |x| clamped to 16, where it rounds to 1; the clamp keeps exp(2*x) from
-  // overflowing.
+  // overflowing. The small elements, NaN included, enter exp as 0, which cannot raise FE_INVALID.
   const T one = pset1<T>(1.0f);
   const T two = pset1<T>(2.0f);
   constexpr float kHugeThreshold = 16.0f;
-  const T s = pexp_float<T, true>(pmul(two, pmin(abs_x, pset1<T>(kHugeThreshold))));
+  const T s = pexp_float<T, true>(pmul(two, pmin(pselect(large_mask, abs_x, pzero(x)), pset1<T>(kHugeThreshold))));
   const T large_tanh = por(x_sign, psub(one, pdiv(two, padd(s, one))));
   return pselect(large_mask, large_tanh, small_tanh);
 }
