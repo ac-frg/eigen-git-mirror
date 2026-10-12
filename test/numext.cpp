@@ -453,6 +453,53 @@ void check_complex_divide() {
   }
 }
 
+#if EIGEN_COMP_MSVC
+#pragma float_control(precise, on, push)
+#pragma fenv_access(on)
+#endif
+
+// The exceptions numext::divide(a, b) raises. Volatile operands and results keep the division between the flag
+// calls, where the compiler can neither fold it nor move it.
+template <typename T>
+EIGEN_DONT_INLINE int complex_divide_exceptions(const std::complex<T>& a, const std::complex<T>& b) {
+  volatile T parts[4] = {a.real(), a.imag(), b.real(), b.imag()};
+  std::fenv_t environment;
+  if (std::feholdexcept(&environment) != 0) return -1;
+  const std::complex<T> q = numext::divide(std::complex<T>(parts[0], parts[1]), std::complex<T>(parts[2], parts[3]));
+  volatile T result[2] = {q.real(), q.imag()};
+  EIGEN_UNUSED_VARIABLE(result);
+  const int exceptions = std::fetestexcept(FE_OVERFLOW | FE_UNDERFLOW | FE_INVALID | FE_DIVBYZERO);
+  std::fesetenv(&environment);
+  return exceptions;
+}
+
+// Smith's ratio d / c is +-1 for |c| = |d|: its sign must not come from c * d, which overflows, or underflows
+// inexactly, for divisors whose quotient does neither. For a divisor on an axis, the ratio Smith does not take is
+// x / 0.
+template <typename T>
+void check_complex_divide_exceptions() {
+  using Complex = std::complex<T>;
+  const T big = numext::sqrt((std::numeric_limits<T>::max)()) * T(3);
+  const T small = numext::sqrt((std::numeric_limits<T>::min)()) * T(0.3);
+  const T two(2), zero(0);
+  for (const Complex b :
+       {Complex(big, big), Complex(-big, big), Complex(big, -big), Complex(-big, -big), Complex(small, small),
+        Complex(-small, small), Complex(small, -small), Complex(-small, -small), Complex(two, zero),
+        Complex(-two, zero), Complex(zero, two), Complex(zero, -two)}) {
+    const int exceptions = complex_divide_exceptions(Complex(T(1), T(0)), b);
+    if (exceptions == -1) {
+      std::cout << "SKIP: complex division exception check: feholdexcept failed.\n";
+      return;
+    }
+    VERIFY_IS_EQUAL(exceptions, 0);
+  }
+}
+
+#if EIGEN_COMP_MSVC
+#pragma fenv_access(off)
+#pragma float_control(pop)
+#endif
+
 // log2(2^k) = k on the scalar path, as on the vectorized one. A size-1 array takes the scalar path.
 template <typename T>
 void check_log2_powers_of_two() {
@@ -1017,6 +1064,8 @@ EIGEN_DECLARE_TEST(numext) {
 
     CALL_SUBTEST(check_complex_divide<float>());
     CALL_SUBTEST(check_complex_divide<double>());
+    CALL_SUBTEST(check_complex_divide_exceptions<float>());
+    CALL_SUBTEST(check_complex_divide_exceptions<double>());
 
     CALL_SUBTEST(check_complex_fuzzy<float>());
     CALL_SUBTEST(check_complex_fuzzy<double>());
