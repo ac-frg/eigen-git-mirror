@@ -674,33 +674,31 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS T ptanh_float(const T& x) {
   //     --type="[3,4]" --numF="[SG]" --denF="[SG]" --log --dispCoeff="dec" --output=tanhf.solly
   constexpr float alpha[] = {-1.46725140511989593505859375e-02f, -3.333333432674407958984375e-01f};
   constexpr float beta[] = {1.570280082523822784423828125e-02, 4.4401752948760986328125e-01, 1.0f};
-  const T x2 = pmul(x, x);
-  const T x3 = pmul(x2, x);
-  const T p = ppolevl<T, 1>::run(x2, alpha);
-  const T q = ppolevl<T, 2>::run(x2, beta);
   const T sign_mask = psignmask<T>();
   const T x_sign = pand(sign_mask, x);
-  // x^3 P/Q has the sign opposite to x, so the sum rounds tanh(-0) to +0; the sign of x restores it.
-  const T small_tanh = por(x_sign, pmadd(x3, pdiv(p, q), x));
-
   const T abs_x = pandnot(x, sign_mask);
   constexpr float kSmallThreshold = 1.25f;
   const T large_mask = pcmp_lt(pset1<T>(kSmallThreshold), abs_x);
+  // The large elements enter the polynomial as 0, so that x^2 cannot overflow nor P/Q become inf/inf.
+  const T x_small = pandnot(x, large_mask);
+  const T x2 = pmul(x_small, x_small);
+  const T x3 = pmul(x2, x_small);
+  const T p = ppolevl<T, 1>::run(x2, alpha);
+  const T q = ppolevl<T, 2>::run(x2, beta);
+  // x^3 P/Q has the sign opposite to x, so the sum rounds tanh(-0) to +0; the sign of x restores it.
+  const T small_tanh = por(x_sign, pmadd(x3, pdiv(p, q), x_small));
   // Fast exit if all elements are small.
   if (!predux_any(large_mask)) {
     return small_tanh;
   }
 
-  //  Compute as 1 - (2 / (1 + exp(2*x)))
+  // Compute as 1 - (2 / (1 + exp(2*x))) for |x| clamped to 16, where it rounds to 1; the clamp keeps exp(2*x) from
+  // overflowing.
   const T one = pset1<T>(1.0f);
   const T two = pset1<T>(2.0f);
-  const T s = pexp_float<T, true>(pmul(two, abs_x));
-  const T abs_tanh = psub(one, pdiv(two, padd(s, one)));
-
-  // Handle infinite inputs and set sign bit.
   constexpr float kHugeThreshold = 16.0f;
-  const T huge_mask = pcmp_lt(pset1<T>(kHugeThreshold), abs_x);
-  const T large_tanh = por(x_sign, pselect(huge_mask, one, abs_tanh));
+  const T s = pexp_float<T, true>(pmul(two, pmin(abs_x, pset1<T>(kHugeThreshold))));
+  const T large_tanh = por(x_sign, psub(one, pdiv(two, padd(s, one))));
   return pselect(large_mask, large_tanh, small_tanh);
 }
 

@@ -7,6 +7,7 @@
 
 #include "main.h"
 
+#include <cfenv>
 #include <cstring>
 
 namespace {
@@ -59,9 +60,49 @@ void tanh_float_accuracy() {
   }
 }
 
+template <typename Packet>
+Packet tanh_kernel(const Packet& x, float) {
+  return internal::ptanh_float(x);
+}
+template <typename Packet>
+Packet tanh_kernel(const Packet& x, double) {
+  return internal::ptanh_double(x);
+}
+
+// tanh of large and infinite arguments is +-1 and raises no FE_OVERFLOW, FE_INVALID or FE_DIVBYZERO. The volatile
+// accesses keep the compiler from folding the kernel or moving it across the flag accesses.
+template <typename Packet>
+void tanh_saturation_exceptions() {
+  using Scalar = typename internal::unpacket_traits<Packet>::type;
+  constexpr int PacketSize = internal::unpacket_traits<Packet>::size;
+  const Scalar inf = NumTraits<Scalar>::infinity();
+  const Scalar values[] = {Scalar(20), Scalar(100), Scalar(1e20f), NumTraits<Scalar>::highest(), inf};
+  for (const Scalar value : values) {
+    for (const Scalar s : {value, -value}) {
+      volatile Scalar input = s;
+      volatile Scalar output[PacketSize];
+      Scalar x[PacketSize], y[PacketSize];
+      std::fenv_t saved_environment;
+      if (std::feholdexcept(&saved_environment) != 0) return;
+      for (int k = 0; k < PacketSize; ++k) x[k] = input;
+      internal::pstoreu(y, tanh_kernel(internal::ploadu<Packet>(x), Scalar()));
+      for (int k = 0; k < PacketSize; ++k) output[k] = y[k];
+      const int raised = std::fetestexcept(FE_OVERFLOW | FE_INVALID | FE_DIVBYZERO);
+      std::fesetenv(&saved_environment);
+      if (raised != 0) std::cout << "tanh(" << s << ") raised " << raised << std::endl;
+      VERIFY_IS_EQUAL(raised, 0);
+      for (int k = 0; k < PacketSize; ++k) VERIFY_IS_EQUAL(Scalar(output[k]), s > 0 ? Scalar(1) : Scalar(-1));
+    }
+  }
+}
+
 }  // namespace
 
 EIGEN_DECLARE_TEST(tanh_no_fast_math) {
   CALL_SUBTEST(tanh_float_accuracy<internal::packet_traits<float>::type>());
   CALL_SUBTEST(tanh_float_accuracy<float>());
+  CALL_SUBTEST(tanh_saturation_exceptions<internal::packet_traits<float>::type>());
+  CALL_SUBTEST(tanh_saturation_exceptions<float>());
+  CALL_SUBTEST(tanh_saturation_exceptions<internal::packet_traits<double>::type>());
+  CALL_SUBTEST(tanh_saturation_exceptions<double>());
 }
