@@ -390,6 +390,40 @@ void trsolve_no_malloc(int size, int cols) {
   VERIFY_TRSM_NO_MALLOC_ONTHERIGHT(lhs.adjoint().template triangularView<Lower>(), xRight, refRight);
 }
 
+// A right-hand side of fixed size at most 8 takes the unrolled solver, which reads the coefficients of a scaled
+// triangle itself: it needs no evaluated copy, and so no allocation, even when the matrix is dynamic.
+template <typename Scalar, int Mode>
+void trsolve_scaled_unrolled_no_malloc() {
+  using Mat = Matrix<Scalar, Dynamic, Dynamic>;
+  using Vec = Matrix<Scalar, 4, 1>;
+  using RowVec = Matrix<Scalar, 1, 4>;
+  using RealScalar = typename NumTraits<Scalar>::Real;
+  STATIC_CHECK((int(internal::trsolve_traits<Mat, Vec, OnTheLeft>::Unrolling) == CompleteUnrolling));
+  STATIC_CHECK((int(internal::trsolve_traits<Mat, RowVec, OnTheRight>::Unrolling) == CompleteUnrolling));
+
+  Mat lhs = Mat::Random(4, 4) * RealScalar(0.1);
+  lhs.diagonal().array() += RealScalar(1);
+  const Scalar s(3);
+  Vec x, ref = Vec::Random();
+  VERIFY_TRSM_NO_MALLOC((s * lhs).template triangularView<Mode>(), x, ref);
+  RowVec xRight, refRight = RowVec::Random();
+  VERIFY_TRSM_NO_MALLOC_ONTHERIGHT((s * lhs).template triangularView<Mode>(), xRight, refRight);
+
+  bool touched = false;
+  const auto a = Mat::NullaryExpr(4, 4, triangle_only_functor<Scalar, Mode>{&touched});
+  VERIFY_TRSM_NO_MALLOC((s * a).template triangularView<Mode>(), x, ref);
+  VERIFY_TRSM_NO_MALLOC_ONTHERIGHT((s * a).template triangularView<Mode>(), xRight, refRight);
+  VERIFY(!touched);
+}
+
+template <typename Scalar>
+void trsolve_scaled_unrolled_no_malloc_all() {
+  trsolve_scaled_unrolled_no_malloc<Scalar, Lower>();
+  trsolve_scaled_unrolled_no_malloc<Scalar, Upper>();
+  trsolve_scaled_unrolled_no_malloc<Scalar, UnitLower>();
+  trsolve_scaled_unrolled_no_malloc<Scalar, UnitUpper>();
+}
+
 template <int>
 void trsolve_no_malloc_all() {
   // The packed solver walks the triangular matrix in panels of max(mr, nr) columns; these sizes
@@ -407,6 +441,9 @@ void trsolve_no_malloc_all() {
       trsolve_no_malloc<std::complex<double>, ColMajor>(size, cols);
     }
   }
+  trsolve_scaled_unrolled_no_malloc_all<float>();
+  trsolve_scaled_unrolled_no_malloc_all<double>();
+  trsolve_scaled_unrolled_no_malloc_all<std::complex<double>>();
 }
 
 // The blocked solvers take their k-block depth, and a solve on the left its column panels, from the
