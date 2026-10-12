@@ -295,6 +295,19 @@ void casting_all() {
   casting_test_runner<std::complex<double>>::run();
 }
 
+// Floats beyond the 32-bit integer range must survive a vectorized cast to 64-bit integers.
+template <typename = void>
+void casting_float_to_int64() {
+  Array<float, 8, 1> x;
+  x << 3.0e9f, -3.0e9f, 5.0e9f, 1.0e18f, 2147483648.f, -2147483904.f, 4294967296.f, 1.5f;
+  const Array<int64_t, 8, 1> l = x.cast<int64_t>();
+  const Array<uint64_t, 8, 1> u = x.abs().cast<uint64_t>();
+  for (int i = 0; i < x.size(); ++i) {
+    VERIFY_IS_EQUAL(l(i), static_cast<int64_t>(x(i)));
+    VERIFY_IS_EQUAL(u(i), static_cast<uint64_t>(numext::abs(x(i))));
+  }
+}
+
 template <typename Scalar>
 void fixedSizeMatrixConstruction() {
   Scalar raw[4];
@@ -354,6 +367,18 @@ void fixedSizeMatrixConstruction() {
   }
 }
 
+// InnerIterator of a dense expression advances by more than one coefficient.
+template <typename = void>
+void denseInnerIteratorAdvance() {
+  Matrix<float, 5, 3> m = Matrix<float, 5, 3>::Random();
+  InnerIterator<Matrix<float, 5, 3>> it(m, 1);
+  it += 2;
+  VERIFY_IS_EQUAL(it.row(), Index(2));
+  VERIFY_IS_EQUAL(it.value(), m(2, 1));
+  it += 3;
+  VERIFY(!it);
+}
+
 EIGEN_DECLARE_TEST(basicstuff) {
   for (int i = 0; i < g_repeat; i++) {
     CALL_SUBTEST_1(basicStuff(Matrix<float, 1, 1>()));
@@ -368,6 +393,7 @@ EIGEN_DECLARE_TEST(basicstuff) {
     CALL_SUBTEST_7(basicStuff(Matrix<long double, Dynamic, Dynamic>(internal::random<int>(1, EIGEN_TEST_MAX_SIZE),
                                                                     internal::random<int>(1, EIGEN_TEST_MAX_SIZE))));
     CALL_SUBTEST_8(casting_all<>());
+    CALL_SUBTEST_8(casting_float_to_int64<>());
 
     CALL_SUBTEST_3(basicStuffComplex(
         MatrixXcf(internal::random<int>(1, EIGEN_TEST_MAX_SIZE), internal::random<int>(1, EIGEN_TEST_MAX_SIZE))));
@@ -380,6 +406,7 @@ EIGEN_DECLARE_TEST(basicstuff) {
         MatrixXd(internal::random<int>(1, EIGEN_TEST_MAX_SIZE), internal::random<int>(1, EIGEN_TEST_MAX_SIZE))));
   }
 
+  CALL_SUBTEST_1(denseInnerIteratorAdvance<>());
   CALL_SUBTEST_1(fixedSizeMatrixConstruction<unsigned char>());
   CALL_SUBTEST_1(fixedSizeMatrixConstruction<float>());
   CALL_SUBTEST_1(fixedSizeMatrixConstruction<double>());

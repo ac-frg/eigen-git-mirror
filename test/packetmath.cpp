@@ -784,6 +784,32 @@ void nmsub_test(Scalar* data1, Scalar* data2, Scalar* ref, int size) {
   negate_test_impl<Scalar, Packet>::run_nmsub(data1, data2, ref, size);
 }
 
+// Compared bitwise, since pnot of a float lane can be a NaN whose payload must survive. A packet ptrue is all-ones
+// bits, or true for boolean packets; the runner also instantiates Packet = Scalar, where ptrue is Scalar(1).
+template <typename Scalar, typename Packet>
+void packetmath_pnot_ptrue() {
+  const int PacketSize = internal::unpacket_traits<Packet>::size;
+  EIGEN_ALIGN_TO_BOUNDARY(unpacket_traits<Packet>::alignment) Scalar data[PacketSize];
+  EIGEN_ALIGN_TO_BOUNDARY(unpacket_traits<Packet>::alignment) Scalar ref[PacketSize];
+  EIGEN_ALIGN_TO_BOUNDARY(unpacket_traits<Packet>::alignment) Scalar res[PacketSize];
+  for (int i = 0; i < PacketSize; ++i) data[i] = internal::random<Scalar>();
+  data[0] = Scalar(0);
+
+  for (int i = 0; i < PacketSize; ++i) ref[i] = internal::pnot(data[i]);
+  internal::pstore(res, internal::pnot(internal::pload<Packet>(data)));
+  VERIFY(test::areEqualBits(ref, res, PacketSize, false) && "pnot");
+
+  for (int i = 0; i < PacketSize; ++i) {
+    if (internal::is_scalar<Packet>::value || std::is_same<Scalar, bool>::value) {
+      ref[i] = internal::ptrue(Scalar(0));
+    } else {
+      memset(static_cast<void*>(ref + i), 0xff, sizeof(Scalar));
+    }
+  }
+  internal::pstore(res, internal::ptrue(internal::pload<Packet>(data)));
+  VERIFY(test::areEqualBits(ref, res, PacketSize, false) && "ptrue");
+}
+
 template <typename Scalar, typename Packet>
 void packetmath() {
   typedef internal::packet_traits<Scalar> PacketTraits;
@@ -1008,6 +1034,7 @@ void packetmath() {
   CHECK_CWISE2_IF(true, internal::pand, internal::pand);
 
   packetmath_boolean_mask_ops<Scalar, Packet>();
+  packetmath_pnot_ptrue<Scalar, Packet>();
   packetmath_pcast_ops_runner<Scalar, Packet>::run();
   packetmath_minus_zero_add_test<Scalar, Packet>::run();
   packetmath_integer_predicates_test<Scalar, Packet>::run();
@@ -1625,16 +1652,22 @@ template <typename Scalar, typename Packet>
 struct packetmath_minmax_propagation_test<Scalar, Packet, std::enable_if_t<!NumTraits<Scalar>::IsInteger>> {
   using PacketTraits = internal::packet_traits<Scalar>;
 
-  // NaN payloads are not pinned down across backends, so a NaN result only has to stay a NaN.
+  // NaN payloads are not pinned down across backends, so a NaN result only has to stay a NaN. AArch32 Advanced SIMD
+  // always flushes subnormals to zero, so vminnm/vmaxnm return a subnormal number as a zero of the same sign; only
+  // packet results with float lanes (bfloat16 goes through Packet4f) may do so.
   static void verify_semantics(const Scalar& a, const Scalar& b, const Scalar& plain, const Scalar& fast,
-                               const Scalar& nan, const Scalar& numbers) {
+                               const Scalar& nan, const Scalar& numbers, bool may_flush = false) {
     const bool a_is_nan = (numext::isnan)(a), b_is_nan = (numext::isnan)(b);
     if (a_is_nan || b_is_nan) {
       VERIFY((numext::isnan)(nan));
       if (a_is_nan && b_is_nan) {
         VERIFY((numext::isnan)(numbers));
       } else {
-        VERIFY(test::biteq(numbers, a_is_nan ? b : a));
+        const Scalar& number = a_is_nan ? b : a;
+        const bool flushed = may_flush && number != Scalar(0) &&
+                             numext::abs(number) < (std::numeric_limits<Scalar>::min)() &&
+                             test::biteq(numbers, number < Scalar(0) ? Scalar(-0.0) : Scalar(0));
+        VERIFY(flushed || test::biteq(numbers, number));
       }
     } else {
       VERIFY(test::biteq(nan, plain));
@@ -1657,6 +1690,8 @@ struct packetmath_minmax_propagation_test<Scalar, Packet, std::enable_if_t<!NumT
     // Without HasMin/HasMax the helper degrades to the scalar op and writes only one element.
     constexpr int kMinLanes = PacketTraits::HasMin ? PacketSize : 1;
     constexpr int kMaxLanes = PacketTraits::HasMax ? PacketSize : 1;
+    constexpr bool kMayFlush = EIGEN_ARCH_ARM && !internal::is_scalar<Packet>::value &&
+                               (std::is_same<Scalar, float>::value || std::is_same<Scalar, Eigen::bfloat16>::value);
 
     test::packet_helper<PacketTraits::HasMin, Packet> hmin;
     test::packet_helper<PacketTraits::HasMax, Packet> hmax;
@@ -1677,13 +1712,13 @@ struct packetmath_minmax_propagation_test<Scalar, Packet, std::enable_if_t<!NumT
         hmin.store(fast, internal::pmin<PropagateFast>(hmin.load(lhs), hmin.load(rhs)));
         hmin.store(nan, internal::pmin<PropagateNaN>(hmin.load(lhs), hmin.load(rhs)));
         hmin.store(numbers, internal::pmin<PropagateNumbers>(hmin.load(lhs), hmin.load(rhs)));
-        for (int k = 0; k < kMinLanes; ++k) verify_semantics(a, b, plain[k], fast[k], nan[k], numbers[k]);
+        for (int k = 0; k < kMinLanes; ++k) verify_semantics(a, b, plain[k], fast[k], nan[k], numbers[k], kMayFlush);
 
         hmax.store(plain, internal::pmax(hmax.load(lhs), hmax.load(rhs)));
         hmax.store(fast, internal::pmax<PropagateFast>(hmax.load(lhs), hmax.load(rhs)));
         hmax.store(nan, internal::pmax<PropagateNaN>(hmax.load(lhs), hmax.load(rhs)));
         hmax.store(numbers, internal::pmax<PropagateNumbers>(hmax.load(lhs), hmax.load(rhs)));
-        for (int k = 0; k < kMaxLanes; ++k) verify_semantics(a, b, plain[k], fast[k], nan[k], numbers[k]);
+        for (int k = 0; k < kMaxLanes; ++k) verify_semantics(a, b, plain[k], fast[k], nan[k], numbers[k], kMayFlush);
       }
     }
   }
@@ -1785,6 +1820,40 @@ std::enable_if_t<!NumTraits<Scalar>::IsComplex, void> packetmath_ieee_special_va
   run_ieee_cases<PacketTraits::HasATan, Scalar, Packet>(atan_fun());
   run_ieee_cases<PacketTraits::HasTanh, Scalar, Packet>(tanh_fun());
   run_ieee_cases<PacketTraits::HasATanh, Scalar, Packet>(atanh_fun());
+}
+
+// log, log2 and log1p handle special inputs only in packets that contain one, so place each special input alone
+// among ordinary lanes, in every lane.
+template <typename Scalar, typename Packet>
+std::enable_if_t<NumTraits<Scalar>::IsComplex || NumTraits<Scalar>::IsInteger, void> packetmath_special_value_lanes() {}
+
+template <typename Scalar, typename Packet>
+std::enable_if_t<!NumTraits<Scalar>::IsComplex && !NumTraits<Scalar>::IsInteger, void>
+packetmath_special_value_lanes() {
+  using PacketTraits = internal::packet_traits<Scalar>;
+  const int PacketSize = internal::unpacket_traits<Packet>::size;
+  const Scalar norm_min = (std::numeric_limits<Scalar>::min)();
+  const Scalar inf = NumTraits<Scalar>::infinity();
+  const Scalar nan = NumTraits<Scalar>::quiet_NaN();
+  std::vector<Scalar> specials{Scalar(0), -Scalar(0), Scalar(-1), Scalar(-2), -norm_min, inf, -inf, nan};
+#if !EIGEN_ARCH_ARM  // 32-bit ARM flushes subnormals.
+  if (std::numeric_limits<Scalar>::has_denorm == std::denorm_present) {
+    specials.push_back(std::numeric_limits<Scalar>::denorm_min());
+    specials.push_back(norm_min / Scalar(2));
+  }
+#endif
+  EIGEN_ALIGN_TO_BOUNDARY(unpacket_traits<Packet>::alignment) Scalar data1[PacketSize];
+  EIGEN_ALIGN_TO_BOUNDARY(unpacket_traits<Packet>::alignment) Scalar data2[PacketSize];
+  EIGEN_ALIGN_TO_BOUNDARY(unpacket_traits<Packet>::alignment) Scalar ref[PacketSize];
+  for (Scalar special : specials) {
+    for (int k = 0; k < PacketSize; ++k) {
+      for (int i = 0; i < PacketSize; ++i) data1[i] = Scalar(2);
+      data1[k] = special;
+      CHECK_CWISE1_IF(PacketTraits::HasLog, std::log, internal::plog);
+      CHECK_CWISE1_IF(PacketTraits::HasLog, log2, internal::plog2);
+      CHECK_CWISE1_IF(PacketTraits::HasLog1p, std::log1p, internal::plog1p);
+    }
+  }
 }
 
 template <typename Scalar, typename Packet>
@@ -1902,6 +1971,7 @@ void packetmath_abs_bits() {
 template <typename Scalar, typename Packet>
 void packetmath_notcomplex() {
   packetmath_ieee_special_values<Scalar, Packet>();
+  packetmath_special_value_lanes<Scalar, Packet>();
 
   typedef internal::packet_traits<Scalar> PacketTraits;
   const int PacketSize = internal::unpacket_traits<Packet>::size;
@@ -1942,6 +2012,12 @@ void packetmath_notcomplex() {
   for (int i = 0; i < PacketSize; ++i) ref[i] = data1[0] + Scalar(i);
   internal::pstore(data2, internal::plset<Packet>(data1[0]));
   VERIFY(test::areApprox(ref, data2, PacketSize) && "internal::plset");
+  if (NumTraits<Scalar>::IsInteger && NumTraits<Scalar>::IsSigned) {
+    // The carry out of the low 32 bits must reach the high bits of 64-bit lanes.
+    for (int i = 0; i < PacketSize; ++i) ref[i] = Scalar(-1) + Scalar(i);
+    internal::pstore(data2, internal::plset<Packet>(Scalar(-1)));
+    VERIFY(test::areApprox(ref, data2, PacketSize) && "internal::plset(-1)");
+  }
 
   {
     unsigned char* data1_bits = reinterpret_cast<unsigned char*>(data1);
@@ -2237,6 +2313,23 @@ void packetmath_complex() {
     VERIFY(test::areApprox(ref, pval, PacketSize) && "pcplxflip");
   }
 
+  // pcmp_eq is true for a complex element only where both components are equal: data2[i] - data1[i] is (0, 0), (1, 0)
+  // or (0, 1) as (i + shift) % 3 is 0, 1 or 2.
+  for (int shift = 0; shift < 3; ++shift) {
+    for (int i = 0; i < PacketSize; ++i) {
+      data1[i] = Scalar(RealScalar(i + 1), RealScalar(-i - 2));
+      const int k = (i + shift) % 3;
+      data2[i] = data1[i] + Scalar(RealScalar(k == 1), RealScalar(k == 2));
+    }
+    const Packet a = internal::pload<Packet>(data1);
+    internal::pstore(pval, internal::pcmp_eq(a, internal::pload<Packet>(data2)));
+    internal::pstore(ref, internal::ptrue(a));
+    for (int i = 0; i < PacketSize; ++i) {
+      if ((i + shift) % 3 != 0) ref[i] = Scalar(0);
+    }
+    VERIFY(test::areEqualBits(ref, pval, PacketSize, false) && "pcmp_eq");
+  }
+
   const RealScalar zero = RealScalar(0);
   const RealScalar one = RealScalar(1);
   const RealScalar inf = std::numeric_limits<RealScalar>::infinity();
@@ -2319,6 +2412,77 @@ void packetmath_complex() {
     data1[2] = Scalar(inf, -inf);
     data1[3] = Scalar(-inf, -inf);
     CHECK_CWISE1_N(numext::sqrt, internal::psqrt, 4);
+    // The sign of a zero is part of these results, and CHECK_CWISE1_N compares +0 equal to -0.
+    const auto check_sqrt_bits = [&]() {
+      for (int i = 0; i < 4; ++i) ref[i] = numext::sqrt(data1[i]);
+      for (int j = 0; j < 4; j += PacketSize)
+        internal::pstore(data2 + j, internal::psqrt(internal::pload<Packet>(data1 + j)));
+      VERIFY(test::areEqualBits(ref, data2, 4) && "internal::psqrt");
+    };
+    data1[0] = Scalar(-inf, -zero);
+    data1[1] = Scalar(-inf, -one);
+    data1[2] = Scalar(inf, -zero);
+    data1[3] = Scalar(inf, -one);
+    check_sqrt_bits();
+    data1[0] = Scalar(zero, -zero);
+    data1[1] = Scalar(-zero, -zero);
+    data1[2] = Scalar(RealScalar(4), -zero);
+    data1[3] = Scalar(RealScalar(-4), -zero);
+    check_sqrt_bits();
+    // |x| + |z| overflows, or |z| / 2 underflows to zero.
+    const RealScalar big = NumTraits<RealScalar>::highest();
+#if !EIGEN_ARCH_ARM
+    const RealScalar denorm = (std::numeric_limits<RealScalar>::denorm_min)();
+#else
+    // 32-bit ARM flushes denormal inputs to zero.
+    const RealScalar denorm = (std::numeric_limits<RealScalar>::min)();
+#endif
+    data1[0] = Scalar(big, zero);
+    data1[1] = Scalar(-big, big);
+    data1[2] = Scalar(denorm, zero);
+    data1[3] = Scalar(zero, -denorm);
+    CHECK_CWISE1_N(numext::sqrt, internal::psqrt, 4);
+    // The scaled paths with |y| << |x| or |x| << |y|, and both sides of their thresholds highest / 4 and 2 * min. The
+    // comparison above is relative to |z| and cannot see the smaller component, so compare components.
+    const auto check_sqrt_components = [&]() {
+      for (int j = 0; j < 4; j += PacketSize)
+        internal::pstore(data2 + j, internal::psqrt(internal::pload<Packet>(data1 + j)));
+      for (int i = 0; i < 4; ++i) {
+        const Scalar r = numext::sqrt(data1[i]);
+        VERIFY_IS_APPROX(numext::real(data2[i]), numext::real(r));
+        VERIFY_IS_APPROX(numext::imag(data2[i]), numext::imag(r));
+      }
+    };
+    const RealScalar eps = NumTraits<RealScalar>::epsilon();
+    const RealScalar tiny = eps * eps;
+    data1[0] = Scalar(big, tiny);
+    data1[1] = Scalar(big, -tiny);
+    data1[2] = Scalar(-big, tiny);
+    data1[3] = Scalar(-big, -tiny);
+    check_sqrt_components();
+    const RealScalar quarter = big / RealScalar(4);
+    const RealScalar above_quarter = numext::nextafter(quarter, inf);
+    data1[0] = Scalar(quarter, one);
+    data1[1] = Scalar(-above_quarter, one);
+    data1[2] = Scalar(one, quarter);
+    data1[3] = Scalar(one, -above_quarter);
+    check_sqrt_components();
+    const RealScalar two_min = RealScalar(2) * (std::numeric_limits<RealScalar>::min)();
+    const RealScalar below_two_min = numext::nextafter(two_min, zero);
+    data1[0] = Scalar(two_min, denorm);
+    data1[1] = Scalar(-below_two_min, denorm);
+    data1[2] = Scalar(-(std::numeric_limits<RealScalar>::min)(), -denorm);
+    data1[3] = Scalar(denorm, -below_two_min);
+    check_sqrt_components();
+#if !EIGEN_ARCH_ARM
+    // A subnormal minor component is rounded once: 0.5 * (y / rho) rounded (2/3) * denorm_min to 0.
+    const RealScalar nine_sixteenths = RealScalar(0.5625);
+    data1[0] = Scalar(nine_sixteenths, denorm);
+    data1[1] = Scalar(-nine_sixteenths, denorm);
+    data1[2] = Scalar(nine_sixteenths, -denorm);
+    data1[3] = Scalar(-nine_sixteenths, -denorm);
+    check_sqrt_components();
+#endif
     data1[0] = Scalar(nan, zero);
     data1[1] = Scalar(zero, nan);
     data1[2] = Scalar(nan, one);
@@ -2329,6 +2493,15 @@ void packetmath_complex() {
     data1[2] = Scalar(nan, inf);
     data1[3] = Scalar(-inf, nan);
     CHECK_CWISE1_N(numext::sqrt, internal::psqrt, 4);
+    // One infinite lane among ordinary ones still selects the handling of extreme inputs, also when pmax drops the
+    // inf of (NaN, inf).
+    for (const Scalar& special : {Scalar(nan, inf), Scalar(nan, -inf), Scalar(-inf, -one), Scalar(one, -inf)}) {
+      for (int k = 0; k < 4; ++k) {
+        for (int i = 0; i < 4; ++i) data1[i] = Scalar(i % 2 ? RealScalar(-4) : RealScalar(4), zero);
+        data1[k] = special;
+        check_sqrt_bits();
+      }
+    }
   }
   if (PacketTraits::HasLog) {
     for (int i = 0; i < size; ++i) {
@@ -2346,6 +2519,35 @@ void packetmath_complex() {
         CHECK_CWISE1_IM1ULP_N(std::log, internal::plog, 4);
       }
     }
+    // |z|^2 overflows or underflows while log|z| is finite.
+    const RealScalar big = numext::sqrt(NumTraits<RealScalar>::highest()) * RealScalar(4);
+    const RealScalar tiny = numext::sqrt((std::numeric_limits<RealScalar>::min)()) / RealScalar(4);
+    data1[0] = Scalar(big, one);
+    data1[1] = Scalar(-big, big);
+    data1[2] = Scalar(tiny, zero);
+    data1[3] = Scalar(tiny, -tiny);
+    CHECK_CWISE1_N(std::log, internal::plog, 4);
+    // |z| itself overflows, or rounds to a subnormal and loses its factor sqrt(2). libc++'s std::log takes
+    // log(abs(z)) and fails the same way, so the reference is log|(r, r)| = log(r) + log(2) / 2.
+    const RealScalar highest = NumTraits<RealScalar>::highest();
+#if EIGEN_ARCH_ARM  // 32-bit ARM flushes subnormals.
+    const RealScalar smallest = highest;
+#else
+    const RealScalar smallest = std::numeric_limits<RealScalar>::denorm_min();
+#endif
+    const RealScalar half_ln2 = RealScalar(EIGEN_LN2) / RealScalar(2);
+    const RealScalar quarter_pi = RealScalar(EIGEN_PI) / RealScalar(4);
+    data1[0] = Scalar(highest, highest);
+    data1[1] = Scalar(-highest, -highest);
+    data1[2] = Scalar(smallest, smallest);
+    data1[3] = Scalar(-smallest, smallest);
+    ref[0] = Scalar(numext::log(highest) + half_ln2, quarter_pi);
+    ref[1] = Scalar(numext::log(highest) + half_ln2, RealScalar(-3) * quarter_pi);
+    ref[2] = Scalar(numext::log(smallest) + half_ln2, quarter_pi);
+    ref[3] = Scalar(numext::log(smallest) + half_ln2, RealScalar(3) * quarter_pi);
+    for (int j = 0; j < 4; j += PacketSize)
+      internal::pstore(data2 + j, internal::plog(internal::pload<Packet>(data1 + j)));
+    VERIFY(test::areApprox(ref, data2, 4) && "internal::plog");
     // Set reference results to nan.
     // Some architectures don't handle IEEE edge cases correctly
     ref[0] = Scalar(nan, nan);

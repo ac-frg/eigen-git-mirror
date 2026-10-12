@@ -370,9 +370,28 @@ template <typename OldType, typename NewType>
 struct cast_impl<OldType, NewType, std::enable_if_t<!NumTraits<OldType>::IsComplex && NumTraits<NewType>::IsComplex>> {
   EIGEN_DEVICE_FUNC static inline NewType run(const OldType& x) {
     using NewReal = typename NumTraits<NewType>::Real;
-    return static_cast<NewType>(static_cast<NewReal>(x));
+    return static_cast<NewType>(cast_impl<OldType, NewReal>::run(x));
   }
 };
+
+#if EIGEN_ARCH_ARM64 && EIGEN_COMP_CLANG && !EIGEN_CLANG_STRICT_AT_LEAST(21, 0, 0)
+// Clang before 21, and the Clang forks whose version does not say, vectorize a loop of 64-bit integer to float
+// conversions through double on AArch64, which rounds twice. Rounding x to odd on the multiples of 2^11 where
+// |x| >= 2^53 makes the conversion to double exact and leaves a direct conversion unchanged.
+template <typename OldType>
+struct cast_impl<OldType, float, std::enable_if_t<std::is_integral<OldType>::value && sizeof(OldType) == 8>> {
+  EIGEN_DEVICE_FUNC static inline float run(const OldType& x) {
+    using U = std::make_unsigned_t<OldType>;
+    const U u = static_cast<U>(x);
+    // In two's complement, clearing the low bits rounds toward -inf for either sign; setting bit 11 then picks the odd
+    // neighbor.
+    const U low = 0x7ff;
+    const U odd = (u & ~low) | ((u & low) != 0 ? U(0x800) : U(0));
+    const U magnitude = std::is_signed<OldType>::value && (u >> 63) != 0 ? U(0) - u : u;
+    return static_cast<float>(magnitude >= (U(1) << 53) ? numext::bit_cast<OldType>(odd) : x);
+  }
+};
+#endif
 
 // Returns NewType directly to avoid unintended intermediate conversions.
 
@@ -647,7 +666,49 @@ EIGEN_DEVICE_FUNC inline int popcount(BitsType bits) {
   return count_bits_impl<BitsType>::popcount(bits);
 }
 
-#if EIGEN_COMP_GNUC || EIGEN_COMP_CLANG
+#if defined(EIGEN_CUDA_ARCH)
+
+// nvcc's device code has only __builtin_clz, __builtin_clzll, __builtin_popcount and __builtin_popcountll. The other
+// builtins are host functions there, and with warning 20014 silenced, a call from here compiles and returns garbage:
+// ctz at every width, and clz and popcount where long has 64 bits. __clz and __clzll return the full width for zero.
+// From CUDA 13.2, their parameter and return types are unsigned on aarch64 with GCC 11.4 or later as the host compiler
+// and signed elsewhere and in earlier toolkits; the conversions below keep the bits under either declaration.
+template <typename BitsType>
+struct count_bits_impl<
+    BitsType, std::enable_if_t<std::is_integral<BitsType>::value && sizeof(BitsType) <= sizeof(unsigned int)>> {
+  static constexpr int kNumBits = static_cast<int>(sizeof(BitsType) * CHAR_BIT);
+  static EIGEN_DEVICE_FUNC inline int clz(BitsType bits) {
+    static constexpr int kLeadingBitsOffset = (sizeof(unsigned int) - sizeof(BitsType)) * CHAR_BIT;
+    return static_cast<int>(__clz(static_cast<unsigned int>(bits))) - kLeadingBitsOffset;
+  }
+
+  static EIGEN_DEVICE_FUNC inline int ctz(BitsType bits) {
+    return bits == 0 ? kNumBits : __ffs(static_cast<int>(static_cast<unsigned int>(bits))) - 1;
+  }
+
+  static EIGEN_DEVICE_FUNC inline int popcount(BitsType bits) { return __popc(static_cast<unsigned int>(bits)); }
+};
+
+template <typename BitsType>
+struct count_bits_impl<BitsType,
+                       std::enable_if_t<std::is_integral<BitsType>::value && sizeof(unsigned int) < sizeof(BitsType) &&
+                                        sizeof(BitsType) <= sizeof(unsigned long long)>> {
+  static constexpr int kNumBits = static_cast<int>(sizeof(BitsType) * CHAR_BIT);
+  static EIGEN_DEVICE_FUNC inline int clz(BitsType bits) {
+    static constexpr int kLeadingBitsOffset = (sizeof(unsigned long long) - sizeof(BitsType)) * CHAR_BIT;
+    return static_cast<int>(__clzll(static_cast<unsigned long long>(bits))) - kLeadingBitsOffset;
+  }
+
+  static EIGEN_DEVICE_FUNC inline int ctz(BitsType bits) {
+    return bits == 0 ? kNumBits : __ffsll(static_cast<long long>(static_cast<unsigned long long>(bits))) - 1;
+  }
+
+  static EIGEN_DEVICE_FUNC inline int popcount(BitsType bits) {
+    return __popcll(static_cast<unsigned long long>(bits));
+  }
+};
+
+#elif EIGEN_COMP_GNUC || EIGEN_COMP_CLANG
 
 template <typename BitsType>
 struct count_bits_impl<
@@ -776,7 +837,7 @@ struct count_bits_impl<BitsType,
 
 #endif  // _WIN64
 
-#endif  // EIGEN_COMP_GNUC || EIGEN_COMP_CLANG
+#endif  // EIGEN_CUDA_ARCH
 
 template <typename BitsType>
 struct log_2_impl {
@@ -1684,11 +1745,13 @@ EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE double exp(const double& x) {
   return ::exp(x);
 }
 
+// exp(x + 0i) = exp(x) + 0i even where exp(x) overflows, so a zero imaginary part is kept rather than computed as
+// inf * 0.
 template <>
 EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE std::complex<float> exp(const std::complex<float>& x) {
   float com = ::expf(x.real());
   float res_real = com * ::cosf(x.imag());
-  float res_imag = com * ::sinf(x.imag());
+  float res_imag = x.imag() == 0.f ? x.imag() : com * ::sinf(x.imag());
   return std::complex<float>(res_real, res_imag);
 }
 
@@ -1696,7 +1759,7 @@ template <>
 EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE std::complex<double> exp(const std::complex<double>& x) {
   double com = ::exp(x.real());
   double res_real = com * ::cos(x.imag());
-  double res_imag = com * ::sin(x.imag());
+  double res_imag = x.imag() == 0.0 ? x.imag() : com * ::sin(x.imag());
   return std::complex<double>(res_real, res_imag);
 }
 #endif
@@ -2345,13 +2408,18 @@ struct complex_exp2_impl {
       return a > RealScalar(0) ? Complex(a, b * RealScalar(0)) : Complex(RealScalar(0), RealScalar(0));
     }
     // ln2_lo = (double(ln(2)) - ln2_hi) + (ln(2) - double(ln(2))), the first difference exact in Wide.
-    using Wide =
-        std::conditional_t<(NumTraits<RealScalar>::digits() > NumTraits<double>::digits()), RealScalar, double>;
+    // nvcc 11.8 drops parentheses around a `>` in a template argument when it regenerates host code.
+    constexpr bool kWiderThanDouble = NumTraits<RealScalar>::digits() > NumTraits<double>::digits();
+    using Wide = std::conditional_t<kWiderThanDouble, RealScalar, double>;
     const RealScalar ln2_hi = RealScalar(EIGEN_LN2);
     const RealScalar ln2_lo = RealScalar((Wide(static_cast<double>(EIGEN_LN2)) - Wide(ln2_hi)) +
                                          Wide(2.3190468138462996154948554638754786504e-17L));
-    const RealScalar t_hi = b * ln2_hi;
-    const RealScalar t_lo = numext::fma(b, ln2_hi, -t_hi) + b * ln2_lo;
+    // The phase is computed for |b|: a libm sin need not be exactly odd (IBM double-double's is not), and
+    // exp2(conj(z)) = conj(exp2(z)) should hold exactly.
+    const bool negative = b < RealScalar(0);
+    const RealScalar abs_b = numext::abs(b);
+    const RealScalar t_hi = abs_b * ln2_hi;
+    const RealScalar t_lo = numext::fma(abs_b, ln2_hi, -t_hi) + abs_b * ln2_lo;
     // |t_lo| <= ulp(t_hi) / 2, so the Taylor terms below are exact to rounding unless |t| exceeds about 2 / sqrt(eps).
     // The phase is within an ulp of b ln(2) while |t| < 1 / eps.
     RealScalar sin_lo = t_lo;
@@ -2374,11 +2442,13 @@ struct complex_exp2_impl {
     if (numext::abs(t_hi) < (numext::numeric_limits<RealScalar>::min)()) {
       // A denormal t has lost bits that 2^a can bring back. There cos(t) = 1 and sin(t) = t, taken from b 2^digits.
       const int p = NumTraits<RealScalar>::digits();
-      const RealScalar b_p = numext::ldexp(b, p);
-      return Complex(numext::ldexp(m, e), numext::ldexp(m * numext::fma(b_p, ln2_hi, b_p * ln2_lo), e - p));
+      const RealScalar b_p = numext::ldexp(abs_b, p);
+      const RealScalar im = numext::ldexp(m * numext::fma(b_p, ln2_hi, b_p * ln2_lo), e - p);
+      return Complex(numext::ldexp(m, e), negative ? -im : im);
     }
-    if (e == 0) return Complex(m * c, m * s);
-    return Complex(numext::ldexp(m * c, e), numext::ldexp(m * s, e));
+    const RealScalar re = e == 0 ? m * c : numext::ldexp(m * c, e);
+    const RealScalar im = e == 0 ? m * s : numext::ldexp(m * s, e);
+    return Complex(re, negative ? -im : im);
   }
 };
 

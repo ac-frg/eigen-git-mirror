@@ -71,6 +71,35 @@ struct coeff_wise {
   }
 };
 
+// The static Map() helpers of the plain types are device-callable.
+template <typename T>
+struct static_map {
+  EIGEN_DEVICE_FUNC void operator()(int i, const typename T::Scalar* in, typename T::Scalar* out) const {
+    T::Map(out + i * T::SizeAtCompileTime) =
+        2 * T::Map(in + i) + T::Map(in + i, T::RowsAtCompileTime, T::ColsAtCompileTime);
+  }
+};
+
+// A transform times a diagonal matrix scales the linear part through MatrixBase::operator*=.
+struct transform_times_diagonal {
+  EIGEN_DEVICE_FUNC void operator()(int i, const float* in, float* out) const {
+    using namespace Eigen;
+    Affine3f T;
+    T.matrix() = Matrix4f(in + i);
+    Map<Matrix4f>(out + i * 16) = (T * DiagonalMatrix<float, 3>(in[i], in[i + 1], in[i + 2])).matrix();
+  }
+};
+
+// The Scaling() helpers and UniformScaling compose with transforms on the device.
+struct transform_scaling {
+  EIGEN_DEVICE_FUNC void operator()(int i, const float* in, float* out) const {
+    using namespace Eigen;
+    Affine3f T = Translation3f(Vector3f(in + i)) * Scaling(in[i + 3]);
+    T *= Scaling(in[i + 4]).inverse();
+    Map<Matrix4f>(out + i * 16) = (T * Scaling(in[i + 5], in[i + 6], in[i + 7])).matrix();
+  }
+};
+
 template <int Order>
 struct scaled_structured_product {
   EIGEN_DEVICE_FUNC void operator()(int i, const float* in, float* out) const {
@@ -158,6 +187,17 @@ struct make_householder_complex_zero_tail {
   }
 };
 
+// Covers each unitOrthogonal path: fixed size 2, both branches of fixed size 3, and the generic one.
+struct unit_orthogonal {
+  EIGEN_DEVICE_FUNC void operator()(int i, const float* in, float* out) const {
+    using namespace Eigen;
+    Map<Vector2f>(out + 12 * i) = Map<const Vector2f>(in + i).unitOrthogonal();
+    Map<Vector3f>(out + 12 * i + 2) = Vector3f(in[i] + 2.0f, in[i + 1], in[i + 2]).unitOrthogonal();
+    Map<Vector3f>(out + 12 * i + 5) = Vector3f(0.0f, 1e-20f * in[i], in[i + 1] + 2.0f).unitOrthogonal();
+    Map<Vector4f>(out + 12 * i + 8) = Map<const Vector4f>(in + i).unitOrthogonal();
+  }
+};
+
 // Applies the complex operators inside Eigen's own templates, which see the device overloads only through
 // Eigen/Core's include order; complex_operators below finds them through its using-directive.
 template <typename ComplexType>
@@ -229,6 +269,69 @@ struct complex_sqrt {
   }
 };
 
+namespace complex_scalar_operators_test {
+#if defined(EIGEN_GPUCC) && defined(EIGEN_GPU_COMPILE_PHASE)
+// Shadow the global `using namespace Eigen;` from main.h so that unqualified
+// lookup in this namespace only finds the device std::complex operators via
+// EIGEN_USING_STD_COMPLEX_OPERATORS.
+struct shadow_tag {};
+EIGEN_DEVICE_FUNC void operator+(shadow_tag);
+EIGEN_DEVICE_FUNC void operator-(shadow_tag);
+EIGEN_DEVICE_FUNC void operator*(shadow_tag, shadow_tag);
+EIGEN_DEVICE_FUNC void operator/(shadow_tag, shadow_tag);
+EIGEN_DEVICE_FUNC void operator+=(shadow_tag, shadow_tag);
+EIGEN_DEVICE_FUNC void operator-=(shadow_tag, shadow_tag);
+EIGEN_DEVICE_FUNC void operator*=(shadow_tag, shadow_tag);
+EIGEN_DEVICE_FUNC void operator/=(shadow_tag, shadow_tag);
+EIGEN_DEVICE_FUNC void operator==(shadow_tag, shadow_tag);
+EIGEN_DEVICE_FUNC void operator!=(shadow_tag, shadow_tag);
+EIGEN_USING_STD_COMPLEX_OPERATORS
+#endif
+
+template <typename ComplexType>
+EIGEN_DEVICE_FUNC void run(const ComplexType& a, const ComplexType& b, ComplexType* out, int& out_idx) {
+  typedef typename ComplexType::value_type ValueType;
+  const ValueType real_a = Eigen::numext::real(a);
+  const ValueType real_b = Eigen::numext::real(b);
+
+  out[out_idx++] = +a;
+  out[out_idx++] = -a;
+
+  out[out_idx++] = a + b;
+  out[out_idx++] = a + real_b;
+  out[out_idx++] = real_a + b;
+  out[out_idx++] = a - b;
+  out[out_idx++] = a - real_b;
+  out[out_idx++] = real_a - b;
+  out[out_idx++] = a * b;
+  out[out_idx++] = a * real_b;
+  out[out_idx++] = real_a * b;
+  out[out_idx++] = a / b;
+  out[out_idx++] = a / real_b;
+  out[out_idx++] = real_a / b;
+
+#if !EIGEN_COMP_MSVC
+  out[out_idx] = a;
+  out[out_idx++] += b;
+  out[out_idx] = a;
+  out[out_idx++] -= b;
+  out[out_idx] = a;
+  out[out_idx++] *= b;
+  out[out_idx] = a;
+  out[out_idx++] /= b;
+#endif
+
+  const ComplexType true_value = ComplexType(ValueType(1), ValueType(0));
+  const ComplexType false_value = ComplexType(ValueType(0), ValueType(0));
+  out[out_idx++] = (a == b ? true_value : false_value);
+  out[out_idx++] = (a == real_b ? true_value : false_value);
+  out[out_idx++] = (real_a == b ? true_value : false_value);
+  out[out_idx++] = (a != b ? true_value : false_value);
+  out[out_idx++] = (a != real_b ? true_value : false_value);
+  out[out_idx++] = (real_a != b ? true_value : false_value);
+}
+}  // namespace complex_scalar_operators_test
+
 template <typename T>
 struct complex_operators {
   EIGEN_DEVICE_FUNC void operator()(int i, const typename T::Scalar* in, typename T::Scalar* out) const {
@@ -242,42 +345,10 @@ struct complex_operators {
     // Scalar operators.
     const ComplexType a = in[i];
     const ComplexType b = in[i + 1];
-
-    out[out_idx++] = +a;
-    out[out_idx++] = -a;
-
-    out[out_idx++] = a + b;
-    out[out_idx++] = a + numext::real(b);
-    out[out_idx++] = numext::real(a) + b;
-    out[out_idx++] = a - b;
-    out[out_idx++] = a - numext::real(b);
-    out[out_idx++] = numext::real(a) - b;
-    out[out_idx++] = a * b;
-    out[out_idx++] = a * numext::real(b);
-    out[out_idx++] = numext::real(a) * b;
-    out[out_idx++] = a / b;
-    out[out_idx++] = a / numext::real(b);
-    out[out_idx++] = numext::real(a) / b;
-
-#if !EIGEN_COMP_MSVC
-    out[out_idx] = a;
-    out[out_idx++] += b;
-    out[out_idx] = a;
-    out[out_idx++] -= b;
-    out[out_idx] = a;
-    out[out_idx++] *= b;
-    out[out_idx] = a;
-    out[out_idx++] /= b;
-#endif
+    complex_scalar_operators_test::run(a, b, out, out_idx);
 
     const ComplexType true_value = ComplexType(ValueType(1), ValueType(0));
     const ComplexType false_value = ComplexType(ValueType(0), ValueType(0));
-    out[out_idx++] = (a == b ? true_value : false_value);
-    out[out_idx++] = (a == numext::real(b) ? true_value : false_value);
-    out[out_idx++] = (numext::real(a) == b ? true_value : false_value);
-    out[out_idx++] = (a != b ? true_value : false_value);
-    out[out_idx++] = (a != numext::real(b) ? true_value : false_value);
-    out[out_idx++] = (numext::real(a) != b ? true_value : false_value);
 
     // Vector versions.
     T x1(in + i);
@@ -643,6 +714,94 @@ void test_float_nan_minmax() {
 #endif
 }
 
+// clz, ctz and popcount of the low 8, 16, 32 and 64 bits of each input. The clz test checks the host counts.
+struct bit_count_test {
+  template <typename T>
+  EIGEN_DEVICE_FUNC static void count(T bits, int* out) {
+    out[0] = internal::clz(bits);
+    out[1] = internal::ctz(bits);
+    out[2] = internal::popcount(bits);
+  }
+
+  EIGEN_DEVICE_FUNC void operator()(int i, const uint64_t* in, int* out) const {
+    const uint64_t bits = in[i];
+    count(static_cast<uint8_t>(bits), out + 12 * i);
+    count(static_cast<uint16_t>(bits), out + 12 * i + 3);
+    count(static_cast<uint32_t>(bits), out + 12 * i + 6);
+    count(bits, out + 12 * i + 9);
+  }
+};
+
+void test_bit_count() {
+  const int n = 3 * 64 + 2;
+  Eigen::Array<uint64_t, Eigen::Dynamic, 1> in(n);
+  Eigen::ArrayXi out_ref(12 * n), out_gpu(12 * n);
+  for (int k = 0; k < 64; ++k) {
+    in(3 * k) = uint64_t(1) << k;
+    in(3 * k + 1) = ~(uint64_t(1) << k);
+    in(3 * k + 2) = internal::random<uint64_t>();
+  }
+  in(n - 2) = 0;
+  in(n - 1) = ~uint64_t(0);
+  out_ref.setConstant(-1);
+  out_gpu.setConstant(-1);
+
+  run_on_cpu(bit_count_test(), n, in, out_ref);
+  run_on_gpu(bit_count_test(), n, in, out_gpu);
+
+#if !defined(EIGEN_GPU_COMPILE_PHASE)
+  VERIFY_IS_CWISE_EQUAL(out_ref, out_gpu);
+#endif
+}
+
+// Eigen::half != is true when either operand is NaN, on the device as on the host.
+struct half_nan_not_equal_test {
+  EIGEN_DEVICE_FUNC void operator()(int i, const float* in, float* out) const {
+    EIGEN_UNUSED_VARIABLE(i);
+    const Eigen::half nan(in[0]), one(in[1]);
+    out[0] = float(nan != nan);
+    out[1] = float(nan != one);
+    out[2] = float(one != nan);
+    out[3] = float(one != one);
+  }
+};
+
+void test_half_nan_not_equal() {
+  Eigen::ArrayXf in(2), out_ref(4), out_gpu(4);
+  in << std::numeric_limits<float>::quiet_NaN(), 1.f;
+  run_on_cpu(half_nan_not_equal_test(), 1, in, out_ref);
+  run_on_gpu(half_nan_not_equal_test(), 1, in, out_gpu);
+#if !defined(EIGEN_GPU_COMPILE_PHASE)
+  VERIFY_IS_CWISE_EQUAL(out_gpu, Eigen::Array4f(1.f, 1.f, 1.f, 0.f));
+  VERIFY_IS_CWISE_EQUAL(out_ref, out_gpu);
+#endif
+}
+
+// exp of a real-axis complex keeps the zero imaginary part, and its sign, where the real part overflows.
+struct complex_exp_overflow_test {
+  EIGEN_DEVICE_FUNC void operator()(int i, const float* in, float* out) const {
+    EIGEN_UNUSED_VARIABLE(i);
+    const std::complex<float> e = numext::exp(std::complex<float>(in[0], 0.f));
+    const std::complex<double> e2 = numext::exp(std::complex<double>(in[0] * 10, -0.0));
+    const std::complex<double> p2 = numext::exp2(std::complex<double>(in[0] * 20, 0.0));
+    out[0] = e.imag();
+    out[1] = float(e2.imag());
+    out[2] = float(p2.imag());
+  }
+};
+
+void test_complex_exp_overflow() {
+  Eigen::ArrayXf in(1), out_ref(3), out_gpu(3);
+  in << 100.f;
+  run_on_cpu(complex_exp_overflow_test(), 1, in, out_ref);
+  run_on_gpu(complex_exp_overflow_test(), 1, in, out_gpu);
+#if !defined(EIGEN_GPU_COMPILE_PHASE)
+  VERIFY_IS_CWISE_EQUAL(out_ref, Eigen::Array3f::Zero());
+  VERIFY_IS_CWISE_EQUAL(out_gpu, Eigen::Array3f::Zero());
+  VERIFY((std::signbit)(out_ref(1)) && (std::signbit)(out_gpu(1)));
+#endif
+}
+
 template <typename Type1, typename Type2>
 bool verifyIsApproxWithInfsNans(const Type1& a, const Type2& b,
                                 typename Type1::Scalar* = 0)  // Enabled for Eigen's type only
@@ -779,6 +938,9 @@ EIGEN_DECLARE_TEST(gpu_basic) {
 
   CALL_SUBTEST(run_and_compare_to_gpu(coeff_wise<Vector3f>(), nthreads, in, out));
   CALL_SUBTEST(run_and_compare_to_gpu(coeff_wise<Array44f>(), nthreads, in, out));
+  CALL_SUBTEST(run_and_compare_to_gpu(static_map<Matrix3f>(), nthreads, in, out));
+  CALL_SUBTEST(run_and_compare_to_gpu(transform_times_diagonal(), nthreads, in, out));
+  CALL_SUBTEST(run_and_compare_to_gpu(transform_scaling(), nthreads, in, out));
   CALL_SUBTEST(run_and_compare_to_gpu(make_householder_small_tail(), nthreads, in, out));
   CALL_SUBTEST(run_and_compare_to_gpu(make_householder_complex_zero_tail(), nthreads, cfin, cfout));
 
@@ -825,6 +987,7 @@ EIGEN_DECLARE_TEST(gpu_basic) {
   CALL_SUBTEST(run_and_compare_to_gpu(matrix_inverse<Matrix2f>(), nthreads, in, out));
   CALL_SUBTEST(run_and_compare_to_gpu(matrix_inverse<Matrix3f>(), nthreads, in, out));
   CALL_SUBTEST(run_and_compare_to_gpu(matrix_inverse<Matrix4f>(), nthreads, in, out));
+  CALL_SUBTEST(run_and_compare_to_gpu(unit_orthogonal(), nthreads, in, out));
 
   CALL_SUBTEST((test_jacobi_rotations<float, ColMajor>()));
   CALL_SUBTEST((test_jacobi_rotations<float, RowMajor>()));
@@ -849,6 +1012,9 @@ EIGEN_DECLARE_TEST(gpu_basic) {
 
   CALL_SUBTEST(test_custom_less_scalar_minmax());
   CALL_SUBTEST(test_float_nan_minmax());
+  CALL_SUBTEST(test_bit_count());
+  CALL_SUBTEST(test_half_nan_not_equal());
+  CALL_SUBTEST(test_complex_exp_overflow());
 
   // `preverse` on every GPU packet type. 32 elements cover several packets of
   // each, including `Packet4h2`, the widest at 8.

@@ -105,6 +105,27 @@ void test_conversion() {
   VERIFY(static_cast<bool>(half(1.0)));
   VERIFY(static_cast<bool>(half(-1.0)));
   VERIFY(static_cast<bool>(half(-5.96046e-08f)));
+
+  // A double rounds to half once: just above the midpoint 1 + 2^-11 it rounds up, although its float rounding is
+  // the midpoint itself, which ties down. The same holds below the midpoint and for tiny values.
+  VERIFY_IS_EQUAL(numext::bit_cast<numext::uint16_t>(half(1.0 + std::ldexp(1.0, -11) + std::ldexp(1.0, -40))), 0x3c01);
+  VERIFY_IS_EQUAL(numext::bit_cast<numext::uint16_t>(
+                      half(-(1.0 + std::ldexp(1.0, -10) + std::ldexp(1.0, -11) - std::ldexp(1.0, -40)))),
+                  0xbc01);
+  VERIFY_IS_EQUAL(numext::bit_cast<numext::uint16_t>(half(std::ldexp(1.0, -25) + std::ldexp(1.0, -60))), 0x0001);
+  VERIFY_IS_EQUAL(
+      numext::bit_cast<numext::uint16_t>(half(std::complex<double>(std::ldexp(1.0, -25) + std::ldexp(1.0, -60)))),
+      0x0001);
+  // Beyond float's range a double overflows to infinity or underflows to zero, keeping its sign.
+  VERIFY_IS_EQUAL(numext::bit_cast<numext::uint16_t>(half(1e39)), 0x7c00);
+  VERIFY_IS_EQUAL(numext::bit_cast<numext::uint16_t>(half(-1e39)), 0xfc00);
+  VERIFY_IS_EQUAL(numext::bit_cast<numext::uint16_t>(half(1e-300)), 0x0000);
+  VERIFY_IS_EQUAL(numext::bit_cast<numext::uint16_t>(half(-1e-300)), 0x8000);
+  VERIFY((numext::isnan)(half(std::numeric_limits<double>::quiet_NaN())));
+  // Integers convert through float directly: those it rounds overflow half anyway.
+  VERIFY_IS_EQUAL(numext::bit_cast<numext::uint16_t>(half(int32_t(65519))), 0x7bff);
+  VERIFY_IS_EQUAL(numext::bit_cast<numext::uint16_t>(half(-int64_t(65520))), 0xfc00);
+  VERIFY_IS_EQUAL(numext::bit_cast<numext::uint16_t>(half((std::numeric_limits<uint64_t>::max)())), 0x7c00);
 }
 
 void test_numtraits() {

@@ -1217,10 +1217,9 @@ struct shift_test_impl {
   static constexpr size_t Size = sizeof(Scalar);
   static constexpr size_t MaxShift = (CHAR_BIT * Size) - 1;
 
-  // N starts at one: NEON's immediate right-shift intrinsics reject a count of zero.
-  template <size_t N = 1>
+  template <size_t N = 0>
   static inline std::enable_if_t<(N > MaxShift), void> run(const ArrayType&) {}
-  template <size_t N = 1>
+  template <size_t N = 0>
   static inline std::enable_if_t<(N <= MaxShift), void> run(const ArrayType& m) {
     const Index rows = m.rows();
     const Index cols = m.cols();
@@ -1460,6 +1459,69 @@ void cast_test() {
                   uint32_t, uint64_t, float, double, /*long double, */ half, bfloat16>::run();
 }
 
+// Floating-point to integer casts truncate toward zero at every packet width.
+template <typename SrcType, int Size>
+void cast_truncation_test() {
+  const Array<SrcType, Size, 1> src = Array<SrcType, Size, 1>::LinSpaced(SrcType(-3.75), SrcType(3.75));
+  const Array<int, Size, 1> dst = src.template cast<int>();
+  for (Index k = 0; k < Size; ++k) VERIFY_IS_EQUAL(dst(k), static_cast<int>(src(k)));
+}
+
+// cast_test compares approximately. A 64-bit integer must round to float once: 2^60 + 2^36 + 1 rounds up, but
+// rounding through double first lands on the midpoint 2^60 + 2^36, which ties down to 2^60. Clang before 21 converts
+// that way on AArch64 when it vectorizes a scalar loop: without explicit vectorization, for a type with no vectorized
+// cast, for the unrolled remainder of a fixed size (14 in the generic backend with 16-byte vectors), and for
+// complex<float>, which no backend casts to from int64.
+template <typename T, int Size>
+void int64_to_float_cast_test(Index size = Size) {
+  const bool is_signed = std::is_signed<T>::value;
+  // Read through volatile: EIGEN_OPTIMIZATION_BARRIER is empty on MSVC, which folds constant conversions through
+  // double.
+  const volatile T big_source = (T(1) << 60) + (T(1) << 36) + 1;
+  const T big = big_source;
+  Array<T, Size, 1> a;
+  a.resize(size);
+  for (Index i = 0; i < a.size(); ++i) a(i) = is_signed && i % 2 == 0 ? T(0) - big : big;
+  const Array<float, Size, 1> f = a.template cast<float>();
+  const Array<std::complex<float>, Size, 1> c = a.template cast<std::complex<float>>();
+  // 2^60 + 2^37, spelled exactly: MSVC folds a constant int64-to-float conversion through double.
+  const float rounded = std::ldexp(1.f + std::ldexp(1.f, -23), 60);
+  for (Index i = 0; i < a.size(); ++i) {
+    const float expected = is_signed && i % 2 == 0 ? -rounded : rounded;
+    VERIFY_IS_EQUAL(f(i), expected);
+    VERIFY_IS_EQUAL(c(i), std::complex<float>(expected, 0.f));
+  }
+}
+
+// Float midpoints 2^e + (k + 1/2) ulp, offset in the low 12 bits, on both sides of 2^53. The reference converts behind
+// a barrier, which keeps the compiler from vectorizing it: Clang before 21 does that through double on AArch64.
+template <typename T>
+void int64_to_float_midpoint_cast_test() {
+  using U = std::make_unsigned_t<T>;
+  std::vector<T> values = {T((U(1) << 53) - 1), T(U(1) << 53), T((U(1) << 53) + 1), NumTraits<T>::highest()};
+  for (int e = 24; e < (std::is_signed<T>::value ? 63 : 64); ++e) {
+    for (U k = 0; k < 2; ++k) {
+      const U mid = (U(1) << e) + (k << (e - 23)) + (U(1) << (e - 24));
+      for (U s : {U(0), U(1), U(0x7ff), U(0x800), U(0x801)}) {
+        values.push_back(T(mid + s));
+        values.push_back(T(mid - s));
+      }
+    }
+  }
+  const size_t count = values.size();
+  if (std::is_signed<T>::value) {
+    for (size_t i = 0; i < count; ++i) values.push_back(T(-values[i]));
+    values.push_back(NumTraits<T>::lowest());
+  }
+  const ArrayX<T> a = Map<const ArrayX<T>>(values.data(), Index(values.size()));
+  const ArrayXf f = a.template cast<float>();
+  for (Index i = 0; i < a.size(); ++i) {
+    T x = a(i);
+    EIGEN_OPTIMIZATION_BARRIER(x);
+    VERIFY_IS_EQUAL(f(i), static_cast<float>(x));
+  }
+}
+
 template <typename = void>
 void bool_logical_ops() {
   const Index size = 67;
@@ -1526,6 +1588,69 @@ void complex_classification() {
     VERIFY_IS_EQUAL((numext::isinf)(test_case.value), test_case.infinite);
     VERIFY_IS_EQUAL((numext::isnan)(test_case.value), test_case.not_a_number);
   }
+}
+
+// Coefficient-wise modulus. Integer scalars only.
+// Original coverage by @arvsrao in !1705; extended here to the array-array form,
+// the scalar-on-the-left form, negative operands, and the 2D and compound-expression cases.
+template <typename Scalar>
+void modulus_test_impl() {
+  // Array % Array, 1D.
+  Array<Scalar, 3, 1> a(Scalar(7), Scalar(8), Scalar(9));
+  Array<Scalar, 3, 1> b(Scalar(2), Scalar(3), Scalar(4));
+  Array<Scalar, 3, 1> expected(Scalar(1), Scalar(2), Scalar(1));
+  VERIFY_IS_CWISE_EQUAL(a % b, expected);
+
+  // Array % scalar.
+  Array<Scalar, 3, 1> a_mod_2(Scalar(1), Scalar(0), Scalar(1));
+  VERIFY_IS_CWISE_EQUAL(a % Scalar(2), a_mod_2);
+
+  // Scalar % Array.
+  Array<Scalar, 3, 1> ten_mod_b(Scalar(0), Scalar(1), Scalar(2));
+  VERIFY_IS_CWISE_EQUAL(Scalar(10) % b, ten_mod_b);
+
+  // Modulus of a compound expression.
+  // (7,8,9) + (2,3,4) = (9,11,13); mod 4 -> (1,3,1)
+  Array<Scalar, 3, 1> compound(Scalar(1), Scalar(3), Scalar(1));
+  VERIFY_IS_CWISE_EQUAL((a + b) % Scalar(4), compound);
+
+  // Dynamic 2D.
+  ArrayXX<Scalar> m(2, 3);
+  m << Scalar(0), Scalar(1), Scalar(2), Scalar(3), Scalar(4), Scalar(5);
+  ArrayXX<Scalar> m_mod_3(2, 3);
+  m_mod_3 << Scalar(0), Scalar(1), Scalar(2), Scalar(0), Scalar(1), Scalar(2);
+  VERIFY_IS_CWISE_EQUAL(m % Scalar(3), m_mod_3);
+  VERIFY_IS_CWISE_EQUAL(m % ArrayXX<Scalar>::Constant(2, 3, Scalar(3)), m_mod_3);
+
+  // Agreement with the scalar operator, including negative dividends where the
+  // sign of the result follows the dividend (C++11 onwards).
+  if (NumTraits<Scalar>::IsSigned) {
+    Array<Scalar, 4, 1> neg(Scalar(-7), Scalar(-1), Scalar(7), Scalar(0));
+    Array<Scalar, 4, 1> div(Scalar(3), Scalar(3), Scalar(-3), Scalar(3));
+    for (Index i = 0; i < neg.size(); ++i) {
+      VERIFY_IS_EQUAL((neg % div)(i), Scalar(neg(i) % div(i)));
+    }
+  }
+
+  // Matches a hand-rolled loop over random data.
+  ArrayX<Scalar> lhs = ArrayX<Scalar>::Random(37);
+  ArrayX<Scalar> rhs = ArrayX<Scalar>::Random(37);
+  rhs = (rhs == Scalar(0) || rhs == Scalar(-1)).select(ArrayX<Scalar>::Constant(37, Scalar(1)), rhs);
+  ArrayX<Scalar> got = lhs % rhs;
+  for (Index i = 0; i < lhs.size(); ++i) {
+    VERIFY_IS_EQUAL(got(i), Scalar(lhs(i) % rhs(i)));
+  }
+}
+
+void modulus_tests() {
+  modulus_test_impl<int8_t>();
+  modulus_test_impl<int16_t>();
+  modulus_test_impl<int>();
+  modulus_test_impl<int64_t>();
+  modulus_test_impl<uint8_t>();
+  modulus_test_impl<uint16_t>();
+  modulus_test_impl<uint32_t>();
+  modulus_test_impl<uint64_t>();
 }
 
 EIGEN_DECLARE_TEST(array_cwise) {
@@ -1627,10 +1752,24 @@ EIGEN_DECLARE_TEST(array_cwise) {
     CALL_SUBTEST_26(typed_logicals_test(ArrayX<std::complex<float>>(internal::random<int>(1, EIGEN_TEST_MAX_SIZE))));
     CALL_SUBTEST_27(typed_logicals_test(ArrayX<std::complex<double>>(internal::random<int>(1, EIGEN_TEST_MAX_SIZE))));
     CALL_SUBTEST_42(bool_logical_ops<>());
+    CALL_SUBTEST_43(modulus_tests());
   }
 
   for (int i = 0; i < g_repeat; i++) {
     CALL_SUBTEST_28((cast_test<1, 1>()));
+    CALL_SUBTEST_28((cast_truncation_test<double, 4>()));
+    CALL_SUBTEST_28((cast_truncation_test<double, 8>()));
+    CALL_SUBTEST_28((cast_truncation_test<double, 16>()));
+    CALL_SUBTEST_28((cast_truncation_test<float, 16>()));
+    // QEMU, which runs the ppc64le tests, emulates xscvsxdsp and xscvuxdsp through double, so they round twice.
+#if !EIGEN_ARCH_PPC
+    CALL_SUBTEST_28((int64_to_float_cast_test<int64_t, Dynamic>(17)));
+    CALL_SUBTEST_28((int64_to_float_cast_test<int64_t, 14>()));
+    CALL_SUBTEST_28(int64_to_float_midpoint_cast_test<int64_t>());
+    CALL_SUBTEST_28((int64_to_float_cast_test<uint64_t, Dynamic>(17)));
+    CALL_SUBTEST_28((int64_to_float_cast_test<uint64_t, 14>()));
+    CALL_SUBTEST_28(int64_to_float_midpoint_cast_test<uint64_t>());
+#endif
     CALL_SUBTEST_29((cast_test<3, 1>()));
     CALL_SUBTEST_30((cast_test<5, 1>()));
     CALL_SUBTEST_31((cast_test<9, 1>()));
