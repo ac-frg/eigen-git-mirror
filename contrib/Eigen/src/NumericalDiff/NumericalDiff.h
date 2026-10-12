@@ -110,8 +110,13 @@ class NumericalDiff : public Functor_ {
    * Computes the Jacobian of the functor at \a _x into \a jac and returns the number of functor evaluations.
    *
    * The step along coordinate \c j is <tt>h = max(|x[j]| * rel_tol, abs_tol)</tt> with rel_tol and abs_tol selected by
-   * the user and \c epsilon the machine precision NumTraits<Scalar>::epsilon(); the difference quotient divides by the
-   * representable step <tt>fl(x[j] + h) - x[j]</tt> actually applied.
+   * the user. The rel_tol selected by the user must be greater than or equal to <tt> sqrt(epsilon) </tt>, and abs_tol 
+   * must be greater than or equal to 0, where \c epsilon is the machine precision NumTraits<Scalar>::epsilon(); the 
+   * difference quotient divides by the representable step <tt>fl(x[j] + h) - x[j]</tt> actually applied.
+   *
+   * In forward mode, the default rel_tol is <tt> sqrt(NumTraits<Scalar>::epsilon()) </tt> and the default abs_tol
+   * is abs_tol = rel_tol. In central mode, the default rel_tol is <tt> cbrt(NumTraits<Scalar>::epsilon()) </tt> 
+   * and the default abs_tol = rel_tol.
    */
   int df(const InputType& _x, JacobianType& jac) const {
     using std::abs;
@@ -144,7 +149,7 @@ class NumericalDiff : public Functor_ {
       const Scalar x_abs = abs(x[j]);
       h = numext::maxi(x_abs * rel_tol, abs_tol);
       // The functor is evaluated at fl(x[j] + h), so divide by that representable step: the rounding
-      // of x[j] + h perturbs h by up to ulp(x[j]) <= epsilon/abs_tol * h <= abs_tol * h, comparable
+      // of x[j] + h perturbs h by up to ulp(x[j]) <= epsilon |x[j]| <= (epsilon/rel_tol) * h <= h, comparable
       // to the error of the difference quotient itself.
       Scalar x_plus = _x[j] + h;
       internal::numerical_diff_barrier(x_plus);
