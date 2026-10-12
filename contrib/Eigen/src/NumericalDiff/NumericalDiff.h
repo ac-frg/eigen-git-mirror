@@ -77,11 +77,15 @@ class NumericalDiff : public Functor_ {
   }
 
   // forward constructors
-  template <typename T0>
+  template <typename T0, std::enable_if_t<std::is_constructible<Functor, const T0&>::value, int> = 0>
   NumericalDiff(const T0& a0) : Functor(a0), rel_tol(defaultRelTol()), abs_tol(defaultRelTol()) {}
-  template <typename T0, typename T1>
+
+  template <typename T0, typename T1,
+            std::enable_if_t<std::is_constructible<Functor, const T0&, const T1&>::value, int> = 0>
   NumericalDiff(const T0& a0, const T1& a1) : Functor(a0, a1), rel_tol(defaultRelTol()), abs_tol(defaultRelTol()) {}
-  template <typename T0, typename T1, typename T2>
+
+  template <typename T0, typename T1, typename T2,
+            std::enable_if_t<std::is_constructible<Functor, const T0&, const T1&, const T2&>::value, int> = 0>
   NumericalDiff(const T0& a0, const T1& a1, const T2& a2)
       : Functor(a0, a1, a2), rel_tol(defaultRelTol()), abs_tol(defaultRelTol()) {}
 

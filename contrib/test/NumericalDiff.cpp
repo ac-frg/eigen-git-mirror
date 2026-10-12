@@ -267,6 +267,60 @@ void test_step_size() {
   VERIFY_IS_APPROX(jac, expected);
 }
 
+// Test functor to ensure constructors work. The operator returns a1 at
+// x = 0.0 and 0.0 otherwise.
+struct G : Functor<double> {
+  G() : Functor<double>(1, 1) {}
+  G(double _a0, double _a1) : Functor<double>(1, 1), a0(_a0), a1(_a1) {}
+  int operator()(const VectorXd &x, VectorXd &fvec) const {
+    if (x[0] == 0.0) {
+      fvec[0] = a1;
+    } else {
+      fvec[0] = 0.0;
+    }
+    return 0;
+  }
+  double a0 = 0.0;
+  double a1 = 0.0;
+};
+
+struct float_functor : Functor<float> {
+  float_functor() : Functor<float>(1, 1) {}
+  int operator()(const VectorXf &x, VectorXf &fvec) const {
+    if (x[0] == 0.0f) {
+      fvec[0] = a0;
+    } else {
+      fvec[0] = 0.0;
+    }
+    return 0;
+  }
+  float a0 = 5.0;
+};
+
+void test_constructors() {
+  VectorXd x(1);
+  MatrixXd jac(1, 1);
+  MatrixXd expected(1, 1);
+  x << 1.0;
+
+  NumericalDiff<G> g(2.0, 3.0);
+  g.setRelTol(1.0);
+  g.df(x, jac);
+  expected << 3.0;  // Should be a1 if the constructor worked
+  VERIFY_IS_APPROX(jac, expected);
+
+  VectorXf fx(1);
+  MatrixXf fjac(1, 1);
+  MatrixXf fexpected(1, 1);
+  float_functor ff;
+  fx << 1.0;
+
+  NumericalDiff<float_functor> nd(ff, 1.0);
+  nd.df(fx, fjac);
+  fexpected << 5.0;  // Should be 5.0
+  VERIFY_IS_APPROX(fjac, fexpected);
+}
+
 EIGEN_DECLARE_TEST(NumericalDiff) {
   CALL_SUBTEST(test_forward());
   CALL_SUBTEST(test_central());
