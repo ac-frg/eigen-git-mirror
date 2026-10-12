@@ -495,6 +495,47 @@ void check_complex_divide_exceptions() {
   }
 }
 
+// numext::fma(a, b, c) for half or bfloat16, and whether it raised FE_INVALID. The operands and the result pass
+// through volatile bit patterns, which keeps the fma between the flag calls.
+template <typename T>
+EIGEN_DONT_INLINE int narrow_fma_invalid(const T& a, const T& b, const T& c, T& result) {
+  using Bits = numext::uint16_t;
+  volatile Bits bits[3] = {numext::bit_cast<Bits>(a), numext::bit_cast<Bits>(b), numext::bit_cast<Bits>(c)};
+  std::fenv_t environment;
+  if (std::feholdexcept(&environment) != 0) return -1;
+  volatile Bits result_bits = numext::bit_cast<Bits>(numext::fma(
+      numext::bit_cast<T>(Bits(bits[0])), numext::bit_cast<T>(Bits(bits[1])), numext::bit_cast<T>(Bits(bits[2]))));
+  const int invalid = std::fetestexcept(FE_INVALID);
+  std::fesetenv(&environment);
+  result = numext::bit_cast<T>(Bits(result_bits));
+  return invalid;
+}
+
+// An infinite or NaN operand gives the IEEE fma without FE_INVALID, except for inf * 0 and inf - inf.
+template <typename T>
+void check_narrow_fma_nonfinite() {
+  const T inf = NumTraits<T>::infinity(), nan = NumTraits<T>::quiet_NaN(), zero(0), one(1), two(2);
+  const T quiet[][4] = {{inf, one, zero, inf}, {-inf, one, zero, -inf}, {one, one, inf, inf},  {one, one, -inf, -inf},
+                        {inf, two, inf, inf},  {two, -inf, -inf, -inf}, {nan, one, zero, nan}, {one, one, nan, nan},
+                        {inf, one, nan, nan},  {zero, nan, inf, nan}};
+  for (const auto& operands : quiet) {
+    T result;
+    const int invalid = narrow_fma_invalid(operands[0], operands[1], operands[2], result);
+    if (invalid == -1) {
+      std::cout << "SKIP: fma exception check: feholdexcept failed.\n";
+      return;
+    }
+    VERIFY_IS_EQUAL(invalid, 0);
+    VERIFY(check_if_equal_or_nans(result, operands[3]));
+  }
+  const T invalid_operands[][3] = {{inf, zero, one}, {zero, -inf, one}, {inf, one, -inf}, {-inf, two, inf}};
+  for (const auto& operands : invalid_operands) {
+    T result;
+    if (narrow_fma_invalid(operands[0], operands[1], operands[2], result) == -1) return;
+    VERIFY((numext::isnan)(result));
+  }
+}
+
 #if EIGEN_COMP_MSVC
 #pragma fenv_access(off)
 #pragma float_control(pop)
@@ -1066,6 +1107,8 @@ EIGEN_DECLARE_TEST(numext) {
     CALL_SUBTEST(check_complex_divide<double>());
     CALL_SUBTEST(check_complex_divide_exceptions<float>());
     CALL_SUBTEST(check_complex_divide_exceptions<double>());
+    CALL_SUBTEST(check_narrow_fma_nonfinite<half>());
+    CALL_SUBTEST(check_narrow_fma_nonfinite<bfloat16>());
 
     CALL_SUBTEST(check_complex_fuzzy<float>());
     CALL_SUBTEST(check_complex_fuzzy<double>());

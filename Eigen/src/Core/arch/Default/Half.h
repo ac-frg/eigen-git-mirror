@@ -921,9 +921,11 @@ EIGEN_DEVICE_FUNC inline double fma_round_to_odd(float a, float b, float c) {
   const double p = static_cast<double>(a) * static_cast<double>(b);
   const double c_wide = static_cast<double>(c);
   const double s = p + c_wide;
+  // p is exact, so s is nonfinite only for a nonfinite operand; TwoSum would then evaluate inf - inf (FE_INVALID).
+  if (!(numext::isfinite)(s)) return s;
   const double p_part = s - c_wide;
   const double e = (p - p_part) + (c_wide - (s - p_part));
-  if (!(numext::isfinite)(s) || e == 0) return s;
+  if (e == 0) return s;
   // Inexact: truncate toward zero, then set the last bit.
   const bool away = (s > 0) != (e > 0);
   return numext::bit_cast<double>((numext::bit_cast<numext::uint64_t>(s) - (away ? 1u : 0u)) | 1u);
