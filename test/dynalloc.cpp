@@ -118,8 +118,11 @@ void check_custom_new_delete() {
     T *t = new (std::nothrow) T;
     VERIFY(t != nullptr);
     delete t;
+  }
+
+  {
     std::size_t N = internal::random<std::size_t>(1, 10);
-    t = new (std::nothrow) T[N];
+    T *t = new (std::nothrow) T[N];
     VERIFY(t != nullptr);
     delete[] t;
   }
