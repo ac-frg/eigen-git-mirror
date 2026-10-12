@@ -112,6 +112,21 @@ void check_initialize_by_nan() {
   Matrix<double, Dynamic, Dynamic, ColMajor, 4, 4> f = Matrix<double, Dynamic, Dynamic, ColMajor, 4, 4>::Zero(2, 2);
   f.conservativeResize(2, 4);
   VERIFY(f.leftCols(2).isZero(0) && f.rightCols(2).array().isNaN().all());
+
+  // Shrinking appends nothing and conservativeResizeLike() assigns what it appends, so both reallocate in place.
+  m.setOnes(3, 3);
+  m.conservativeResize(3, 2);
+  VERIFY_IS_EQUAL(m, MatrixXd::Ones(3, 2));
+  r.setOnes(3, 2);
+  r.conservativeResize(1, 2);
+  VERIFY_IS_EQUAL(r, (Matrix<double, Dynamic, Dynamic, RowMajor>::Ones(1, 2)));
+  v.setOnes(5);
+  v.conservativeResize(3);
+  VERIFY_IS_EQUAL(v, VectorXd::Ones(3));
+  m.conservativeResizeLike(MatrixXd::Constant(3, 4, 2));
+  VERIFY(m.leftCols(2).isOnes(0) && (m.rightCols(2).array() == 2).all());
+  v.conservativeResizeLike(VectorXd::Constant(5, 2));
+  VERIFY(v.head(3).isOnes(0) && (v.tail(2).array() == 2).all());
 #endif
 }
 
