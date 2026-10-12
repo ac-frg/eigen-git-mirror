@@ -60,13 +60,13 @@ class NumericalDiff : public Functor_ {
   // Fallback/Forward mode helper
   template <NumericalDiffMode M = mode, typename std::enable_if_t<M == Forward, int> = 0>
   static Scalar defaultRelTol() {
-    return std::sqrt(NumTraits<Scalar>::epsilon());
+    return numext::sqrt(NumTraits<Scalar>::epsilon());
   }
 
   // Central mode helper
   template <NumericalDiffMode M = mode, typename std::enable_if_t<M == Central, int> = 0>
   static Scalar defaultRelTol() {
-    return std::cbrt(NumTraits<Scalar>::epsilon());
+    return numext::cbrt(NumTraits<Scalar>::epsilon());
   }
 
  public:
@@ -97,7 +97,6 @@ class NumericalDiff : public Functor_ {
    */
   int df(const InputType& _x, JacobianType& jac) const {
     using std::abs;
-    using std::sqrt;
     /* Local variables */
     Scalar h;
     int nfev = 0;
