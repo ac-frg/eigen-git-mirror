@@ -36,7 +36,8 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet pdiv_complex(const Pa
   const RealPacket abs_y_flip = pcplxflip(Packet(abs_y)).v;
 
   const RealPacket mask = pcmp_lt(abs_y, abs_y_flip);  // |c| < |d|
-  RealPacket y_scaled = pselect(mask, pdiv(abs_y, abs_y_flip), one);
+  // Elements that do not use the ratio divide 1 / 1: |c| / |d| would raise FE_DIVBYZERO for d = 0.
+  RealPacket y_scaled = pdiv(pselect(mask, abs_y, one), pselect(mask, abs_y_flip, one));
   y_scaled = por(y_scaled, pandnot(y.v, abs_y));  // copy signs in case |c| == |d|
   RealPacket denom = pmul(y.v, y_scaled);
   denom = padd(denom, pcplxflip(Packet(denom)).v);  // c * c' + d * d'

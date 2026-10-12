@@ -2341,6 +2341,36 @@ void exp_complex_test(Scalar* data1, Scalar* data2, Scalar* ref, int size) {
   exp_complex_test_impl<Scalar, Packet>::run(data1, data2, ref, size);
 }
 
+// Checks pdiv(x, y) against its exact value, expected, in every element, and returns the FE_DIVBYZERO, FE_INVALID and
+// FE_OVERFLOW flags it raised. The volatile accesses keep the compiler from folding the division or moving it across
+// the flag accesses.
+template <typename Scalar, typename Packet>
+int pdiv_complex_exceptions(const Scalar& x, const Scalar& y, const Scalar& expected) {
+  using RealScalar = typename Scalar::value_type;
+  constexpr int PacketSize = internal::unpacket_traits<Packet>::size;
+  volatile RealScalar parts[4] = {numext::real(x), numext::imag(x), numext::real(y), numext::imag(y)};
+  volatile RealScalar output[2 * PacketSize];
+  Scalar a[PacketSize], b[PacketSize], q[PacketSize];
+  std::fenv_t saved_environment;
+  if (std::feholdexcept(&saved_environment) != 0) return 0;
+  for (int i = 0; i < PacketSize; ++i) {
+    a[i] = Scalar(parts[0], parts[1]);
+    b[i] = Scalar(parts[2], parts[3]);
+  }
+  internal::pstoreu(q, internal::pdiv(internal::ploadu<Packet>(a), internal::ploadu<Packet>(b)));
+  for (int i = 0; i < PacketSize; ++i) {
+    output[2 * i] = numext::real(q[i]);
+    output[2 * i + 1] = numext::imag(q[i]);
+  }
+  const int raised = std::fetestexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW);
+  std::fesetenv(&saved_environment);
+  for (int i = 0; i < PacketSize; ++i) {
+    VERIFY_IS_EQUAL(RealScalar(output[2 * i]), numext::real(expected));
+    VERIFY_IS_EQUAL(RealScalar(output[2 * i + 1]), numext::imag(expected));
+  }
+  return raised;
+}
+
 template <typename Scalar, typename Packet>
 void packetmath_complex() {
   typedef internal::packet_traits<Scalar> PacketTraits;
@@ -2406,6 +2436,15 @@ void packetmath_complex() {
       }
       internal::pstore(pval, internal::pdiv(internal::pload<Packet>(data1), internal::pload<Packet>(data2)));
       for (int i = 0; i < PacketSize; ++i) VERIFY_IS_APPROX(pval[i], quotients[(i + k) % 4]);
+    }
+
+    // A denominator with a zero component raises no exception: the ratio of the other component to it is not formed.
+    const RealScalar two = RealScalar(2), three = RealScalar(3), four = RealScalar(4), three_halves = RealScalar(1.5);
+    const Scalar exact_operands[][3] = {{Scalar(one, zero), Scalar(one, zero), Scalar(one, zero)},
+                                        {Scalar(three, four), Scalar(zero, two), Scalar(two, -three_halves)},
+                                        {Scalar(three, four), Scalar(-two, zero), Scalar(-three_halves, -two)}};
+    for (const auto& operands : exact_operands) {
+      VERIFY_IS_EQUAL((pdiv_complex_exceptions<Scalar, Packet>(operands[0], operands[1], operands[2])), 0);
     }
 
     // A large component beside a subnormal one, divided by one, must come back exactly: scaling the numerator by 1/4
