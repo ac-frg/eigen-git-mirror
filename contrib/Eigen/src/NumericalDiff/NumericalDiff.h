@@ -70,10 +70,12 @@ class NumericalDiff : public Functor_ {
   }
 
  public:
-  NumericalDiff(Scalar _rel_tol = defaultRelTol(), Scalar _abs_tol = NumTraits<Scalar>::quiet_NaN())
-      : Functor(), rel_tol(_rel_tol), abs_tol((std::isnan)(_abs_tol) ? _rel_tol : _abs_tol) {}
-  NumericalDiff(const Functor& f, Scalar _rel_tol = defaultRelTol(), Scalar _abs_tol = NumTraits<Scalar>::quiet_NaN())
-      : Functor(f), rel_tol(_rel_tol), abs_tol((std::isnan)(_abs_tol) ? _rel_tol : _abs_tol) {}
+  NumericalDiff(Scalar _rel_tol = defaultRelTol())
+      : Functor(), rel_tol(_rel_tol), abs_tol(_rel_tol) {}
+  NumericalDiff(const Functor& f, Scalar _rel_tol = defaultRelTol())
+      : Functor(f), rel_tol(_rel_tol), abs_tol(_rel_tol) {}
+  NumericalDiff(const Functor& f, Scalar _rel_tol, Scalar _abs_tol)
+      : Functor(f), rel_tol(_rel_tol), abs_tol(_abs_tol) {}
 
   // forward constructors
   template <typename T0>
