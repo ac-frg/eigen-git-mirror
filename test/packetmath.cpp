@@ -2315,6 +2315,22 @@ struct exp_complex_test_impl {
       }
     }
 
+    // Where exp(x / 2) overflows too, exp(x) sin(y) is still finite for a subnormal y, which is sin(y) exactly. The
+    // reference forms exp(x) y = (((y h) h) h) h with h = exp(x / 4), whose partial products are normal.
+    const RealScalar denorm_min = std::numeric_limits<RealScalar>::denorm_min();
+    const RealScalar log_highest = numext::log(NumTraits<RealScalar>::highest());
+    const RealScalar huge_args[][2] = {
+        {RealScalar(2) * log_highest + RealScalar(2), RealScalar(12345) * denorm_min},
+        {log_highest - numext::log(RealScalar(4)) - numext::log(denorm_min), denorm_min}};
+    for (const auto& arg : huge_args) {
+      for (const RealScalar y : {arg[1], -arg[1]}) {
+        const Scalar w = pexp1(Scalar(arg[0], y));
+        const RealScalar h = numext::exp(arg[0] / RealScalar(4));
+        VERIFY_IS_EQUAL(numext::real(w), std::numeric_limits<RealScalar>::infinity());
+        VERIFY_IS_APPROX(numext::imag(w), y * h * h * h * h);
+      }
+    }
+
     // An element whose exp(x) is finite gets the same result whatever shares its packet.
     if (PacketSize > 1) {
       Scalar data[PacketSize], alone[PacketSize], mixed[PacketSize];
