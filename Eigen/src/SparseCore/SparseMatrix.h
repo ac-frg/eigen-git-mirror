@@ -1804,10 +1804,11 @@ class Serializer<SparseMatrix<Scalar, Options, StorageIndex>, void> {
     memcpy(dest, &header, header_bytes);
     dest += header_bytes;
 
+    // Empty arrays may have null pointers, which memcpy does not accept even for zero bytes.
     // innerNonZeros.
     if (!header.compressed) {
       std::size_t data_bytes = sizeof(StorageIndex) * header.outer_size;
-      memcpy(dest, value.innerNonZeroPtr(), data_bytes);
+      if (data_bytes != 0) memcpy(dest, value.innerNonZeroPtr(), data_bytes);
       dest += data_bytes;
     }
 
@@ -1818,12 +1819,12 @@ class Serializer<SparseMatrix<Scalar, Options, StorageIndex>, void> {
 
     // Inner indices.
     data_bytes = sizeof(StorageIndex) * header.inner_buffer_size;
-    memcpy(dest, value.innerIndexPtr(), data_bytes);
+    if (data_bytes != 0) memcpy(dest, value.innerIndexPtr(), data_bytes);
     dest += data_bytes;
 
     // Values.
     data_bytes = sizeof(Scalar) * header.inner_buffer_size;
-    memcpy(dest, value.valuePtr(), data_bytes);
+    if (data_bytes != 0) memcpy(dest, value.valuePtr(), data_bytes);
     dest += data_bytes;
 
     return dest;

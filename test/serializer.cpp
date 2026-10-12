@@ -369,6 +369,7 @@ EIGEN_DECLARE_TEST(serializer) {
     CALL_SUBTEST_1(test_eigen_type(Eigen::Matrix4d()));
     CALL_SUBTEST_1(test_eigen_type(Eigen::MatrixXd(15, 17)));
     CALL_SUBTEST_1(test_eigen_type(Eigen::SparseMatrix<float>(13, 12)));
+    CALL_SUBTEST_1(test_eigen_type(Eigen::SparseMatrix<float>(0, 3)));
     CALL_SUBTEST_1(test_eigen_type(Eigen::SparseVector<float>(17)));
 
     CALL_SUBTEST_1(test_dense_types(Eigen::Array33f(), Eigen::ArrayXd(10), Eigen::MatrixXd(15, 17)));
