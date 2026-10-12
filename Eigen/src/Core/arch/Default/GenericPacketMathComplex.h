@@ -38,26 +38,34 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet pdiv_complex(const Pa
   const RealPacket mask = pcmp_lt(abs_y, abs_y_flip);  // |c| < |d|
   RealPacket y_scaled = pselect(mask, pdiv(abs_y, abs_y_flip), one);
   y_scaled = por(y_scaled, pandnot(y.v, abs_y));  // copy signs in case |c| == |d|
+  RealPacket denom = pmul(y.v, y_scaled);
+  denom = padd(denom, pcplxflip(Packet(denom)).v);  // c * c' + d * d'
+  Packet num = pmul(x, pconj(Packet(y_scaled)));    // a * c' + b * d', -a * d + b * c
+  RealPacket result = pdiv(num.v, denom);
   // y_scaled = y / max(|c|, |d|), so the denominator lies in [m, 2 m] for m = max(|c|, |d|) and the numerator's
-  // components are at most |a| + |b|. Either can overflow where x / y is finite: elements with a component of x
-  // (of y) above highest / 4 take x (y) scaled by 1/4, which is exact, and the quotient the inverse scale.
-  const RealPacket cst_quarter = pset1<RealPacket>(RealScalar(0.25));
+  // components are at most |a| + |b|. Either can overflow where x / y is finite, which needs a component above
+  // highest / 4. Elements whose numerator or denominator overflowed are recomputed with x (y) scaled by 1/4 where it
+  // has such a component, and the quotient by the inverse scale. The scaling can lose a subnormal component, so
+  // elements that did not overflow keep the unscaled quotient.
   const RealPacket quarter_highest = pset1<RealPacket>(NumTraits<RealScalar>::highest() / RealScalar(4));
-  Packet x_in = x;
-  RealPacket y_in = y.v;
-  RealPacket unscale = one;
   if (EIGEN_PREDICT_FALSE(predux_any(pcmp_lt(quarter_highest, pmax(pabs(x.v), abs_y))))) {
+    const RealPacket cst_quarter = pset1<RealPacket>(RealScalar(0.25));
     const RealPacket abs_x = pabs(x.v);
     const RealPacket large_x = pcmp_lt(quarter_highest, pmax(abs_x, pcplxflip(Packet(abs_x)).v));
     const RealPacket large_y = pcmp_lt(quarter_highest, pmax(abs_y, abs_y_flip));
-    x_in.v = pselect(large_x, pmul(x.v, cst_quarter), x.v);
-    y_in = pselect(large_y, pmul(y.v, cst_quarter), y.v);
-    unscale = pmul(pselect(large_x, pset1<RealPacket>(RealScalar(4)), one), pselect(large_y, cst_quarter, one));
+    const Packet x_in(pselect(large_x, pmul(x.v, cst_quarter), x.v));
+    const RealPacket y_in = pselect(large_y, pmul(y.v, cst_quarter), y.v);
+    const RealPacket unscale =
+        pmul(pselect(large_x, pset1<RealPacket>(RealScalar(4)), one), pselect(large_y, cst_quarter, one));
+    RealPacket denom_in = pmul(y_in, y_scaled);
+    denom_in = padd(denom_in, pcplxflip(Packet(denom_in)).v);
+    const Packet num_in = pmul(x_in, pconj(Packet(y_scaled)));
+    const RealPacket inf = pset1<RealPacket>(NumTraits<RealScalar>::infinity());
+    RealPacket overflow = por(pcmp_eq(pabs(num.v), inf), pcmp_eq(pabs(denom), inf));
+    overflow = por(overflow, pcplxflip(Packet(overflow)).v);
+    result = pselect(overflow, pmul(pdiv(num_in.v, denom_in), unscale), result);
   }
-  RealPacket denom = pmul(y_in, y_scaled);
-  denom = padd(denom, pcplxflip(Packet(denom)).v);   // c * c' + d * d'
-  Packet num = pmul(x_in, pconj(Packet(y_scaled)));  // a * c' + b * d', -a * d + b * c
-  return Packet(pmul(pdiv(num.v, denom), unscale));
+  return Packet(result);
 }
 
 template <typename Packet>

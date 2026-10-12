@@ -2394,6 +2394,22 @@ void packetmath_complex() {
       internal::pstore(pval, internal::pdiv(internal::pload<Packet>(data1), internal::pload<Packet>(data2)));
       for (int i = 0; i < PacketSize; ++i) VERIFY_IS_APPROX(pval[i], quotients[(i + k) % 4]);
     }
+
+    // A large component beside a subnormal one, divided by one, must come back exactly: scaling the numerator by 1/4
+    // would flush the subnormal component.
+    const RealScalar tiny = std::numeric_limits<RealScalar>::denorm_min();
+    const Scalar mixed[] = {Scalar(big, tiny), Scalar(tiny, -big)};
+    for (int k = 0; k < 2; ++k) {
+      for (int i = 0; i < PacketSize; ++i) {
+        data1[i] = mixed[(i + k) % 2];
+        data2[i] = Scalar(one, zero);
+      }
+      internal::pstore(pval, internal::pdiv(internal::pload<Packet>(data1), internal::pload<Packet>(data2)));
+      for (int i = 0; i < PacketSize; ++i) {
+        VERIFY_IS_EQUAL(numext::real(pval[i]), numext::real(mixed[(i + k) % 2]));
+        VERIFY_IS_EQUAL(numext::imag(pval[i]), numext::imag(mixed[(i + k) % 2]));
+      }
+    }
   }
 
   // Test pisnan.
