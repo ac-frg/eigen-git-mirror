@@ -164,6 +164,24 @@ struct triangular_solver_selector<Lhs, Rhs, OnTheRight, Mode, CompleteUnrolling,
   }
 };
 
+// What a triangular solve reads its matrix from: the view itself when it must be evaluated, which reads only the
+// triangle, or else its nested expression.
+template <bool EvalLhs>
+struct triangular_solve_lhs_source {
+  template <typename TriangularType>
+  EIGEN_DEVICE_FUNC static const TriangularType& run(const TriangularType& tri) {
+    return tri;
+  }
+};
+
+template <>
+struct triangular_solve_lhs_source<false> {
+  template <typename TriangularType>
+  EIGEN_DEVICE_FUNC static const typename TriangularType::NestedExpression& run(const TriangularType& tri) {
+    return tri.nestedExpression();
+  }
+};
+
 }  // end namespace internal
 
 /***************************************************************************
@@ -196,9 +214,11 @@ EIGEN_DEVICE_FUNC void TriangularViewImpl<MatrixType, Mode, Dense>::solveInPlace
 
   // The kernels read the matrix blas_traits extracts, without its scalar factor. A unit diagonal does not
   // scale with that factor, so a scaled matrix is evaluated rather than its factor applied to the solution.
+  // Only the triangle is evaluated: the other coefficients, and an implicit unit diagonal, need not be readable.
   constexpr bool EvalLhs = internal::blas_traits<MatrixType>::HasScalarFactor;
   using Lhs = std::conditional_t<EvalLhs, typename MatrixType::PlainObject, MatrixType>;
-  std::conditional_t<EvalLhs, const Lhs, const MatrixType&> lhs(derived().nestedExpression());
+  std::conditional_t<EvalLhs, const Lhs, const MatrixType&> lhs(
+      internal::triangular_solve_lhs_source<EvalLhs>::run(derived()));
 
   internal::triangular_solver_selector<Lhs, std::remove_reference_t<OtherCopy>, Side, Mode>::run(lhs, otherCopy);
 
