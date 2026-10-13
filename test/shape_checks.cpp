@@ -310,12 +310,12 @@ EIGEN_DECLARE_TEST(shape_checks) {
   VERIFY_IS_EQUAL(runtime_a.accesses, 2);
   VERIFY_IS_EQUAL(runtime_b.accesses, 2);
 #endif
-  EIGEN_SHAPE_ASSERT((dimension_relation<3, 3>::Proven), ++reads == 1);
+  EIGEN_SHAPE_ASSERT((dimension_relation<3, 3>::Proven), ++reads == 1);  // NOLINT(bugprone-assert-side-effect)
   VERIFY_IS_EQUAL(reads, 0);
-  EIGEN_ASSERT_NONEMPTY_SIZE(fixed_a, ++reads);
+  EIGEN_ASSERT_NONEMPTY_SIZE(fixed_a, ++reads);  // NOLINT(bugprone-assert-side-effect)
   VERIFY_IS_EQUAL(reads, 0);
 #ifndef EIGEN_NO_DEBUG
-  EIGEN_SHAPE_ASSERT((dimension_relation<Dynamic, 3>::Proven), ++reads == 1);
+  EIGEN_SHAPE_ASSERT((dimension_relation<Dynamic, 3>::Proven), ++reads == 1);  // NOLINT(bugprone-assert-side-effect)
   VERIFY_IS_EQUAL(reads, 1);
   VERIFY_RAISES_ASSERT([] { EIGEN_SHAPE_ASSERT(false, false); }());
 #endif
