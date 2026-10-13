@@ -112,18 +112,18 @@ struct fixed_dimensions {
 // Keep the runtime expression lazy and preserve assertion overrides.
 // In particular, a proven check must not call dimension accessors even at -O0.
 // An unevaluated use prevents unused-parameter warnings when assertions are disabled.
-#define EIGEN_SHAPE_ASSERT(Proven, Condition) \
-  do {                                        \
-    EIGEN_IF_CONSTEXPR (!(Proven)) {          \
-      (void)sizeof(Condition);                \
-      eigen_assert(Condition);                \
-    }                                         \
+#define EIGEN_SHAPE_ASSERT(Proven, Condition)     \
+  do {                                            \
+    EIGEN_IF_CONSTEXPR (!(Proven)) {              \
+      (void)sizeof(static_cast<bool>(Condition)); \
+      eigen_assert(Condition);                    \
+    }                                             \
   } while (false)
 
 #define EIGEN_INTERNAL_SHAPE_ASSERT(Proven, Condition) \
   do {                                                 \
     EIGEN_IF_CONSTEXPR (!(Proven)) {                   \
-      (void)sizeof(Condition);                         \
+      (void)sizeof(static_cast<bool>(Condition));      \
       eigen_internal_assert(Condition);                \
     }                                                  \
   } while (false)
@@ -138,7 +138,7 @@ struct fixed_dimensions {
     using ShapeRelation = __VA_ARGS__;                      \
     EIGEN_STATIC_ASSERT(ShapeRelation::Compatible, Message) \
     EIGEN_IF_CONSTEXPR (!ShapeRelation::Proven) {           \
-      (void)sizeof(Condition);                              \
+      (void)sizeof(static_cast<bool>(Condition));           \
       eigen_assert(Condition);                              \
     }                                                       \
   } while (false)
