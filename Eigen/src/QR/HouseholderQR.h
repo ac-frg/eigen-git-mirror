@@ -338,7 +338,7 @@ struct householder_determinant<HCoeffs, Scalar, false> {
 template <typename MatrixType>
 typename MatrixType::Scalar HouseholderQR<MatrixType>::determinant() const {
   eigen_assert(m_isInitialized && "HouseholderQR is not initialized.");
-  EIGEN_ASSERT_SQUARE(m_qr);
+  EIGEN_ASSERT_SQUARE_MSG(m_qr, "You can't take the determinant of a non-square matrix!");
   Scalar detQ;
   internal::householder_determinant<HCoeffsType, Scalar, NumTraits<Scalar>::IsComplex>::run(m_hCoeffs, detQ);
   return m_qr.diagonal().prod() * detQ;
@@ -348,21 +348,21 @@ template <typename MatrixType>
 typename MatrixType::RealScalar HouseholderQR<MatrixType>::absDeterminant() const {
   using std::abs;
   eigen_assert(m_isInitialized && "HouseholderQR is not initialized.");
-  EIGEN_ASSERT_SQUARE(m_qr);
+  EIGEN_ASSERT_SQUARE_MSG(m_qr, "You can't take the determinant of a non-square matrix!");
   return abs(m_qr.diagonal().prod());
 }
 
 template <typename MatrixType>
 typename MatrixType::RealScalar HouseholderQR<MatrixType>::logAbsDeterminant() const {
   eigen_assert(m_isInitialized && "HouseholderQR is not initialized.");
-  EIGEN_ASSERT_SQUARE(m_qr);
+  EIGEN_ASSERT_SQUARE_MSG(m_qr, "You can't take the determinant of a non-square matrix!");
   return m_qr.diagonal().cwiseAbs().array().log().sum();
 }
 
 template <typename MatrixType>
 typename MatrixType::Scalar HouseholderQR<MatrixType>::signDeterminant() const {
   eigen_assert(m_isInitialized && "HouseholderQR is not initialized.");
-  EIGEN_ASSERT_SQUARE(m_qr);
+  EIGEN_ASSERT_SQUARE_MSG(m_qr, "You can't take the determinant of a non-square matrix!");
   Scalar detQ;
   internal::householder_determinant<HCoeffsType, Scalar, NumTraits<Scalar>::IsComplex>::run(m_hCoeffs, detQ);
   return detQ * m_qr.diagonal().array().sign().prod();

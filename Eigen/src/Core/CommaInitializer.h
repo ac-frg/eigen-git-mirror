@@ -34,7 +34,7 @@ struct CommaInitializer {
 
   EIGEN_DEVICE_FUNC constexpr CommaInitializer(XprType& xpr, const Scalar& s)
       : m_xpr(xpr), m_row(0), m_col(1), m_currentBlockRows(1) {
-    EIGEN_ASSERT_NONEMPTY(m_xpr);
+    EIGEN_ASSERT_NONEMPTY_MSG(m_xpr, "Cannot comma-initialize a 0x0 matrix (operator<<)");
     m_xpr.coeffRef(0, 0) = s;
   }
 

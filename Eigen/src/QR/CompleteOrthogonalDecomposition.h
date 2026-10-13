@@ -188,7 +188,9 @@ class CompleteOrthogonalDecompositionImpl
   template <bool Transpose_, typename Rhs>
   void _check_solve_assertion(const Rhs& b) const {
     eigen_assert(m_cpqr.m_isInitialized && "CompleteOrthogonalDecomposition is not initialized.");
-    EIGEN_ASSERT_SOLVER_RHS(*this, b, Transpose_);
+    EIGEN_ASSERT_SOLVER_RHS_MSG(
+        *this, b, Transpose_,
+        "CompleteOrthogonalDecomposition::solve(): invalid number of rows of the right hand side matrix b");
   }
 
   void computeInPlace();

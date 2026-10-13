@@ -1119,7 +1119,7 @@ struct triangular_diagonal_product_impl {
   template <typename Dest, typename Alpha>
   static EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void run(Dest& dst, const MatrixType& matrix,
                                                         const DiagonalType& diagonal, const Alpha& alpha) {
-    EIGEN_ASSERT_SIZE_MATCHES_AXIS(diagonal, matrix, ProductOrder == OnTheLeft);
+    EIGEN_ASSERT_SIZE_MATCHES_AXIS_MSG(diagonal, matrix, ProductOrder == OnTheLeft, "invalid matrix product");
 
     const Index rows = matrix.rows();
     const Index cols = matrix.cols();
@@ -1257,8 +1257,8 @@ struct selfadjoint_diagonal_product_impl {
   template <bool Accumulate, typename Dest, typename Alpha>
   static EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void runImpl(Dest& dst, const MatrixType& matrix,
                                                             const DiagonalType& diagonal, const Alpha& alpha) {
-    EIGEN_ASSERT_SQUARE(matrix);
-    EIGEN_ASSERT_SIZE_MATCHES_ROWS(diagonal, matrix);
+    EIGEN_ASSERT_SQUARE_MSG(matrix, "SelfAdjointView is only for squared matrices");
+    EIGEN_ASSERT_SIZE_MATCHES_ROWS_MSG(diagonal, matrix, "invalid matrix product");
 
     const Index size = matrix.rows();
 

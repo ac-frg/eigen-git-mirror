@@ -109,10 +109,12 @@ class Concat : public internal::dense_xpr_base<Concat<Direction, LhsType, RhsTyp
     EIGEN_STATIC_ASSERT_SAME_XPR_KIND(LhsType, RhsType)
     // Select the relation first: C++14 would instantiate static assertions in both branches of an ordinary if.
     // TODO(C++17): use if constexpr with EIGEN_ASSERT_SAME_COLS/EIGEN_ASSERT_SAME_ROWS directly.
-    EIGEN_CHECK_SHAPE((Direction == Vertical ? lhs.cols() == rhs.cols() : lhs.rows() == rhs.rows()),
-                      YOU_MIXED_MATRICES_OF_DIFFERENT_SIZES,
-                      std::conditional_t<Direction == Vertical, internal::matching_cols<LhsType, RhsType>,
-                                         internal::matching_rows<LhsType, RhsType>>);
+    EIGEN_CHECK_SHAPE(
+        (Direction == Vertical ? lhs.cols() == rhs.cols() : lhs.rows() == rhs.rows()) &&
+            (Direction == Vertical ? "vcat: number of columns must match" : "hcat: number of rows must match"),
+        YOU_MIXED_MATRICES_OF_DIFFERENT_SIZES,
+        std::conditional_t<Direction == Vertical, internal::matching_cols<LhsType, RhsType>,
+                           internal::matching_rows<LhsType, RhsType>>);
   }
 
   EIGEN_DEVICE_FUNC constexpr Index rows() const {

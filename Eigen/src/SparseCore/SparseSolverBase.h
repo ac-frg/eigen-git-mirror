@@ -87,7 +87,7 @@ class SparseSolverBase {
   template <typename Rhs>
   inline Solve<Derived, Rhs> solve(const MatrixBase<Rhs>& b) const {
     eigen_assert(m_isInitialized && "Solver is not initialized.");
-    EIGEN_ASSERT_SOLVER_RHS(derived(), b, false);
+    EIGEN_ASSERT_SOLVER_RHS_MSG(derived(), b, false, "solve(): invalid number of rows of the right hand side matrix b");
     return Solve<Derived, Rhs>(derived(), b.derived());
   }
 
@@ -98,7 +98,7 @@ class SparseSolverBase {
   template <typename Rhs>
   inline Solve<Derived, Rhs> solve(const SparseMatrixBase<Rhs>& b) const {
     eigen_assert(m_isInitialized && "Solver is not initialized.");
-    EIGEN_ASSERT_SOLVER_RHS(derived(), b, false);
+    EIGEN_ASSERT_SOLVER_RHS_MSG(derived(), b, false, "solve(): invalid number of rows of the right hand side matrix b");
     return Solve<Derived, Rhs>(derived(), b.derived());
   }
 

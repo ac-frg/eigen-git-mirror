@@ -165,7 +165,7 @@ class Bccb : public EigenBase<Bccb<Scalar_, BlockSize_, NumBlocks_>> {
    * cached transform. */
   template <typename Derived>
   explicit Bccb(const MatrixBase<Derived>& generator) : m_g(generator) {
-    EIGEN_ASSERT_NONEMPTY(m_g);
+    EIGEN_ASSERT_NONEMPTY_MSG(m_g, "Bccb generator must be non-empty");
     if (m_g.size() > internal::structured_direct_threshold()) {
       m_symbol = computeSymbol();
       m_prodSymbol = computeProdSymbol(m_g);
@@ -228,7 +228,7 @@ class Bccb : public EigenBase<Bccb<Scalar_, BlockSize_, NumBlocks_>> {
    * multiple right-hand sides. */
   template <typename Rhs>
   Matrix<Scalar, RowsAtCompileTime, Rhs::ColsAtCompileTime> solve(const MatrixBase<Rhs>& b) const {
-    EIGEN_ASSERT_SOLVER_RHS(*this, b, false);
+    EIGEN_ASSERT_SOLVER_RHS_MSG(*this, b, false, "right-hand side has the wrong number of rows");
     const Index N = rows();
     const ComplexArray s = symbol();
     const RealArray mods = s.cwiseAbs();
@@ -376,7 +376,7 @@ class Bccb : public EigenBase<Bccb<Scalar_, BlockSize_, NumBlocks_>> {
   template <typename Dest, typename Rhs, typename ProductScalar>
   void addProduct(Dest& dst, const Rhs& rhs, const ProductScalar& alpha) const {
     const Index N = rows();
-    EIGEN_ASSERT_PRODUCT_SHAPE(*this, rhs);
+    EIGEN_ASSERT_PRODUCT_SHAPE_MSG(*this, rhs, "invalid product: dimensions do not match");
     if (N <= internal::structured_direct_threshold()) {
       directProduct(dst, rhs, alpha);
       return;
