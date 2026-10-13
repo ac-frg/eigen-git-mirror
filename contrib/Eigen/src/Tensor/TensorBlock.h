@@ -278,11 +278,6 @@ class TensorBlockDescriptor {
 
   IndexType offset() const { return m_offset; }
   const Dimensions& dimensions() const { return m_dimensions; }
-  template <Index N>
-  IndexType dimension() const {
-    EIGEN_STATIC_ASSERT(0 <= N && N < NumDims, INVALID_DIMENSION);
-    return m_dimensions[N];
-  }
   IndexType dimension(Index n) const {
     eigen_internal_assert(0 <= n && n < NumDims);
     return m_dimensions[n];
