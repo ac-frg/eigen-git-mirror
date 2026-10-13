@@ -46,8 +46,9 @@ struct comparison_magnitude {
   EIGEN_DEVICE_FUNC explicit comparison_magnitude(const comparison_magnitude<OtherRealScalar>& value)
       : exponent(value.exponent), fraction(RealScalar(value.fraction)) {}
 
-  EIGEN_DEVICE_FUNC void multiply(const RealScalar& value) {
-    const comparison_magnitude factor(value);
+  EIGEN_DEVICE_FUNC void multiply(const RealScalar& value) { multiply(comparison_magnitude(value)); }
+
+  EIGEN_DEVICE_FUNC void multiply(const comparison_magnitude& factor) {
     const comparison_magnitude product(fraction * factor.fraction);
     fraction = product.fraction;
     exponent += factor.exponent + product.exponent;
@@ -392,13 +393,30 @@ template <typename Derived>
 struct isMuchSmallerThan_scalar_selector<Derived, true>
     : isMuchSmallerThan_object_selector<Derived, typename Derived::RealScalar, true> {};
 
-// |<v, w>|^2 <= prec^2 |v|^2 |w|^2 is homogeneous of degree four, so for |v_i| above ~4e9 or below ~1e-11 in float
-// both sides overflow to inf <= inf or underflow to 0 <= 0 and parallel vectors pass. The binary floating-point scalars
-// that isApprox() scales compare |<v, w>| <= prec |v| |w| instead, choosing how from v and w alone, so the result is
-// monotone in prec: from the coefficients themselves while |v|^2 and |w|^2 are in range and |<v, w>| is above what
-// flushed products can leave, so an exact cancellation survives, and otherwise after scaling v and w by powers of two.
-// Other scalars, integers, custom complex and exact custom types included, keep the squared form, which needs no
-// square root.
+// a b = fraction 2^exponent, with the frexp significands of a and b multiplied in [1/4, 1): a b rounded as if the
+// exponent range were unbounded. Zero if a or b is.
+template <typename RealScalar>
+struct unbounded_product {
+  EIGEN_DEVICE_FUNC unbounded_product(const RealScalar& a, const RealScalar& b) {
+    int exponentA = 0, exponentB = 0;
+    const RealScalar fractionA = frexp_preserving_subnormals(a, exponentA);
+    const RealScalar fractionB = frexp_preserving_subnormals(b, exponentB);
+    fraction = fractionA * fractionB;
+    exponent = exponentA + exponentB;
+  }
+
+  // a b 2^-maxExponent, exact unless it falls below the normal range.
+  EIGEN_DEVICE_FUNC RealScalar scaled(int maxExponent) const {
+    return ldexp_preserving_subnormals(fraction, exponent - maxExponent);
+  }
+
+  RealScalar fraction;
+  int exponent;
+};
+
+// |<v, w>| <= prec |v| |w|. The squared form, |<v, w>|^2 <= prec^2 |v|^2 |w|^2, is homogeneous of degree four, so for
+// |v_i| above ~4e9 or below ~1e-11 in float both sides overflow to inf <= inf or underflow to 0 <= 0. Scalars that
+// isApprox() does not scale, integers, custom complex and exact custom types included, keep it: it needs no sqrt.
 template <typename Derived, typename OtherDerived,
           bool Scaled = use_scaled_comparison<typename Derived::Scalar>::value &&
                         use_scaled_comparison<typename OtherDerived::Scalar>::value>
@@ -411,6 +429,9 @@ struct is_orthogonal_impl {
   }
 };
 
+// Unsquared from the coefficients while |v|^2, |w|^2 and |<v, w>| are in range; otherwise with every product of
+// components rounded at its own exponent, so that neither an exact cancellation nor a nonzero product outside the
+// exponent range is lost.
 template <typename Derived, typename OtherDerived>
 struct is_orthogonal_impl<Derived, OtherDerived, true> {
   // half and bfloat16 are compared in float, which holds them exactly.
@@ -434,54 +455,78 @@ struct is_orthogonal_impl<Derived, OtherDerived, true> {
     const Accumulator w2 = wideW.squaredNorm();
     // Each flushed product, square or partial sum moves |v|^2, |w|^2 or <v, w> by less than min, and a complex
     // coefficient takes up to four per component: less than 8n min in all, at most epsilon x for any x >= lower.
-    const Accumulator flushLevel =
-        Accumulator(8) * Accumulator(v.size()) * stable_normalization_normal_min<Accumulator, Accumulator>::run();
-    const Accumulator lower = flushLevel / NumTraits<Accumulator>::epsilon();
+    const Accumulator lower = Accumulator(8) * Accumulator(v.size()) *
+                              stable_normalization_normal_min<Accumulator, Accumulator>::run() /
+                              NumTraits<Accumulator>::epsilon();
     const Accumulator highest = NumTraits<Accumulator>::highest();
     if (v2 >= lower && v2 <= highest && w2 >= lower && w2 <= highest) {
       const Accumulator absDot = numext::abs(wideV.dot(wideW));
-      // At most flushLevel, <v, w> can be a product that underflowed; |<v, w>| <= |v| |w| <= highest up to rounding.
-      if (absDot > flushLevel && absDot <= highest)
-        return absDot <= Accumulator(prec) * (numext::sqrt(v2) * numext::sqrt(w2));
+      const Accumulator bound = Accumulator(prec) * (numext::sqrt(v2) * numext::sqrt(w2));
+      // |<v, w>| <= |v| |w| <= highest up to rounding. Below lower, underflow may have hidden all of <v, w>, but
+      // |<v, w>| < 2 lower.
+      if (absDot >= lower && absDot <= highest) return absDot <= bound;
+      if (absDot < lower && bound >= Accumulator(2) * lower) return true;
     }
-    return run_scaled(wideV, wideW, v2, w2, Accumulator(prec));
+    return run_unbounded(wideV, wideW, Accumulator(prec));
   }
 
  private:
-  template <typename Xpr>
-  static Accumulator max_abs(const Xpr& x) {
-    if (x.size() == 0) return Accumulator(0);
-    const auto& components = x.realView();
-    return safe_scaling<Accumulator>::recover_flushed_max_coeff(
-        components, components.cwiseAbs().template maxCoeff<PropagateNaN>());
+  using Product = unbounded_product<Accumulator>;
+
+  // func(ac, bd, ad, bc) for each conj(x_k) y_k = (ac + bd) + i (ad - bc), where x_k = a + ib and y_k = c + id.
+  template <typename X, typename Y, typename Func>
+  static void for_each_product(const X& x, const Y& y, Func func) {
+    const evaluator<X> xCoeffs(x);
+    const evaluator<Y> yCoeffs(y);
+    for (Index k = 0; k < x.size(); ++k) {
+      const Accumulator a = numext::real(xCoeffs.coeff(k)), b = numext::imag(xCoeffs.coeff(k));
+      const Accumulator c = numext::real(yCoeffs.coeff(k)), d = numext::imag(yCoeffs.coeff(k));
+      func(Product(a, c), Product(b, d), Product(a, d), Product(b, c));
+    }
   }
 
-  // Lift a maximum below 1, which is exact and revives underflowed products. Scale down only a vector whose squared
-  // norm overflowed, which rounds just the coefficients that leave the normal range. Given a maximum of 1,
-  // with_scaled() leaves the vector unscaled.
-  static Accumulator scaling_max(const Accumulator& maxCoeff, const Accumulator& squaredNorm) {
-    return maxCoeff < Accumulator(1) || !(squaredNorm <= NumTraits<Accumulator>::highest()) ? maxCoeff : Accumulator(1);
-  }
-
-  // Keep exponent scaling from inhibiting inlining of ordinary comparisons.
-  template <typename V, typename W>
-  static EIGEN_DONT_INLINE bool run_scaled(const V& v, const W& w, const Accumulator& v2, const Accumulator& w2,
-                                           const Accumulator& prec) {
-    const Accumulator maxV = max_abs(v);
-    const Accumulator maxW = max_abs(w);
-    // A vector with a non-finite coefficient is orthogonal to nothing, a zero vector to everything. Under DAZ, a
-    // subnormal maximum compares equal to zero, so test its bits.
-    if (!(maxV <= NumTraits<Accumulator>::highest() && maxW <= NumTraits<Accumulator>::highest())) return false;
-    if (numext::is_exactly_zero_no_flush(maxV) || numext::is_exactly_zero_no_flush(maxW)) return true;
-    // A scaled maximum lies in [2^-digits, 4) and a kept one has |x|^2 <= highest, so neither norm underflows and
-    // |<v, w>| <= |v| |w| stays finite.
-    bool orthogonal = false;
-    safe_scaling<Accumulator>::with_scaled(v, scaling_max(maxV, v2), [&](const auto& scaledV) {
-      safe_scaling<Accumulator>::with_scaled(w, scaling_max(maxW, w2), [&](const auto& scaledW) {
-        orthogonal = numext::abs(scaledV.dot(scaledW)) <= prec * (scaledV.norm() * scaledW.norm());
-      });
+  // |<x, y>| from the products scaled by 2^-E, E the largest product exponent: the largest term is at least 1/4, and
+  // only a term that falls below the normal range, far under an ulp of it, rounds again.
+  template <typename X, typename Y>
+  static comparison_magnitude<Accumulator> unbounded_dot_magnitude(const X& x, const Y& y) {
+    bool nonzero = false;
+    int maxExponent = 0;
+    const auto include = [&](const Product& product) {
+      if (product.fraction == Accumulator(0)) return;
+      maxExponent = nonzero ? numext::maxi(maxExponent, product.exponent) : product.exponent;
+      nonzero = true;
+    };
+    for_each_product(x, y, [&](const Product& ac, const Product& bd, const Product& ad, const Product& bc) {
+      include(ac);
+      include(bd);
+      include(ad);
+      include(bc);
     });
-    return orthogonal;
+    if (!nonzero) return comparison_magnitude<Accumulator>(Accumulator(0));
+    Accumulator re(0), im(0);
+    for_each_product(x, y, [&](const Product& ac, const Product& bd, const Product& ad, const Product& bc) {
+      re += ac.scaled(maxExponent) + bd.scaled(maxExponent);
+      im += ad.scaled(maxExponent) - bc.scaled(maxExponent);
+    });
+    comparison_magnitude<Accumulator> magnitude(numext::hypot(re, im));
+    magnitude.exponent += maxExponent;
+    return magnitude;
+  }
+
+  // Keep the exponent arithmetic from inhibiting inlining of ordinary comparisons.
+  template <typename V, typename W>
+  static EIGEN_DONT_INLINE bool run_unbounded(const V& v, const W& w, const Accumulator& prec) {
+    // A vector with a non-finite coefficient is orthogonal to nothing, a zero vector to everything.
+    if (!v.allFinite() || !w.allFinite()) return false;
+    // |<v, w>|^2 <= prec^2 |v|^2 |w|^2 between magnitudes that carry their own exponents.
+    const comparison_magnitude<Accumulator> absDot = unbounded_dot_magnitude(v, w);
+    comparison_magnitude<Accumulator> dot2 = absDot;
+    dot2.multiply(absDot);
+    comparison_magnitude<Accumulator> bound = unbounded_dot_magnitude(v, v);
+    bound.multiply(unbounded_dot_magnitude(w, w));
+    bound.multiply(prec);
+    bound.multiply(prec);
+    return dot2 <= bound;
   }
 };
 

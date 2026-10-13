@@ -461,6 +461,30 @@ void is_orthogonal_wide_range_cancellation() {
   }
 }
 
+// <x, y> != 0 is not orthogonal at prec = 0, although |<x, y>| / (|x| |y|) < denorm_min. For a = (2^e, 2^-e, 0) and
+// b = (0, 2^e, 2^e), <a, b> = 1 while |a|^2 and |b|^2 overflow and a(1) 2^-e underflows. For c = (1, 2^-f, 0) and
+// d = (0, 2^-f, 1), c(1) d(1) < denorm_min / 2 underflows although |c|^2 and |d|^2 are in range.
+template <typename Scalar>
+void is_orthogonal_nonzero_overlap(const Scalar& phaseA = Scalar(1), const Scalar& phaseB = Scalar(1)) {
+  using RealScalar = typename NumTraits<Scalar>::Real;
+  using Vec = Matrix<Scalar, 3, 1>;
+  const int e = 3 * std::numeric_limits<RealScalar>::max_exponent / 4;
+  const int f = (std::numeric_limits<RealScalar>::digits - std::numeric_limits<RealScalar>::min_exponent) / 2 + 2;
+  const RealScalar large = std::ldexp(RealScalar(1), e), small = std::ldexp(RealScalar(1), -e);
+  const RealScalar tiny = std::ldexp(RealScalar(1), -f);
+  const Vec a = Vec(Scalar(large), Scalar(small), Scalar(0)) * phaseA;
+  const Vec b = Vec(Scalar(0), Scalar(large), Scalar(large)) * phaseB;
+  const Vec c = Vec(Scalar(1), Scalar(tiny), Scalar(0)) * phaseA;
+  const Vec d = Vec(Scalar(0), Scalar(tiny), Scalar(1)) * phaseB;
+  VERIFY_IS_EQUAL(a.dot(b), numext::conj(phaseA) * phaseB);
+  for (const auto& pair : {std::make_pair(a, b), std::make_pair(c, d)}) {
+    VERIFY(!pair.first.isOrthogonal(pair.second, RealScalar(0)));
+    VERIFY(!pair.second.isOrthogonal(pair.first, RealScalar(0)));
+    VERIFY(pair.first.isOrthogonal(pair.second, std::numeric_limits<RealScalar>::denorm_min()));
+    VERIFY(pair.first.isOrthogonal(pair.second));
+  }
+}
+
 // A non-finite coefficient is orthogonal to nothing; a zero or empty vector is orthogonal to everything.
 template <typename Scalar>
 void is_orthogonal_special_values() {
@@ -660,6 +684,11 @@ EIGEN_DECLARE_TEST(adjoint) {
   CALL_SUBTEST_24(is_orthogonal_exact_cancellation<std::complex<double>>({1, 1}, {2, -1}));
   CALL_SUBTEST_24(is_orthogonal_wide_range_cancellation<float>());
   CALL_SUBTEST_24(is_orthogonal_wide_range_cancellation<double>());
+  CALL_SUBTEST_24(is_orthogonal_nonzero_overlap<float>());
+  CALL_SUBTEST_24(is_orthogonal_nonzero_overlap<double>());
+  CALL_SUBTEST_24(is_orthogonal_nonzero_overlap<long double>());
+  CALL_SUBTEST_24(is_orthogonal_nonzero_overlap<std::complex<float>>({1, 1}, {2, -1}));
+  CALL_SUBTEST_24(is_orthogonal_nonzero_overlap<std::complex<double>>({1, 1}, {2, -1}));
   CALL_SUBTEST_24(is_orthogonal_special_values<float>());
   CALL_SUBTEST_24(is_orthogonal_special_values<double>());
   CALL_SUBTEST_24(is_orthogonal_special_values<std::complex<float>>());
