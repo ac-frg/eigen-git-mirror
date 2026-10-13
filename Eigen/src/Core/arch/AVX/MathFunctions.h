@@ -88,12 +88,12 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet4d psqrt<Packet4d>(con
 #if EIGEN_FAST_MATH
 template <>
 EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet8f prsqrt<Packet8f>(const Packet8f& a) {
-  // vrsqrtps reads a subnormal a as zero, giving +-inf, so subnormal lanes take 1 / sqrt(a) instead. The estimate is
-  // right for a = +-0, which therefore stays on the fast path; under DAZ a subnormal compares equal to 0 too, and the
-  // estimate's +-inf is the DAZ result.
-  const Packet8f zero = pzero(a);
-  const Packet8f r = generic_rsqrt_newton_step<Packet8f, /*Steps=*/1>::run(a, _mm256_rsqrt_ps(a));
-  const Packet8f redo = pandnot(pcmp_eq(pand(a, pset1frombits<Packet8f>(0x7f800000u)), zero), pcmp_eq(a, zero));
+  // vrsqrtps reads a subnormal a as zero, giving e = +-inf. a * e, the Newton step's first product, is therefore +inf
+  // for subnormal a, and finite or NaN for every other a; those lanes take 1 / sqrt(a) instead. Under DAZ the multiply
+  // reads a subnormal as zero too, and the estimate's +-inf is the DAZ result.
+  const Packet8f e = _mm256_rsqrt_ps(a);
+  const Packet8f r = generic_rsqrt_newton_step<Packet8f, /*Steps=*/1>::run(a, e);
+  const Packet8f redo = pcmp_eq(pmul(a, e), pset1<Packet8f>(NumTraits<float>::infinity()));
   return predux_any(redo) ? pselect(redo, pdiv(pset1<Packet8f>(1.0f), psqrt(a)), r) : r;
 }
 
