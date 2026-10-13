@@ -594,7 +594,8 @@ static void test_small_products() {
   // Both sides of the RHS bound for a thin LHS and of the size bound past it, a tall real LHS against three columns,
   // then squares and thin shapes on either side.
   std::vector<std::array<Index, 3>> shapes;
-  const Index rhs_depth = numext::mini(Index(65536 / sizeof(Scalar)) / 37, NumTraits<Scalar>::IsComplex ? 4096 : 128);
+  const Index rhs_depth =
+      numext::mini(Index(65536 / sizeof(Scalar)) / 37, Index(NumTraits<Scalar>::IsComplex ? 4096 : 128));
   shapes.push_back({thin, 37, rhs_depth});
   shapes.push_back({thin, 37, rhs_depth + 1});
   // Deeper than the blocking's kc, which packs into a buffer of its own.
