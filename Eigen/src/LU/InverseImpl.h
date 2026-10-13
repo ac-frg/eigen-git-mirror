@@ -279,7 +279,7 @@ struct Assignment<DstXprType, Inverse<XprType>,
 template <typename Derived>
 EIGEN_DEVICE_FUNC inline Inverse<Derived> MatrixBase<Derived>::inverse() const {
   EIGEN_STATIC_ASSERT(!NumTraits<Scalar>::IsInteger, THIS_FUNCTION_IS_NOT_FOR_INTEGER_NUMERIC_TYPES)
-  EIGEN_ASSERT_SQUARE(*this);
+  EIGEN_INTERNAL_ASSERT_SQUARE(*this);
   return Inverse<Derived>(derived());
 }
 
@@ -310,7 +310,7 @@ inline void MatrixBase<Derived>::computeInverseAndDetWithCheck(ResultType& inver
                                                                bool& invertible,
                                                                const RealScalar& absDeterminantThreshold) const {
   EIGEN_STATIC_ASSERT_SAME_MATRIX_SIZE(Derived, ResultType)
-  EIGEN_ASSERT_SQUARE(*this);
+  EIGEN_INTERNAL_ASSERT_SQUARE(*this);
   inverse.resize(rows(), cols());
   // for 2x2, it's worth giving a chance to avoid evaluating.
   // for larger sizes, evaluating has negligible cost and limits code size.

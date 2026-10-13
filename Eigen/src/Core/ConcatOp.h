@@ -108,8 +108,8 @@ class Concat : public internal::dense_xpr_base<Concat<Direction, LhsType, RhsTyp
         YOU_MIXED_DIFFERENT_NUMERIC_TYPES__YOU_NEED_TO_USE_THE_CAST_METHOD_OF_MATRIXBASE_TO_CAST_NUMERIC_TYPES_EXPLICITLY)
     EIGEN_STATIC_ASSERT_SAME_XPR_KIND(LhsType, RhsType)
     // Select the relation first: C++14 would instantiate static assertions in both branches of an ordinary if.
-    // TODO(C++17): use if constexpr with EIGEN_ASSERT_SAME_COLS/EIGEN_ASSERT_SAME_ROWS directly.
-    EIGEN_CHECK_SHAPE(
+    // TODO(C++17): use if constexpr with EIGEN_INTERNAL_ASSERT_SAME_COLS/EIGEN_INTERNAL_ASSERT_SAME_ROWS directly.
+    EIGEN_INTERNAL_CHECK_SHAPE(
         (Direction == Vertical ? lhs.cols() == rhs.cols() : lhs.rows() == rhs.rows()) &&
             (Direction == Vertical ? "vcat: number of columns must match" : "hcat: number of rows must match"),
         YOU_MIXED_MATRICES_OF_DIFFERENT_SIZES,

@@ -363,7 +363,7 @@ class PlainObjectBase : public internal::dense_xpr_base<Derived>::type {
   template <typename OtherDerived>
   EIGEN_DEVICE_FUNC constexpr EIGEN_STRONG_INLINE void resizeLike(const EigenBase<OtherDerived>& _other) {
     const OtherDerived& other = _other.derived();
-    EIGEN_ASSERT_VECTOR_IF(IsVectorAtCompileTime, other);
+    EIGEN_INTERNAL_ASSERT_VECTOR_IF(IsVectorAtCompileTime, other);
 #ifndef EIGEN_NO_DEBUG
     internal::check_rows_cols_for_overflow<MaxSizeAtCompileTime, MaxRowsAtCompileTime, MaxColsAtCompileTime>::run(
         other.rows(), other.cols());
@@ -729,7 +729,7 @@ class PlainObjectBase : public internal::dense_xpr_base<Derived>::type {
     constexpr bool shape_is_proven = IsVectorAtCompileTime ? (internal::vector_dimensions<OtherDerived>::Proven &&
                                                               internal::matching_sizes<Derived, OtherDerived>::Proven)
                                                            : internal::matching_shapes<Derived, OtherDerived>::Proven;
-    EIGEN_SHAPE_ASSERT(
+    EIGEN_INTERNAL_SHAPE_ASSERT(
         shape_is_proven,
         (this->size() == 0 ||
          (IsVectorAtCompileTime ? ((other.rows() == 1 || other.cols() == 1) && this->size() == other.size())

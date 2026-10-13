@@ -625,8 +625,8 @@ struct generic_product_impl<Lhs, Rhs, DenseShape, DenseShape, GemmProduct>
 
   template <typename Dest>
   static void scaleAndAddTo(Dest& dst, const Lhs& a_lhs, const Rhs& a_rhs, const Scalar& alpha) {
-    EIGEN_ASSERT_SAME_ROWS(dst, a_lhs);
-    EIGEN_ASSERT_SAME_COLS(dst, a_rhs);
+    EIGEN_INTERNAL_ASSERT_SAME_ROWS(dst, a_lhs);
+    EIGEN_INTERNAL_ASSERT_SAME_COLS(dst, a_rhs);
     if (a_lhs.cols() == 0 || a_lhs.rows() == 0 || a_rhs.cols() == 0) return;
 
     if (dst.cols() == 1) {

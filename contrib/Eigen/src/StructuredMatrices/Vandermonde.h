@@ -185,7 +185,7 @@ class Vandermonde : public EigenBase<Vandermonde<Scalar_, Rows_, Cols_>> {
   template <typename Derived>
   Vandermonde(const MatrixBase<Derived>& nodes, Index cols) : m_x(nodes), m_cols(cols) {
     EIGEN_STATIC_ASSERT_VECTOR_ONLY(Derived)
-    EIGEN_ASSERT_NONEMPTY_MSG(*this, "Vandermonde must be non-empty");
+    EIGEN_INTERNAL_ASSERT_NONEMPTY_MSG(*this, "Vandermonde must be non-empty");
     eigen_assert((Cols_ == Dynamic || Cols_ == cols) && "cols does not match the compile-time column count");
   }
 
@@ -224,7 +224,7 @@ class Vandermonde : public EigenBase<Vandermonde<Scalar_, Rows_, Cols_>> {
    * exactly; a node difference that overflows makes the determinant infinite, or
    * NaN when a zero factor is also present. */
   Scalar determinant() const {
-    EIGEN_ASSERT_SQUARE_MSG(*this, "Vandermonde::determinant requires a square matrix");
+    EIGEN_INTERNAL_ASSERT_SQUARE_MSG(*this, "Vandermonde::determinant requires a square matrix");
     const Index n = rows();
     Scalar det(1);
     internal::structured_exponent_type exponent = 0;
@@ -288,7 +288,7 @@ class Vandermonde : public EigenBase<Vandermonde<Scalar_, Rows_, Cols_>> {
    * when the polynomial value is representable. */
   template <typename Dest, typename Rhs, typename ProductScalar>
   void addProduct(Dest& dst, const Rhs& rhs, const ProductScalar& alpha) const {
-    EIGEN_ASSERT_PRODUCT_SHAPE_MSG(*this, rhs, "invalid product: dimensions do not match");
+    EIGEN_INTERNAL_ASSERT_PRODUCT_SHAPE_MSG(*this, rhs, "invalid product: dimensions do not match");
     // A unit alpha must not multiply: even the identity complex scalar (1,0)
     // pollutes an (Inf,0) value with NaN through the 0*Inf cross term.
     const bool unitAlpha = alpha == ProductScalar(1);
@@ -412,9 +412,9 @@ class BjorckPereyra : public SolverBase<BjorckPereyra<Scalar_>> {
    * nodes. */
   template <int Rows_, int Cols_>
   BjorckPereyra& compute(const Vandermonde<Scalar, Rows_, Cols_>& V) {
-    EIGEN_CHECK_SHAPE(V.rows() == V.cols() && "BjorckPereyra requires a square Vandermonde matrix",
-                      YOU_MIXED_MATRICES_OF_DIFFERENT_SIZES,
-                      internal::square_dimensions<Vandermonde<Scalar, Rows_, Cols_>>);
+    EIGEN_INTERNAL_CHECK_SHAPE(V.rows() == V.cols() && "BjorckPereyra requires a square Vandermonde matrix",
+                               YOU_MIXED_MATRICES_OF_DIFFERENT_SIZES,
+                               internal::square_dimensions<Vandermonde<Scalar, Rows_, Cols_>>);
     m_x = V.nodes();
     m_order.clear();
     m_info = Success;

@@ -229,8 +229,8 @@ template <int Mode, typename Lhs, typename Rhs>
 struct triangular_product_impl<Mode, true, Lhs, false, Rhs, true> {
   template <typename Dest>
   static void run(Dest& dst, const Lhs& lhs, const Rhs& rhs, const typename Dest::Scalar& alpha) {
-    EIGEN_ASSERT_SAME_ROWS(dst, lhs);
-    EIGEN_ASSERT_SAME_COLS(dst, rhs);
+    EIGEN_INTERNAL_ASSERT_SAME_ROWS(dst, lhs);
+    EIGEN_INTERNAL_ASSERT_SAME_COLS(dst, rhs);
 
     internal::trmv_selector<Mode, (int(internal::traits<Lhs>::Flags) & RowMajorBit) ? RowMajor : ColMajor>::run(
         lhs, rhs, dst, alpha);
@@ -241,8 +241,8 @@ template <int Mode, typename Lhs, typename Rhs>
 struct triangular_product_impl<Mode, false, Lhs, true, Rhs, false> {
   template <typename Dest>
   static void run(Dest& dst, const Lhs& lhs, const Rhs& rhs, const typename Dest::Scalar& alpha) {
-    EIGEN_ASSERT_SAME_ROWS(dst, lhs);
-    EIGEN_ASSERT_SAME_COLS(dst, rhs);
+    EIGEN_INTERNAL_ASSERT_SAME_ROWS(dst, lhs);
+    EIGEN_INTERNAL_ASSERT_SAME_COLS(dst, rhs);
 
     Transpose<Dest> dstT(dst);
     internal::trmv_selector<(Mode & (UnitDiag | ZeroDiag)) | ((Mode & Lower) ? Upper : Lower),

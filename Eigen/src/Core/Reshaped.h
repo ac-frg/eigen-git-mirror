@@ -118,7 +118,7 @@ class Reshaped : public ReshapedImpl<XprType, Rows, Cols, Order, typename intern
   EIGEN_DEVICE_FUNC constexpr inline Reshaped(XprType& xpr) : Impl(xpr) {
     EIGEN_STATIC_ASSERT(RowsAtCompileTime != Dynamic && ColsAtCompileTime != Dynamic,
                         THIS_METHOD_IS_ONLY_FOR_FIXED_SIZE)
-    EIGEN_ASSERT_RESHAPE_SIZE(xpr, Rows, Cols);
+    EIGEN_INTERNAL_ASSERT_RESHAPE_SIZE(xpr, Rows, Cols);
   }
 
   /** Dynamic-size constructor

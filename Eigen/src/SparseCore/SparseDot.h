@@ -26,7 +26,7 @@ inline typename internal::traits<Derived>::Scalar SparseMatrixBase<Derived>::dot
       (std::is_same<Scalar, typename OtherDerived::Scalar>::value),
       YOU_MIXED_DIFFERENT_NUMERIC_TYPES__YOU_NEED_TO_USE_THE_CAST_METHOD_OF_MATRIXBASE_TO_CAST_NUMERIC_TYPES_EXPLICITLY)
 
-  EIGEN_ASSERT_SAME_SIZE(*this, other);
+  EIGEN_INTERNAL_ASSERT_SAME_SIZE(*this, other);
   if (size() == 0) return Scalar(0);
 
   internal::evaluator<Derived> thisEval(derived());
@@ -55,7 +55,7 @@ inline typename internal::traits<Derived>::Scalar SparseMatrixBase<Derived>::dot
       (std::is_same<Scalar, typename OtherDerived::Scalar>::value),
       YOU_MIXED_DIFFERENT_NUMERIC_TYPES__YOU_NEED_TO_USE_THE_CAST_METHOD_OF_MATRIXBASE_TO_CAST_NUMERIC_TYPES_EXPLICITLY)
 
-  EIGEN_ASSERT_SAME_SIZE(*this, other);
+  EIGEN_INTERNAL_ASSERT_SAME_SIZE(*this, other);
   if (size() == 0) return Scalar(0);
 
   internal::evaluator<Derived> thisEval(derived());

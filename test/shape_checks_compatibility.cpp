@@ -62,13 +62,13 @@ EIGEN_DECLARE_TEST(shape_checks_compatibility) {
   internal::resize_if_allowed(destination, source, internal::add_assign_op<double, double>());
   const EigenBase<RuntimeShape>& base = source;
   source.reads = 0;
-  EIGEN_ASSERT_SAME_SHAPE(base, destination);
+  EIGEN_INTERNAL_ASSERT_SAME_SHAPE(base, destination);
 #ifndef EIGEN_NO_DEBUG
   VERIFY_IS_EQUAL(source.reads, 2);
 #elif defined(EIGEN_NO_ASSERTION_CHECKING)
   VERIFY_IS_EQUAL(source.reads, 0);
 #endif
-  VERIFY_RAISES_ASSERT(EIGEN_ASSERT_SAME_ROWS(base, Vector3d::Zero()));
+  VERIFY_RAISES_ASSERT(EIGEN_INTERNAL_ASSERT_SAME_ROWS(base, Vector3d::Zero()));
 
   using BoundedVector = Matrix<double, Dynamic, 1, 0, 4, 1>;
   const BoundedVector a = BoundedVector::Ones(3);

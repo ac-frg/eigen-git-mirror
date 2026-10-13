@@ -369,7 +369,7 @@ class selfadjoint_l1norm {
 template <unsigned int UpLo, typename Derived>
 EIGEN_DEVICE_FUNC typename Derived::RealScalar selfadjoint_l1_norm(const MatrixBase<Derived>& matrix) {
   static_assert(UpLo == Upper || UpLo == Lower, "UpLo must be Upper or Lower");
-  EIGEN_ASSERT_SQUARE(matrix);
+  EIGEN_INTERNAL_ASSERT_SQUARE(matrix);
   return selfadjoint_l1norm<Derived, UpLo>(matrix.derived()).run();
 }
 

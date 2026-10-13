@@ -9,6 +9,5 @@ int main() {
 #else
   Eigen::RowVector3d rhs = Eigen::RowVector3d::Ones();
 #endif
-  EIGEN_ASSERT_SAME_SIZE(lhs, rhs);
-  return 0;
+  return lhs.dot(rhs) != 3;
 }

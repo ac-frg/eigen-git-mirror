@@ -89,7 +89,7 @@ class DiagonalPreconditioner {
   template <typename Rhs>
   inline Solve<DiagonalPreconditioner, Rhs> solve(const MatrixBase<Rhs>& b) const {
     eigen_assert(m_isInitialized && "DiagonalPreconditioner is not initialized.");
-    EIGEN_ASSERT_SIZE_MATCHES_ROWS_MSG(
+    EIGEN_INTERNAL_ASSERT_SIZE_MATCHES_ROWS_MSG(
         m_invdiag, b, "DiagonalPreconditioner::solve(): invalid number of rows of the right hand side matrix b");
     return Solve<DiagonalPreconditioner, Rhs>(*this, b.derived());
   }

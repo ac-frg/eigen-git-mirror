@@ -8,6 +8,9 @@ int main() {
 #else
   Eigen::TensorFixedSize<double, Eigen::Sizes<2, 3>> rhs;
 #endif
-  EIGEN_ASSERT_TENSOR_SHAPE(lhs, rhs);
-  return 0;
+  lhs.setConstant(2);
+  rhs.setConstant(3);
+  Eigen::TensorFixedSize<double, Eigen::Sizes<2, 3>> result;
+  result = lhs + rhs;
+  return result(0, 0) != 5;
 }

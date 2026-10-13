@@ -24,6 +24,6 @@ EIGEN_DECLARE_TEST(tensor_shape_checks) {
   TensorFixedSize<double, Sizes<3, 2>> wrong_fixed;
   VERIFY_RAISES_ASSERT(result = a + wrong_fixed);
   Tensor<double, 3> wrong_rank(2, 3, 1);
-  VERIFY_RAISES_ASSERT(EIGEN_ASSERT_TENSOR_SHAPE(a, wrong_rank));
+  VERIFY_RAISES_ASSERT(EIGEN_INTERNAL_ASSERT_TENSOR_SHAPE(a, wrong_rank));
 #endif
 }

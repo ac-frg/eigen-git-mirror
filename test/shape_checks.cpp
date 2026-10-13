@@ -87,7 +87,7 @@ void product_shape_checks() {
   VERIFY_IS_EQUAL(a.col_reads + b.row_reads, 0);
   const MatrixBase<ShapeProbe<2, 2>>& base_a = a;
   const MatrixBase<ShapeProbe<2, 2>>& base_b = b;
-  EIGEN_ASSERT_PRODUCT_SHAPE(base_a, base_b);
+  EIGEN_INTERNAL_ASSERT_PRODUCT_SHAPE(base_a, base_b);
   VERIFY_IS_EQUAL(a.col_reads + b.row_reads, 0);
   Matrix2d fixed = Matrix2d::Identity();
   MatrixXd wrong(3, 2);
@@ -211,7 +211,7 @@ EIGEN_DECLARE_TEST(shape_checks) {
   Matrix2d resized_matrix;
   resized_matrix.resizeLike(matrix);
 #ifdef EIGEN_NO_STATIC_ASSERT
-  VERIFY_RAISES_ASSERT(EIGEN_ASSERT_SCALAR(matrix));
+  VERIFY_RAISES_ASSERT(EIGEN_INTERNAL_ASSERT_SCALAR(matrix));
 #endif
   VERIFY_IS_EQUAL(ref.size(), 3);
   MatrixXd dynamic_matrix = matrix;
@@ -300,19 +300,21 @@ EIGEN_DECLARE_TEST(shape_checks) {
       return 3;
     }
   } runtime_a, runtime_b;
-  EIGEN_ASSERT_SAME_ROWS(runtime_a, runtime_b);
-  EIGEN_ASSERT_SAME_COLS(runtime_a, runtime_b);
+  EIGEN_INTERNAL_ASSERT_SAME_ROWS(runtime_a, runtime_b);
+  EIGEN_INTERNAL_ASSERT_SAME_COLS(runtime_a, runtime_b);
 #ifndef EIGEN_NO_DEBUG
   VERIFY_IS_EQUAL(runtime_a.accesses, 2);
   VERIFY_IS_EQUAL(runtime_b.accesses, 2);
 #endif
-  EIGEN_SHAPE_ASSERT((dimension_relation<3, 3>::Proven), ++reads == 1);  // NOLINT(bugprone-assert-side-effect)
+  EIGEN_INTERNAL_SHAPE_ASSERT((dimension_relation<3, 3>::Proven), ++reads == 1);  // NOLINT(bugprone-assert-side-effect)
   VERIFY_IS_EQUAL(reads, 0);
-  EIGEN_ASSERT_NONEMPTY_SIZE(fixed_a, ++reads);  // NOLINT(bugprone-assert-side-effect)
+  EIGEN_INTERNAL_ASSERT_NONEMPTY_SIZE(fixed_a, ++reads);  // NOLINT(bugprone-assert-side-effect)
   VERIFY_IS_EQUAL(reads, 0);
 #ifndef EIGEN_NO_DEBUG
-  EIGEN_SHAPE_ASSERT((dimension_relation<Dynamic, 3>::Proven), ++reads == 1);  // NOLINT(bugprone-assert-side-effect)
+  // NOLINTBEGIN(bugprone-assert-side-effect)
+  EIGEN_INTERNAL_SHAPE_ASSERT((dimension_relation<Dynamic, 3>::Proven), ++reads == 1);
+  // NOLINTEND(bugprone-assert-side-effect)
   VERIFY_IS_EQUAL(reads, 1);
-  VERIFY_RAISES_ASSERT([] { EIGEN_SHAPE_ASSERT(false, false); }());
+  VERIFY_RAISES_ASSERT([] { EIGEN_INTERNAL_SHAPE_ASSERT(false, false); }());
 #endif
 }

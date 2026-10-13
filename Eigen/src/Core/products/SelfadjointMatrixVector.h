@@ -339,8 +339,8 @@ struct selfadjoint_product_impl<Lhs, LhsMode, false, Rhs, 0, true> {
     using ResScalar = typename Dest::Scalar;
     using RhsScalar = typename Rhs::Scalar;
 
-    EIGEN_ASSERT_SAME_ROWS(dest, a_lhs);
-    EIGEN_ASSERT_SAME_COLS(dest, a_rhs);
+    EIGEN_INTERNAL_ASSERT_SAME_ROWS(dest, a_lhs);
+    EIGEN_INTERNAL_ASSERT_SAME_COLS(dest, a_rhs);
 
     add_const_on_value_type_t<ActualLhsType> lhs = LhsBlasTraits::extract(a_lhs);
     add_const_on_value_type_t<ActualRhsType> rhs = RhsBlasTraits::extract(a_rhs);

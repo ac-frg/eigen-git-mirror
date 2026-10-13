@@ -350,8 +350,8 @@ EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE bool dimensions_match(const Dims1& dims1, 
 
 }  // end namespace Eigen
 
-#define EIGEN_ASSERT_TENSOR_SHAPE(Lhs, Rhs)                                                                            \
-  EIGEN_CHECK_SHAPE(                                                                                                   \
+#define EIGEN_INTERNAL_ASSERT_TENSOR_SHAPE(Lhs, Rhs)                                                                   \
+  EIGEN_INTERNAL_CHECK_SHAPE(                                                                                          \
       Eigen::dimensions_match((Lhs).dimensions(), (Rhs).dimensions()) && "Both tensors must have the same dimensions", \
       YOU_MIXED_TENSORS_OF_DIFFERENT_SIZES,                                                                            \
       Eigen::internal::tensor_dimension_relation<Eigen::internal::remove_all_t<decltype((Lhs).dimensions())>,          \

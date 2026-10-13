@@ -29,7 +29,7 @@ EIGEN_DEVICE_FUNC constexpr EIGEN_STRONG_INLINE Derived& DenseBase<Derived>::laz
       SameType,
       YOU_MIXED_DIFFERENT_NUMERIC_TYPES__YOU_NEED_TO_USE_THE_CAST_METHOD_OF_MATRIXBASE_TO_CAST_NUMERIC_TYPES_EXPLICITLY)
 
-  EIGEN_ASSERT_SAME_SHAPE(*this, other);
+  EIGEN_INTERNAL_ASSERT_SAME_SHAPE(*this, other);
   internal::call_assignment_no_alias(derived(), other.derived());
 
   return derived();

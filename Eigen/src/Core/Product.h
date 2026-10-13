@@ -221,7 +221,7 @@ class Product
   using AdjointReturnType = typename internal::product_transpose_helper<Lhs, Rhs, Option>::AdjointType;
 
   EIGEN_DEVICE_FUNC constexpr EIGEN_STRONG_INLINE Product(const Lhs& lhs, const Rhs& rhs) : m_lhs(lhs), m_rhs(rhs) {
-    EIGEN_ASSERT_PRODUCT_SHAPE(lhs, rhs);
+    EIGEN_INTERNAL_ASSERT_PRODUCT_SHAPE(lhs, rhs);
   }
 
   EIGEN_DEVICE_FUNC constexpr Index rows() const noexcept { return m_lhs.rows(); }
@@ -288,19 +288,19 @@ class ProductImpl<Lhs, Rhs, Option, Dense> : public internal::dense_product_base
 
  public:
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Scalar coeff(Index row, Index col) const {
-    EIGEN_CHECK_SHAPE((Option == LazyProduct) || (this->rows() == 1 && this->cols() == 1),
-                      THIS_METHOD_IS_ONLY_FOR_INNER_OR_LAZY_PRODUCTS,
-                      std::conditional_t<Option == LazyProduct, internal::dimension_relation<1, 1>,
-                                         internal::fixed_dimensions<Derived, 1, 1>>);
+    EIGEN_INTERNAL_CHECK_SHAPE((Option == LazyProduct) || (this->rows() == 1 && this->cols() == 1),
+                               THIS_METHOD_IS_ONLY_FOR_INNER_OR_LAZY_PRODUCTS,
+                               std::conditional_t<Option == LazyProduct, internal::dimension_relation<1, 1>,
+                                                  internal::fixed_dimensions<Derived, 1, 1>>);
 
     return internal::evaluator<Derived>(derived()).coeff(row, col);
   }
 
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Scalar coeff(Index i) const {
-    EIGEN_CHECK_SHAPE((Option == LazyProduct) || (this->rows() == 1 && this->cols() == 1),
-                      THIS_METHOD_IS_ONLY_FOR_INNER_OR_LAZY_PRODUCTS,
-                      std::conditional_t<Option == LazyProduct, internal::dimension_relation<1, 1>,
-                                         internal::fixed_dimensions<Derived, 1, 1>>);
+    EIGEN_INTERNAL_CHECK_SHAPE((Option == LazyProduct) || (this->rows() == 1 && this->cols() == 1),
+                               THIS_METHOD_IS_ONLY_FOR_INNER_OR_LAZY_PRODUCTS,
+                               std::conditional_t<Option == LazyProduct, internal::dimension_relation<1, 1>,
+                                                  internal::fixed_dimensions<Derived, 1, 1>>);
 
     return internal::evaluator<Derived>(derived()).coeff(i);
   }

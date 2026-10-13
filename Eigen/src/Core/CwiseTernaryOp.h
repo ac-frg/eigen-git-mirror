@@ -116,8 +116,8 @@ class CwiseTernaryOp : public CwiseTernaryOpImpl<TernaryOp, Arg1Type, Arg2Type, 
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE CwiseTernaryOp(const Arg1& a1, const Arg2& a2, const Arg3& a3,
                                                        const TernaryOp& func = TernaryOp())
       : m_arg1(a1), m_arg2(a2), m_arg3(a3), m_functor(func) {
-    EIGEN_ASSERT_SAME_SHAPE(a1, a2);
-    EIGEN_ASSERT_SAME_SHAPE(a1, a3);
+    EIGEN_INTERNAL_ASSERT_SAME_SHAPE(a1, a2);
+    EIGEN_INTERNAL_ASSERT_SAME_SHAPE(a1, a3);
   }
 
   EIGEN_DEVICE_FUNC constexpr EIGEN_STRONG_INLINE Index rows() const {

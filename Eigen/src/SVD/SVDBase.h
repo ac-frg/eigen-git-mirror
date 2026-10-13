@@ -323,8 +323,8 @@ class SVDBase : public SolverBase<SVDBase<Derived> > {
     _check_compute_assertions();
     eigen_assert(computeU() && computeV() &&
                  "SVDBase::solve(): Both unitaries U and V are required to be computed (thin unitaries suffice).");
-    EIGEN_ASSERT_SOLVER_RHS_MSG(derived(), b, Transpose_,
-                                "SVDBase::solve(): invalid number of rows of the right hand side matrix b");
+    EIGEN_INTERNAL_ASSERT_SOLVER_RHS_MSG(derived(), b, Transpose_,
+                                         "SVDBase::solve(): invalid number of rows of the right hand side matrix b");
   }
 
   // return true if already allocated

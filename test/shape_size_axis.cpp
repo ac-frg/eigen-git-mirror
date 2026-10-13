@@ -50,14 +50,14 @@ EIGEN_DECLARE_TEST(shape_size_axis) {
   AxisShapeProbe<1, 3> row_vector{1, 3};
   AxisShapeProbe<4, 1> col_vector{4, 1};
   AxisShapeProbe<3, 4> fixed{3, 4};
-  EIGEN_ASSERT_SIZE_MATCHES_ROWS(row_vector, fixed);
-  EIGEN_ASSERT_SIZE_MATCHES_COLS(col_vector, fixed);
+  EIGEN_INTERNAL_ASSERT_SIZE_MATCHES_ROWS(row_vector, fixed);
+  EIGEN_INTERNAL_ASSERT_SIZE_MATCHES_COLS(col_vector, fixed);
   VERIFY_IS_EQUAL(row_vector.size_reads + col_vector.size_reads + fixed.row_reads + fixed.col_reads, 0);
 
   AxisShapeProbe<Dynamic, 4> partial{3, 4};
-  EIGEN_ASSERT_SIZE_MATCHES_COLS(col_vector, partial);
+  EIGEN_INTERNAL_ASSERT_SIZE_MATCHES_COLS(col_vector, partial);
   VERIFY_IS_EQUAL(col_vector.size_reads + partial.col_reads, 0);
-  EIGEN_ASSERT_SIZE_MATCHES_ROWS(row_vector, partial);
+  EIGEN_INTERNAL_ASSERT_SIZE_MATCHES_ROWS(row_vector, partial);
 #ifndef EIGEN_NO_DEBUG
   VERIFY_IS_EQUAL(row_vector.size_reads, 1);
   VERIFY_IS_EQUAL(partial.row_reads, 1);
@@ -65,19 +65,19 @@ EIGEN_DECLARE_TEST(shape_size_axis) {
   VERIFY_IS_EQUAL(partial.col_reads, 0);
 
   const UnknownAxisShape unknown;
-  EIGEN_ASSERT_SIZE_MATCHES_ROWS(unknown, fixed);
-  VERIFY_RAISES_ASSERT(EIGEN_ASSERT_SIZE_MATCHES_COLS(unknown, fixed));
+  EIGEN_INTERNAL_ASSERT_SIZE_MATCHES_ROWS(unknown, fixed);
+  VERIFY_RAISES_ASSERT(EIGEN_INTERNAL_ASSERT_SIZE_MATCHES_COLS(unknown, fixed));
   AxisShapeProbe<Dynamic, Dynamic> wrong{2, 4};
-  VERIFY_RAISES_ASSERT(EIGEN_ASSERT_SIZE_MATCHES_ROWS(row_vector, wrong));
+  VERIFY_RAISES_ASSERT(EIGEN_INTERNAL_ASSERT_SIZE_MATCHES_ROWS(row_vector, wrong));
 #ifdef EIGEN_NO_STATIC_ASSERT
-  VERIFY_RAISES_ASSERT(EIGEN_ASSERT_SIZE_MATCHES_COLS(row_vector, fixed));
+  VERIFY_RAISES_ASSERT(EIGEN_INTERNAL_ASSERT_SIZE_MATCHES_COLS(row_vector, fixed));
 #endif
   const Matrix<double, 0, 4> empty;
   const Matrix<double, 0, 1> empty_vector;
-  EIGEN_ASSERT_SIZE_MATCHES_ROWS(empty_vector, empty);
+  EIGEN_INTERNAL_ASSERT_SIZE_MATCHES_ROWS(empty_vector, empty);
   const Matrix<double, 3, 4> matrix = Matrix<double, 3, 4>::Zero();
   const Vector3d vector = Vector3d::Ones();
   const MatrixBase<Vector3d>& vector_base = vector;
   const MatrixBase<Matrix<double, 3, 4>>& matrix_base = matrix;
-  EIGEN_ASSERT_SIZE_MATCHES_ROWS(vector_base, matrix_base);
+  EIGEN_INTERNAL_ASSERT_SIZE_MATCHES_ROWS(vector_base, matrix_base);
 }

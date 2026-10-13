@@ -125,7 +125,7 @@ class Circulant : public EigenBase<Circulant<Scalar_, Size_>> {
   template <typename Derived>
   explicit Circulant(const MatrixBase<Derived>& col) : m_col(col) {
     EIGEN_STATIC_ASSERT_VECTOR_ONLY(Derived)
-    EIGEN_ASSERT_NONEMPTY_MSG(m_col, "Circulant generator must be non-empty");
+    EIGEN_INTERNAL_ASSERT_NONEMPTY_MSG(m_col, "Circulant generator must be non-empty");
     if (m_col.size() > internal::structured_direct_threshold()) {
       m_symbol = computeSymbol();
       m_prodSymbol = computeProdSymbol(m_col);
@@ -254,7 +254,7 @@ class Circulant : public EigenBase<Circulant<Scalar_, Size_>> {
    * \c x = ifft( fft(b) ./ fft(c) ). Supports multiple right-hand sides. */
   template <typename Rhs>
   Matrix<Scalar, Size_, Rhs::ColsAtCompileTime> solve(const MatrixBase<Rhs>& b) const {
-    EIGEN_ASSERT_SOLVER_RHS_MSG(*this, b, false, "right-hand side has the wrong number of rows");
+    EIGEN_INTERNAL_ASSERT_SOLVER_RHS_MSG(*this, b, false, "right-hand side has the wrong number of rows");
     const Index n = rows();
     const ComplexVector s = symbol();
     const RealVector mods = s.cwiseAbs();
@@ -384,7 +384,7 @@ class Circulant : public EigenBase<Circulant<Scalar_, Size_>> {
   template <typename Dest, typename Rhs, typename ProductScalar>
   void addProduct(Dest& dst, const Rhs& rhs, const ProductScalar& alpha) const {
     const Index n = rows();
-    EIGEN_ASSERT_PRODUCT_SHAPE_MSG(*this, rhs, "invalid product: dimensions do not match");
+    EIGEN_INTERNAL_ASSERT_PRODUCT_SHAPE_MSG(*this, rhs, "invalid product: dimensions do not match");
     if (n <= internal::structured_direct_threshold()) {
       directProduct(dst, rhs, alpha);
       return;
