@@ -88,17 +88,15 @@ void zeroReduction(const MatrixType& m) {
   VERIFY(m.count() == 0);
   VERIFY(m.allFinite());
   VERIFY(!m.hasNaN());
-  // Fixed-empty reductions are compile-time errors; exercise runtime checks with dynamic dimensions.
-  const Matrix<typename MatrixType::Scalar, Dynamic, Dynamic> dynamic = m;
-  VERIFY_RAISES_ASSERT(dynamic.minCoeff());
-  VERIFY_RAISES_ASSERT(dynamic.maxCoeff());
+  VERIFY_RAISES_ASSERT(m.minCoeff());
+  VERIFY_RAISES_ASSERT(m.maxCoeff());
   Index i, j;
   EIGEN_UNUSED_VARIABLE(i);  // Only used if exceptions are enabled.
   EIGEN_UNUSED_VARIABLE(j);
-  VERIFY_RAISES_ASSERT(dynamic.minCoeff(&i, &j));
-  VERIFY_RAISES_ASSERT(dynamic.maxCoeff(&i, &j));
-  VERIFY_RAISES_ASSERT(dynamic.reshaped().minCoeff(&i));
-  VERIFY_RAISES_ASSERT(dynamic.reshaped().maxCoeff(&i));
+  VERIFY_RAISES_ASSERT(m.minCoeff(&i, &j));
+  VERIFY_RAISES_ASSERT(m.maxCoeff(&i, &j));
+  VERIFY_RAISES_ASSERT(m.reshaped().minCoeff(&i));
+  VERIFY_RAISES_ASSERT(m.reshaped().maxCoeff(&i));
 }
 
 template <typename MatrixType>

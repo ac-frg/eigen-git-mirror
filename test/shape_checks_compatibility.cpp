@@ -24,7 +24,22 @@ struct RuntimeShape : EigenBase<RuntimeShape> {
   }
 };
 
+template <int N>
+double guarded_tail_max(const Matrix<double, N, 1>& vector) {
+  const auto tail = vector.template tail<N - 1>();
+  return tail.size() > 0 ? tail.maxCoeff() : 0.0;
+}
+
+template <int N>
+Index guarded_column_max_size(const Matrix<double, N, N>& matrix) {
+  return matrix.cols() > 0 ? matrix.colwise().maxCoeff().size() : 0;
+}
+
 EIGEN_DECLARE_TEST(shape_checks_compatibility) {
+  VERIFY_IS_EQUAL(guarded_tail_max<1>(Matrix<double, 1, 1>::Ones()), 0.0);
+  VERIFY_IS_EQUAL(guarded_tail_max<2>(Vector2d::Constant(7)), 7.0);
+  VERIFY_IS_EQUAL(guarded_column_max_size(Matrix<double, 0, 0>()), Index(0));
+  VERIFY_IS_EQUAL(guarded_column_max_size<2>(Matrix2d::Ones()), Index(2));
   RuntimeShape source;
   VectorXd destination;
   destination.resizeLike(source);

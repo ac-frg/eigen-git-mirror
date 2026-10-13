@@ -208,21 +208,24 @@ struct fixed_dimensions {
                     THIS_METHOD_IS_ONLY_FOR_1x1_EXPRESSIONS,                                                   \
                     Eigen::internal::fixed_dimensions<EIGEN_SHAPE_TYPE(Xpr), 1, 1>)
 
-#define EIGEN_ASSERT_NONEMPTY(Xpr)                                                           \
-  EIGEN_CHECK_SHAPE((Xpr).rows() > 0 && (Xpr).cols() > 0 && "you are using an empty matrix", \
-                    YOU_ARE_USING_AN_EMPTY_MATRIX, Eigen::internal::nonempty_dimensions<EIGEN_SHAPE_TYPE(Xpr)>)
+#define EIGEN_ASSERT_NONEMPTY(Xpr)                                                          \
+  EIGEN_SHAPE_ASSERT((Eigen::internal::nonempty_dimensions<EIGEN_SHAPE_TYPE(Xpr)>::Proven), \
+                     (Xpr).rows() > 0 && (Xpr).cols() > 0 && "you are using an empty matrix")
 
-#define EIGEN_ASSERT_NONEMPTY_AXIS(Xpr, Vertical)                                                      \
-  EIGEN_CHECK_SHAPE(((Vertical) ? (Xpr).rows() : (Xpr).cols()) > 0 && "you are using an empty matrix", \
-                    YOU_ARE_USING_AN_EMPTY_MATRIX,                                                     \
-                    Eigen::internal::nonempty_extent < (Vertical)                                      \
-                        ? Eigen::internal::compile_time_shape<EIGEN_SHAPE_TYPE(Xpr)>::Rows             \
-                        : Eigen::internal::compile_time_shape<EIGEN_SHAPE_TYPE(Xpr)>::Cols >)
+#define EIGEN_ASSERT_NONEMPTY_AXIS(Xpr, Vertical)                                                                 \
+  do {                                                                                                            \
+    using ShapeRelation =                                                                                         \
+        Eigen::internal::nonempty_extent<(Vertical)                                                               \
+                                             ? Eigen::internal::compile_time_shape<EIGEN_SHAPE_TYPE(Xpr)>::Rows   \
+                                             : Eigen::internal::compile_time_shape<EIGEN_SHAPE_TYPE(Xpr)>::Cols>; \
+    EIGEN_SHAPE_ASSERT(ShapeRelation::Proven,                                                                     \
+                       ((Vertical) ? (Xpr).rows() : (Xpr).cols()) > 0 && "you are using an empty matrix");        \
+  } while (false)
 
 // Size must be the cached coefficient count of Xpr, not an allocation capacity.
-#define EIGEN_ASSERT_NONEMPTY_SIZE(Xpr, Size)                                                     \
-  EIGEN_CHECK_SHAPE((Size) > 0 && "you are using an empty matrix", YOU_ARE_USING_AN_EMPTY_MATRIX, \
-                    Eigen::internal::nonempty_dimensions<EIGEN_SHAPE_TYPE(Xpr)>)
+#define EIGEN_ASSERT_NONEMPTY_SIZE(Xpr, Size)                                               \
+  EIGEN_SHAPE_ASSERT((Eigen::internal::nonempty_dimensions<EIGEN_SHAPE_TYPE(Xpr)>::Proven), \
+                     (Size) > 0 && "you are using an empty matrix")
 
 #define EIGEN_ASSERT_RESHAPE_SIZE(Xpr, Rows, Cols)                                                            \
   EIGEN_CHECK_SHAPE(                                                                                          \

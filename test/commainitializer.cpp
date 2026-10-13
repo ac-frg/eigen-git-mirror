@@ -71,10 +71,8 @@ void test_basics() {
   MatrixXd empty_rows(0, 2), empty_cols(2, 0);
   VERIFY_RAISES_ASSERT((empty_rows << 1.0));
   VERIFY_RAISES_ASSERT((empty_cols << 1.0));
-#ifdef EIGEN_NO_STATIC_ASSERT
   Matrix<double, 0, 2> fixed_empty;
   VERIFY_RAISES_ASSERT((fixed_empty << 1.0));
-#endif
 
   Matrix3d m3;
   Matrix4d m4;

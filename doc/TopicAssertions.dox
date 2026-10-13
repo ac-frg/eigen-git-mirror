@@ -104,7 +104,8 @@ allowing dynamically sized inputs that satisfy their preconditions at runtime.
 Square-only operations such as determinant accessors also reject fixed rectangular inputs.
 Solver right-hand sides are checked against the appropriate fixed dimension, including
 the reversed row/column rule for transposed solves.
-Reductions requiring a nonempty input reject statically empty expressions. Empty dense
+Nonempty-input checks remain runtime-only so C++14 code can guard reductions on fixed empty expressions.
+They are elided for inputs proven nonempty. Empty dense
 \c sum() and \c prod() remain valid and return their respective identity values.
 Empty \c lpNorm<Infinity>() and \c hypotNorm() likewise remain valid and return zero.
 Tensor shape checks reject different ranks or incompatible fixed extents. Equal rank alone

@@ -262,11 +262,9 @@ EIGEN_DECLARE_TEST(shape_checks) {
   Matrix<double, 0, 3> empty_rows;
   VERIFY_IS_EQUAL(empty_columns.colwise().maxCoeff().eval().size(), 0);
   VERIFY_IS_EQUAL(empty_rows.rowwise().minCoeff().eval().size(), 0);
-#ifdef EIGEN_NO_STATIC_ASSERT
   VERIFY_RAISES_ASSERT(fixed_empty.maxCoeff());
   VERIFY_RAISES_ASSERT(empty_columns.rowwise().maxCoeff());
   VERIFY_RAISES_ASSERT(empty_rows.colwise().minCoeff());
-#endif
   VERIFY_RAISES_ASSERT(empty.maxCoeff());
   VERIFY_IS_EQUAL(matrix.maxCoeff(), 1);
   Index max_row, max_col;
