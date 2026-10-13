@@ -1866,8 +1866,8 @@ std::enable_if_t<!NumTraits<Scalar>::IsComplex, void> packetmath_ieee_special_va
   run_ieee_cases<PacketTraits::HasATanh, Scalar, Packet>(atanh_fun());
 }
 
-// log, log2 and log1p handle special inputs only in packets that contain one, so place each special input alone
-// among ordinary lanes, in every lane.
+// log, log2, log1p and the x86 float rsqrt handle special inputs only in packets that contain one, so place each
+// special input alone among ordinary lanes, in every lane.
 template <typename Scalar, typename Packet>
 std::enable_if_t<NumTraits<Scalar>::IsComplex || NumTraits<Scalar>::IsInteger, void> packetmath_special_value_lanes() {}
 
@@ -1875,6 +1875,9 @@ template <typename Scalar, typename Packet>
 std::enable_if_t<!NumTraits<Scalar>::IsComplex && !NumTraits<Scalar>::IsInteger, void>
 packetmath_special_value_lanes() {
   using PacketTraits = internal::packet_traits<Scalar>;
+  // As in packetmath_ieee_special_values: other rsqrt estimates may still flush subnormal inputs.
+  constexpr bool kCheckRsqrt =
+      PacketTraits::HasRsqrt && EIGEN_ARCH_i386_OR_x86_64 && std::is_same<Scalar, float>::value;
   const int PacketSize = internal::unpacket_traits<Packet>::size;
   const Scalar norm_min = (std::numeric_limits<Scalar>::min)();
   const Scalar inf = NumTraits<Scalar>::infinity();
@@ -1896,6 +1899,7 @@ packetmath_special_value_lanes() {
       CHECK_CWISE1_IF(PacketTraits::HasLog, std::log, internal::plog);
       CHECK_CWISE1_IF(PacketTraits::HasLog, log2, internal::plog2);
       CHECK_CWISE1_IF(PacketTraits::HasLog1p, std::log1p, internal::plog1p);
+      CHECK_CWISE1_IF(kCheckRsqrt, numext::rsqrt, internal::prsqrt);
     }
   }
 }
