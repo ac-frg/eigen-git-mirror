@@ -2599,8 +2599,9 @@ struct sme_neon_ctile {
           // Unit row stride: the column is PS interleaved (re, im) pairs.
           Packet cre, cim;
           sme_neon_ld2(pc, cre, cim);
-          cre = pnmadd(valpha_im, acc_im[p][c], pmadd(valpha_re, acc_re[p][c], cre));
-          cim = pmadd(valpha_im, acc_re[p][c], pmadd(valpha_re, acc_im[p][c], cim));
+          // alpha * acc before C, as in the scalar stores: c + ar*acc_re can overflow where the result does not.
+          cre = padd(cre, pnmadd(valpha_im, acc_im[p][c], pmul(valpha_re, acc_re[p][c])));
+          cim = padd(cim, pmadd(valpha_im, acc_re[p][c], pmul(valpha_re, acc_im[p][c])));
           sme_neon_st2(pc, cre, cim);
         } else {
           RealScalar re[PS], im[PS];

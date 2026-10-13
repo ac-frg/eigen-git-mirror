@@ -1280,48 +1280,50 @@ static void test_complex_alpha_range() {
   using Mat = Matrix<Scalar, Dynamic, Dynamic, Order>;
   const int svl = internal::sme_packet_traits<Real>::size();
   const Real h = std::ldexp(Real(1), std::numeric_limits<Real>::max_exponent - 2);
-  const Index depth = 65;
   const Scalar initial(3 * h, 0);
   const Scalar alphas[] = {Scalar(1, 1), Scalar(-1, 0)};
   const Scalar expected[] = {Scalar(3 * h, 2 * h), Scalar(2 * h, -h)};
-  for (int n : {svl / 2 - 1, svl / 2, svl / 2 + 1, svl, svl + 1}) {
-    if (n < 2) continue;
-    Mat a = Mat::Zero(n, depth), b = Mat::Zero(depth, n);
-    a.col(0).setConstant(Scalar(h, h));
-    b.row(0).setOnes();
-    const Mat ac = a.conjugate(), bc = b.conjugate();
-    for (int t = 0; t < 2; ++t) {
-      const Scalar alpha = alphas[t];
-      for (int conjugation = 0; conjugation < 4; ++conjugation) {
-        Mat c = Mat::Constant(n, n, initial);
-        if (conjugation == 0) c.noalias() += alpha * (a * b);
-        if (conjugation == 1) c.noalias() += alpha * (ac.conjugate() * b);
-        if (conjugation == 2) c.noalias() += alpha * (a * bc.conjugate());
-        if (conjugation == 3) c.noalias() += alpha * (ac.conjugate() * bc.conjugate());
-        for (Index j = 0; j < n; ++j) {
-          for (Index i = 0; i < n; ++i) {
-            VERIFY((std::isfinite)(c(i, j).real()) && (std::isfinite)(c(i, j).imag()));
-            VERIFY(c(i, j) == expected[t]);
+  // Depth 8 runs on the NEON kernel, 65 on ZA.
+  for (Index depth : {Index(8), Index(65)}) {
+    for (int n : {svl / 2 - 1, svl / 2, svl / 2 + 1, svl, svl + 1}) {
+      if (n < 2) continue;
+      Mat a = Mat::Zero(n, depth), b = Mat::Zero(depth, n);
+      a.col(0).setConstant(Scalar(h, h));
+      b.row(0).setOnes();
+      const Mat ac = a.conjugate(), bc = b.conjugate();
+      for (int t = 0; t < 2; ++t) {
+        const Scalar alpha = alphas[t];
+        for (int conjugation = 0; conjugation < 4; ++conjugation) {
+          Mat c = Mat::Constant(n, n, initial);
+          if (conjugation == 0) c.noalias() += alpha * (a * b);
+          if (conjugation == 1) c.noalias() += alpha * (ac.conjugate() * b);
+          if (conjugation == 2) c.noalias() += alpha * (a * bc.conjugate());
+          if (conjugation == 3) c.noalias() += alpha * (ac.conjugate() * bc.conjugate());
+          for (Index j = 0; j < n; ++j) {
+            for (Index i = 0; i < n; ++i) {
+              VERIFY((std::isfinite)(c(i, j).real()) && (std::isfinite)(c(i, j).imag()));
+              VERIFY(c(i, j) == expected[t]);
+            }
           }
         }
-      }
-      // One packed panel; a larger runtime SVL may exceed its static width.
-      if (n <= numext::mini(sme_mr<Scalar>(), sme_nr<Scalar>())) {
-        std::vector<Scalar> pa(n * depth), pb(n * depth);
-        for (Index k = 0; k < depth; ++k) {
-          for (Index i = 0; i < n; ++i) {
-            set_packed(pa.data(), Index(n), k, i, a(i, k));
-            set_packed(pb.data(), Index(n), k, i, b(k, i));
+        // One packed panel; a larger runtime SVL may exceed its static width.
+        if (n <= numext::mini(sme_mr<Scalar>(), sme_nr<Scalar>())) {
+          std::vector<Scalar> pa(n * depth), pb(n * depth);
+          for (Index k = 0; k < depth; ++k) {
+            for (Index i = 0; i < n; ++i) {
+              set_packed(pa.data(), Index(n), k, i, a(i, k));
+              set_packed(pb.data(), Index(n), k, i, b(k, i));
+            }
           }
-        }
-        Mat c = Mat::Constant(n, n, initial);
-        internal::sme_gebp_dispatch<Scalar, false, false>::run(
-            c.data(), Index(Order == RowMajor ? n : 1), Index(Order == RowMajor ? 1 : n), pa.data(), pb.data(),
-            Index(n), depth, Index(n), alpha, depth, depth, Index(0), Index(0));
-        for (Index j = 0; j < n; ++j) {
-          for (Index i = 0; i < n; ++i) {
-            VERIFY((std::isfinite)(c(i, j).real()) && (std::isfinite)(c(i, j).imag()));
-            VERIFY(c(i, j) == expected[t]);
+          Mat c = Mat::Constant(n, n, initial);
+          internal::sme_gebp_dispatch<Scalar, false, false>::run(
+              c.data(), Index(Order == RowMajor ? n : 1), Index(Order == RowMajor ? 1 : n), pa.data(), pb.data(),
+              Index(n), depth, Index(n), alpha, depth, depth, Index(0), Index(0));
+          for (Index j = 0; j < n; ++j) {
+            for (Index i = 0; i < n; ++i) {
+              VERIFY((std::isfinite)(c(i, j).real()) && (std::isfinite)(c(i, j).imag()));
+              VERIFY(c(i, j) == expected[t]);
+            }
           }
         }
       }
