@@ -392,6 +392,99 @@ template <typename Derived>
 struct isMuchSmallerThan_scalar_selector<Derived, true>
     : isMuchSmallerThan_object_selector<Derived, typename Derived::RealScalar, true> {};
 
+// |<v, w>|^2 <= prec^2 |v|^2 |w|^2 is homogeneous of degree four, so for |v_i| above ~4e9 or below ~1e-11 in float
+// both sides overflow to inf <= inf or underflow to 0 <= 0 and parallel vectors pass. The binary floating-point scalars
+// that isApprox() scales compare |<v, w>| <= prec |v| |w| instead, choosing how from v and w alone, so the result is
+// monotone in prec: from the coefficients themselves while |v|^2 and |w|^2 are in range and |<v, w>| is above what
+// flushed products can leave, so an exact cancellation survives, and otherwise after scaling v and w by powers of two.
+// Other scalars, integers, custom complex and exact custom types included, keep the squared form, which needs no
+// square root.
+template <typename Derived, typename OtherDerived,
+          bool Scaled = use_scaled_comparison<typename Derived::Scalar>::value &&
+                        use_scaled_comparison<typename OtherDerived::Scalar>::value>
+struct is_orthogonal_impl {
+  template <typename RealScalar>
+  static bool run(const Derived& v, const OtherDerived& w, const RealScalar& prec) {
+    typename nested_eval<Derived, 2>::type nested(v);
+    typename nested_eval<OtherDerived, 2>::type otherNested(w);
+    return numext::abs2(nested.dot(otherNested)) <= prec * prec * nested.squaredNorm() * otherNested.squaredNorm();
+  }
+};
+
+template <typename Derived, typename OtherDerived>
+struct is_orthogonal_impl<Derived, OtherDerived, true> {
+  // half and bfloat16 are compared in float, which holds them exactly.
+  using Accumulator = std::common_type_t<
+      typename stable_norm_accumulator<typename NumTraits<typename Derived::Scalar>::Real>::type,
+      typename stable_norm_accumulator<typename NumTraits<typename OtherDerived::Scalar>::Real>::type>;
+  template <typename Xpr>
+  using Wide = std::conditional_t<NumTraits<typename Xpr::Scalar>::IsComplex, std::complex<Accumulator>, Accumulator>;
+
+  template <typename RealScalar>
+  static bool run(const Derived& v, const OtherDerived& w, const RealScalar& prec) {
+    // Widening must not admit operands that dot() rejects, such as float and double.
+    EIGEN_CHECK_BINARY_COMPATIBILITY(
+        scalar_conj_product_op<typename Derived::Scalar EIGEN_COMMA typename OtherDerived::Scalar>,
+        typename Derived::Scalar, typename OtherDerived::Scalar)
+    typename nested_eval<Derived, 2>::type nested(v);
+    typename nested_eval<OtherDerived, 2>::type otherNested(w);
+    const auto& wideV = nested.template cast<Wide<Derived>>();
+    const auto& wideW = otherNested.template cast<Wide<OtherDerived>>();
+    const Accumulator v2 = wideV.squaredNorm();
+    const Accumulator w2 = wideW.squaredNorm();
+    // Each flushed product, square or partial sum moves |v|^2, |w|^2 or <v, w> by less than min, and a complex
+    // coefficient takes up to four per component: less than 8n min in all, at most epsilon x for any x >= lower.
+    const Accumulator flushLevel =
+        Accumulator(8) * Accumulator(v.size()) * stable_normalization_normal_min<Accumulator, Accumulator>::run();
+    const Accumulator lower = flushLevel / NumTraits<Accumulator>::epsilon();
+    const Accumulator highest = NumTraits<Accumulator>::highest();
+    if (v2 >= lower && v2 <= highest && w2 >= lower && w2 <= highest) {
+      const Accumulator absDot = numext::abs(wideV.dot(wideW));
+      // At most flushLevel, <v, w> can be a product that underflowed; |<v, w>| <= |v| |w| <= highest up to rounding.
+      if (absDot > flushLevel && absDot <= highest)
+        return absDot <= Accumulator(prec) * (numext::sqrt(v2) * numext::sqrt(w2));
+    }
+    return run_scaled(wideV, wideW, v2, w2, Accumulator(prec));
+  }
+
+ private:
+  template <typename Xpr>
+  static Accumulator max_abs(const Xpr& x) {
+    if (x.size() == 0) return Accumulator(0);
+    const auto& components = x.realView();
+    return safe_scaling<Accumulator>::recover_flushed_max_coeff(
+        components, components.cwiseAbs().template maxCoeff<PropagateNaN>());
+  }
+
+  // Lift a maximum below 1, which is exact and revives underflowed products. Scale down only a vector whose squared
+  // norm overflowed, which rounds just the coefficients that leave the normal range. Given a maximum of 1,
+  // with_scaled() leaves the vector unscaled.
+  static Accumulator scaling_max(const Accumulator& maxCoeff, const Accumulator& squaredNorm) {
+    return maxCoeff < Accumulator(1) || !(squaredNorm <= NumTraits<Accumulator>::highest()) ? maxCoeff : Accumulator(1);
+  }
+
+  // Keep exponent scaling from inhibiting inlining of ordinary comparisons.
+  template <typename V, typename W>
+  static EIGEN_DONT_INLINE bool run_scaled(const V& v, const W& w, const Accumulator& v2, const Accumulator& w2,
+                                           const Accumulator& prec) {
+    const Accumulator maxV = max_abs(v);
+    const Accumulator maxW = max_abs(w);
+    // A vector with a non-finite coefficient is orthogonal to nothing, a zero vector to everything. Under DAZ, a
+    // subnormal maximum compares equal to zero, so test its bits.
+    if (!(maxV <= NumTraits<Accumulator>::highest() && maxW <= NumTraits<Accumulator>::highest())) return false;
+    if (numext::is_exactly_zero_no_flush(maxV) || numext::is_exactly_zero_no_flush(maxW)) return true;
+    // A scaled maximum lies in [2^-digits, 4) and a kept one has |x|^2 <= highest, so neither norm underflows and
+    // |<v, w>| <= |v| |w| stays finite.
+    bool orthogonal = false;
+    safe_scaling<Accumulator>::with_scaled(v, scaling_max(maxV, v2), [&](const auto& scaledV) {
+      safe_scaling<Accumulator>::with_scaled(w, scaling_max(maxW, w2), [&](const auto& scaledW) {
+        orthogonal = numext::abs(scaledV.dot(scaledW)) <= prec * (scaledV.norm() * scaledW.norm());
+      });
+    });
+    return orthogonal;
+  }
+};
+
 }  // end namespace internal
 
 /** \returns \c true if \c *this is approximately equal to \a other, within the precision
@@ -457,6 +550,18 @@ template <typename OtherDerived>
 EIGEN_DEVICE_FUNC constexpr bool DenseBase<Derived>::isMuchSmallerThan(const DenseBase<OtherDerived>& other,
                                                                        const RealScalar& prec) const {
   return internal::isMuchSmallerThan_object_selector<Derived, OtherDerived>::run(derived(), other.derived(), prec);
+}
+
+/** \returns true if *this is approximately orthogonal to \a other,
+ *          within the precision given by \a prec.
+ *
+ * Example: \include MatrixBase_isOrthogonal.cpp
+ * Output: \verbinclude MatrixBase_isOrthogonal.out
+ */
+template <typename Derived>
+template <typename OtherDerived>
+bool MatrixBase<Derived>::isOrthogonal(const MatrixBase<OtherDerived>& other, const RealScalar& prec) const {
+  return internal::is_orthogonal_impl<Derived, OtherDerived>::run(derived(), other.derived(), prec);
 }
 
 }  // end namespace Eigen

@@ -10,6 +10,7 @@
 
 #include "main.h"
 #include "fp_control.h"
+#include "CustomComplex.h"
 
 // |value|, promoted so that the error bounds below accumulate in the widest available type.
 template <typename T>
@@ -502,6 +503,17 @@ void is_orthogonal_flush_to_zero() {
   VERIFY(v.isOrthogonal(w));
 }
 
+// A custom complex scalar keeps the squared form, which needs no conversion to std::complex.
+void is_orthogonal_custom_complex() {
+  using Complex = CustomComplex<double>;
+  Matrix<Complex, 2, 1> a, b;
+  a << Complex(1, 2), Complex(3, 0);
+  b << Complex(3, 0), Complex(-1, 2);
+  VERIFY(a.isOrthogonal(b, 0.0));
+  VERIFY(b.isOrthogonal(a, 0.0));
+  VERIFY(!a.isOrthogonal(a));
+}
+
 // Test transposeInPlace at vectorization boundary sizes.
 // BlockedInPlaceTranspose uses PacketSize-blocked loops with a scalar remainder (line 273),
 // exercising off-by-one-prone transitions.
@@ -655,6 +667,7 @@ EIGEN_DECLARE_TEST(adjoint) {
   CALL_SUBTEST_24(is_orthogonal_flush_to_zero<float>());
   CALL_SUBTEST_24(is_orthogonal_flush_to_zero<double>());
   CALL_SUBTEST_24(is_orthogonal_flush_to_zero<std::complex<float>>());
+  CALL_SUBTEST_24(is_orthogonal_custom_complex());
 
   // transposeInPlace at vectorization boundaries (deterministic, outside g_repeat).
   CALL_SUBTEST_18(transposeInPlace_boundary<float>());
