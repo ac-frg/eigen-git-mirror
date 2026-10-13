@@ -327,8 +327,8 @@ EIGEN_DECLARE_TEST(NumericalDiff) {
   CALL_SUBTEST(test_small());
   CALL_SUBTEST(test_step_size());
   CALL_SUBTEST(test_constructors());
-  CALL_SUBTEST(test_step_alignment<Forward>(std::sqrt(std::numeric_limits<double>::epsilon())));
-  CALL_SUBTEST(test_step_alignment<Central>(std::cbrt(std::numeric_limits<double>::epsilon())));
+  CALL_SUBTEST(test_step_alignment<Forward>(0.0));
+  CALL_SUBTEST(test_step_alignment<Central>(0.0));
   // A non-dyadic eps also misaligns the absolute step taken for |x| < 1.
   CALL_SUBTEST(test_step_alignment<Forward>(1e-10));
   CALL_SUBTEST(test_step_alignment<Central>(1e-10));
