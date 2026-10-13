@@ -68,7 +68,7 @@ class TensorFixedSize : public TensorBase<TensorFixedSize<Scalar_, Dimensions_, 
     return Dimensions{}[N];
   }
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Index dimension(Index n) const {
-    eigen_assert(0 <= n && n < NumIndices);
+    eigen_assert(0 <= n && n < static_cast<Index>(NumIndices));
     return m_storage.dimensions()[n];
   }
   constexpr EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE const Dimensions dimensions() const { return m_storage.dimensions(); }
