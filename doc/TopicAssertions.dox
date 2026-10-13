@@ -101,7 +101,8 @@ including in release builds. Checks proven valid do not read dimensions at runti
 Matching rows and columns (including directional concatenation checks) follow the same rule.
 Vector adaptation and scalar extraction likewise reject provably invalid shapes, while
 allowing dynamically sized inputs that satisfy their preconditions at runtime.
-Square-only operations such as determinant accessors also reject fixed rectangular inputs.
+Square-only preconditions remain runtime checks, elided when the matrix is proven square.
+This preserves runtime-guarded calls on rectangular fixed-size types in C++14.
 Solver right-hand sides are checked against the appropriate fixed dimension, including
 the reversed row/column rule for transposed solves.
 Nonempty-input checks remain runtime-only so C++14 code can guard reductions on fixed empty expressions.

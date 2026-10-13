@@ -109,10 +109,8 @@ void structured_module_shapes() {
   VERIFY_RAISES_ASSERT(rectangular_factors.eigenvalues());
   VERIFY_RAISES_ASSERT(rectangular_factors.eigenvectors());
   VERIFY_RAISES_ASSERT(rectangular_factors.solve(x));
-#ifdef EIGEN_NO_STATIC_ASSERT
   const Cauchy<double, 2, 3> fixed_rectangular(x, three);
   VERIFY_RAISES_ASSERT(fixed_rectangular.determinant());
-#endif
 }
 #endif
 

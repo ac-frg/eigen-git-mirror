@@ -412,7 +412,9 @@ class BjorckPereyra : public SolverBase<BjorckPereyra<Scalar_>> {
    * nodes. */
   template <int Rows_, int Cols_>
   BjorckPereyra& compute(const Vandermonde<Scalar, Rows_, Cols_>& V) {
-    EIGEN_ASSERT_SQUARE(V);
+    EIGEN_CHECK_SHAPE(V.rows() == V.cols() && "BjorckPereyra requires a square Vandermonde matrix",
+                      YOU_MIXED_MATRICES_OF_DIFFERENT_SIZES,
+                      internal::square_dimensions<Vandermonde<Scalar, Rows_, Cols_>>);
     m_x = V.nodes();
     m_order.clear();
     m_info = Success;

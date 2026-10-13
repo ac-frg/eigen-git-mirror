@@ -190,9 +190,9 @@ struct fixed_dimensions {
 #define EIGEN_ASSERT_SIZE_MATCHES_ROWS(SizeExpr, MatrixExpr) EIGEN_ASSERT_SIZE_MATCHES_AXIS(SizeExpr, MatrixExpr, true)
 #define EIGEN_ASSERT_SIZE_MATCHES_COLS(SizeExpr, MatrixExpr) EIGEN_ASSERT_SIZE_MATCHES_AXIS(SizeExpr, MatrixExpr, false)
 
-#define EIGEN_ASSERT_SQUARE(Xpr)                                                               \
-  EIGEN_CHECK_SHAPE((Xpr).rows() == (Xpr).cols() && "This operation requires a square matrix", \
-                    YOU_MIXED_MATRICES_OF_DIFFERENT_SIZES, Eigen::internal::square_dimensions<EIGEN_SHAPE_TYPE(Xpr)>)
+#define EIGEN_ASSERT_SQUARE(Xpr)                                                          \
+  EIGEN_SHAPE_ASSERT((Eigen::internal::square_dimensions<EIGEN_SHAPE_TYPE(Xpr)>::Proven), \
+                     (Xpr).rows() == (Xpr).cols() && "This operation requires a square matrix")
 
 // TODO(C++17): guard the vector check with if constexpr (Enabled) instead of selecting a dummy relation.
 #define EIGEN_ASSERT_VECTOR_IF(Enabled, Xpr)                                                               \

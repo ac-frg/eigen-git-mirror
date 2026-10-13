@@ -250,9 +250,7 @@ EIGEN_DECLARE_TEST(shape_checks) {
   VERIFY_RAISES_ASSERT(rectangle.householderQr().absDeterminant());
   VERIFY_RAISES_ASSERT(rectangle.fullPivLu().determinant());
   VERIFY_RAISES_ASSERT(rectangle.llt());
-#ifdef EIGEN_NO_STATIC_ASSERT
   VERIFY_RAISES_ASSERT(wide.fullPivLu().determinant());
-#endif
   MatrixXd empty(0, 0);
   VERIFY_IS_EQUAL(empty.sum(), 0);
   const Matrix<double, 0, 0> fixed_empty;

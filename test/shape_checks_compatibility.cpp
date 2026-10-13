@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: The Eigen Authors
 // SPDX-License-Identifier: MPL-2.0
 #include "main.h"
+#include <Eigen/LU>
+#include <Eigen/QR>
 
 struct RuntimeShape;
 namespace Eigen {
@@ -35,11 +37,24 @@ Index guarded_column_max_size(const Matrix<double, N, N>& matrix) {
   return matrix.cols() > 0 ? matrix.colwise().maxCoeff().size() : 0;
 }
 
+template <int Rows, int Cols>
+double guarded_determinants(const Matrix<double, Rows, Cols>& matrix) {
+  if (matrix.rows() != matrix.cols()) return 0.0;
+  return matrix.determinant() + matrix.fullPivLu().determinant() + matrix.householderQr().absDeterminant() +
+         matrix.colPivHouseholderQr().absDeterminant() + matrix.fullPivHouseholderQr().absDeterminant() +
+         matrix.randColPivHouseholderQr().absDeterminant();
+}
+
 EIGEN_DECLARE_TEST(shape_checks_compatibility) {
   VERIFY_IS_EQUAL(guarded_tail_max<1>(Matrix<double, 1, 1>::Ones()), 0.0);
   VERIFY_IS_EQUAL(guarded_tail_max<2>(Vector2d::Constant(7)), 7.0);
   VERIFY_IS_EQUAL(guarded_column_max_size(Matrix<double, 0, 0>()), Index(0));
   VERIFY_IS_EQUAL(guarded_column_max_size<2>(Matrix2d::Ones()), Index(2));
+  VERIFY_IS_EQUAL((guarded_determinants<3, 4>(Matrix<double, 3, 4>::Zero())), 0.0);
+  VERIFY_IS_EQUAL((guarded_determinants<2, 2>(Matrix2d::Identity())), 6.0);
+  Matrix<double, 0, 4> empty_rectangle;
+  if (empty_rectangle.rows() == empty_rectangle.cols()) empty_rectangle.transposeInPlace();
+  VERIFY_RAISES_ASSERT(empty_rectangle.transposeInPlace());
   RuntimeShape source;
   VectorXd destination;
   destination.resizeLike(source);

@@ -328,11 +328,11 @@ struct inplace_transpose_selector<MatrixType, false, MatchPacketSize> {  // non 
  * \sa transpose(), adjoint(), adjointInPlace() */
 template <typename Derived>
 EIGEN_DEVICE_FUNC inline void DenseBase<Derived>::transposeInPlace() {
-  EIGEN_CHECK_SHAPE((rows() == cols() || (RowsAtCompileTime == Dynamic && ColsAtCompileTime == Dynamic)) &&
-                        "transposeInPlace() called on a non-square non-resizable matrix",
-                    YOU_MIXED_MATRICES_OF_DIFFERENT_SIZES,
-                    std::conditional_t < RowsAtCompileTime == Dynamic && ColsAtCompileTime == Dynamic,
-                    internal::dimension_relation<1, 1>, internal::square_dimensions < Derived >>);
+  using ShapeRelation = std::conditional_t<RowsAtCompileTime == Dynamic && ColsAtCompileTime == Dynamic,
+                                           internal::dimension_relation<1, 1>, internal::square_dimensions<Derived>>;
+  EIGEN_SHAPE_ASSERT(ShapeRelation::Proven,
+                     (rows() == cols() || (RowsAtCompileTime == Dynamic && ColsAtCompileTime == Dynamic)) &&
+                         "transposeInPlace() called on a non-square non-resizable matrix");
   internal::inplace_transpose_selector<Derived>::run(derived());
 }
 
