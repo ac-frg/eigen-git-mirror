@@ -91,7 +91,7 @@ class NumericalDiff : public Functor_ {
 
   // Setters/getters for tolerances
   void setRelTol(Scalar _rel_tol) {
-    eigen_assert(rel_tol >= NumTraits<Scalar>::epsilon());
+    eigen_assert(_rel_tol >= NumTraits<Scalar>::epsilon());
     rel_tol = _rel_tol;
   }
   void setAbsTol(Scalar _abs_tol) {
