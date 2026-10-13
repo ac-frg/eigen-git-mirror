@@ -459,7 +459,7 @@ class BjorckPereyra : public SolverBase<BjorckPereyra<Scalar_>> {
   void _solve_impl(const RhsType& rhs, DstType& dst) const {
     using RhsScalar = typename RhsType::Scalar;
     using WorkScalar = typename DstType::Scalar;
-    using ProductOp = internal::scalar_product_op<Scalar, RhsScalar>;
+    using ProductOp EIGEN_UNUSED = internal::scalar_product_op<Scalar, RhsScalar>;
     EIGEN_CHECK_BINARY_COMPATIBILITY(ProductOp, Scalar, RhsScalar)
 
     const Index n = m_x.size();
@@ -486,7 +486,7 @@ class BjorckPereyra : public SolverBase<BjorckPereyra<Scalar_>> {
   void _solve_impl_transposed(const RhsType& rhs, DstType& dst) const {
     using RhsScalar = typename RhsType::Scalar;
     using WorkScalar = typename DstType::Scalar;
-    using ProductOp = internal::scalar_product_op<Scalar, RhsScalar>;
+    using ProductOp EIGEN_UNUSED = internal::scalar_product_op<Scalar, RhsScalar>;
     EIGEN_CHECK_BINARY_COMPATIBILITY(ProductOp, Scalar, RhsScalar)
 
     const Index n = m_x.size();
