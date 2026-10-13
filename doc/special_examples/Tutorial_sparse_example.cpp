@@ -9,7 +9,7 @@ typedef Eigen::SparseMatrix<double> SpMat;  // declares a column-major sparse ma
 typedef Eigen::Triplet<double> T;
 
 void buildProblem(std::vector<T>& coefficients, Eigen::VectorXd& b, int n);
-void saveAsBitmap(const Eigen::VectorXd& x, int n, const char* filename);
+bool saveAsBitmap(const Eigen::VectorXd& x, int n, const char* filename);
 
 int main(int argc, char** argv) {
   if (argc != 2) {
@@ -33,7 +33,10 @@ int main(int argc, char** argv) {
   Eigen::VectorXd x = chol.solve(b);         // use the factorization to solve for the given right hand side
 
   // Export the result to a file:
-  saveAsBitmap(x, n, argv[1]);
+  if (!saveAsBitmap(x, n, argv[1])) {
+    std::cerr << "Error: could not write image to " << argv[1] << '\n';
+    return 1;
+  }
 
   return 0;
 }
