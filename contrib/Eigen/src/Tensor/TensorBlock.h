@@ -28,14 +28,14 @@ class TensorBlockIO;
 // TODO(ezhulenev): We compute strides many times in different evaluators, use
 // this function instead everywhere.
 template <int Layout, typename IndexType, int NumDims>
-EIGEN_ALWAYS_INLINE std::enable_if_t<NumDims == 0, DSizes<IndexType, NumDims>> strides_impl(
+EIGEN_ALWAYS_INLINE std::enable_if_t<NumDims == 0, DSizes<IndexType, NumDims> > strides_impl(
     const DSizes<IndexType, NumDims>& /*dimensions*/) {
   DSizes<IndexType, NumDims> strides;
   return strides;
 }
 
 template <int Layout, typename IndexType, int NumDims>
-EIGEN_ALWAYS_INLINE std::enable_if_t<(NumDims > 0), DSizes<IndexType, NumDims>> strides_impl(
+EIGEN_ALWAYS_INLINE std::enable_if_t<(NumDims > 0), DSizes<IndexType, NumDims> > strides_impl(
     const DSizes<IndexType, NumDims>& dimensions) {
   DSizes<IndexType, NumDims> strides;
   // TODO(ezhulenev): Benchmark whether template-unrolling this loop is beneficial.
@@ -871,7 +871,7 @@ class TensorCwiseUnaryBlock {
 
  public:
   typedef std::conditional_t<NoArgBlockAccess, void,
-                             TensorCwiseUnaryOp<UnaryOp, const typename ArgTensorBlock::XprType>>
+                             TensorCwiseUnaryOp<UnaryOp, const typename ArgTensorBlock::XprType> >
       XprType;
 
   typedef typename XprScalar<XprType>::type Scalar;
@@ -902,7 +902,7 @@ class TensorCwiseBinaryBlock {
  public:
   typedef std::conditional_t<
       NoArgBlockAccess, void,
-      TensorCwiseBinaryOp<BinaryOp, const typename LhsTensorBlock::XprType, const typename RhsTensorBlock::XprType>>
+      TensorCwiseBinaryOp<BinaryOp, const typename LhsTensorBlock::XprType, const typename RhsTensorBlock::XprType> >
       XprType;
 
   typedef typename XprScalar<XprType>::type Scalar;
