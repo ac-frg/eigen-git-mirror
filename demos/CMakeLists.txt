@@ -5,6 +5,7 @@ project(EigenDemos)
 
 add_custom_target(demos)
 
+option(EIGEN_TEST_NOQT "Disable Qt-based demos" OFF)
 if(NOT EIGEN_TEST_NOQT)
   find_package(Qt6 QUIET COMPONENTS Widgets)
   if(Qt6Widgets_FOUND)
