@@ -131,9 +131,9 @@ EIGEN_ALWAYS_INLINE bool sme_run_direct_lhs(std::false_type, Gebp&, const ResMap
 template <typename Scalar, typename Index>
 EIGEN_ALWAYS_INLINE bool sme_small_gemm_wins(Index rows, Index cols, Index depth);
 template <typename Scalar, int LhsOrder, int RhsOrder, bool ConjLhs, bool ConjRhs, int ResInnerStride, typename Index>
-void sme_small_gemm(Index rows, Index cols, Index depth, const Scalar* lhs, Index lhsStride, const Scalar* rhs,
-                    Index rhsStride, Scalar* res, Index resIncr, Index resStride, Scalar alpha, Scalar* blockA,
-                    Scalar* blockB);
+EIGEN_DONT_INLINE void sme_small_gemm(Index rows, Index cols, Index depth, const Scalar* lhs, Index lhsStride,
+                                      const Scalar* rhs, Index rhsStride, Scalar* res, Index resIncr, Index resStride,
+                                      Scalar alpha, Scalar* blockA, Scalar* blockB);
 // The test stays inline: a call into the NEON path's frame dirties stack lines the ZA path then packs into.
 template <int LhsOrder, int RhsOrder, bool ConjLhs, bool ConjRhs, int ResInnerStride, typename Scalar, typename Index,
           typename Blocking>
