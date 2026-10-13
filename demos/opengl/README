@@ -1,4 +1,8 @@
 
+Requires Qt6 OpenGLWidgets, desktop OpenGL, GLU and a C++17 compiler.
+Configure Eigen with EIGEN_BUILD_DEMOS=ON, then build the quaternion_demo target.
+The renderer uses legacy OpenGL 2.1 functions, not an OpenGL ES or core-profile context.
+
 Navigation:
  left button:           rotate around the target
  middle button:         zoom

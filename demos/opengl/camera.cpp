@@ -196,7 +196,6 @@ const Matrix4f& Camera::projectionMatrix(void) const {
 }
 
 void Camera::activateGL(void) {
-  glViewport(vpX(), vpY(), vpWidth(), vpHeight());
   gpu.loadMatrix(projectionMatrix(), GL_PROJECTION);
   gpu.loadMatrix(viewMatrix().matrix(), GL_MODELVIEW);
 }

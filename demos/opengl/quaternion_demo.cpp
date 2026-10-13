@@ -25,6 +25,7 @@
 #include <QDockWidget>
 #include <QPushButton>
 #include <QGroupBox>
+#include <QSurfaceFormat>
 
 using namespace Eigen;
 
@@ -233,23 +234,29 @@ void RenderingWidget::drawScene() {
   glEnable(GL_LIGHT1);
 
   sFancySpheres.draw();
-  glVertexPointer(3, GL_FLOAT, 0, mVertices[0].data());
-  glNormalPointer(GL_FLOAT, 0, mNormals[0].data());
-  glEnableClientState(GL_VERTEX_ARRAY);
-  glEnableClientState(GL_NORMAL_ARRAY);
-  glDrawArrays(GL_TRIANGLES, 0, mVertices.size());
-  glDisableClientState(GL_VERTEX_ARRAY);
-  glDisableClientState(GL_NORMAL_ARRAY);
+  if (!mVertices.empty() && mVertices.size() == mNormals.size()) {
+    glVertexPointer(3, GL_FLOAT, 0, mVertices[0].data());
+    glNormalPointer(GL_FLOAT, 0, mNormals[0].data());
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glEnableClientState(GL_NORMAL_ARRAY);
+    glDrawArrays(GL_TRIANGLES, 0, mVertices.size());
+    glDisableClientState(GL_VERTEX_ARRAY);
+    glDisableClientState(GL_NORMAL_ARRAY);
+  }
 
   glDisable(GL_LIGHTING);
 }
 
 void RenderingWidget::animate() {
+  if (m_timeline.empty()) {
+    stopAnimation();
+    return;
+  }
   m_alpha += double(m_timer.interval()) * 1e-3;
 
   TimeLine::const_iterator hi = m_timeline.upper_bound(m_alpha);
   TimeLine::const_iterator lo = hi;
-  --lo;
+  if (hi != m_timeline.begin()) --lo;
 
   Frame currentFrame;
 
@@ -277,7 +284,7 @@ void RenderingWidget::animate() {
   currentFrame.position = -(currentFrame.orientation * currentFrame.position);
   mCamera.setFrame(currentFrame);
 
-  updateGL();
+  update();
 }
 
 void RenderingWidget::keyPressEvent(QKeyEvent* e) {
@@ -306,7 +313,7 @@ void RenderingWidget::keyPressEvent(QKeyEvent* e) {
         stopAnimation();
       } else {
         m_alpha = 0;
-        connect(&m_timer, SIGNAL(timeout()), this, SLOT(animate()));
+        connect(&m_timer, &QTimer::timeout, this, &RenderingWidget::animate);
         m_timer.start(1000 / 30);
         mAnimate = true;
       }
@@ -315,18 +322,19 @@ void RenderingWidget::keyPressEvent(QKeyEvent* e) {
       break;
   }
 
-  updateGL();
+  update();
 }
 
 void RenderingWidget::stopAnimation() {
-  disconnect(&m_timer, SIGNAL(timeout()), this, SLOT(animate()));
+  disconnect(&m_timer, &QTimer::timeout, this, &RenderingWidget::animate);
   m_timer.stop();
   mAnimate = false;
   m_alpha = 0;
 }
 
 void RenderingWidget::mousePressEvent(QMouseEvent* e) {
-  mMouseCoords = Vector2i(e->pos().x(), e->pos().y());
+  const QPoint position = e->position().toPoint();
+  mMouseCoords = Vector2i(position.x(), position.y());
   bool fly = (mNavMode == NavFly) || (e->modifiers() & Qt::ControlModifier);
   switch (e->button()) {
     case Qt::LeftButton:
@@ -339,7 +347,7 @@ void RenderingWidget::mousePressEvent(QMouseEvent* e) {
       }
       mTrackball.track(mMouseCoords);
       break;
-    case Qt::MidButton:
+    case Qt::MiddleButton:
       if (fly)
         mCurrentTrackingMode = TM_FLY_Z;
       else
@@ -354,14 +362,15 @@ void RenderingWidget::mousePressEvent(QMouseEvent* e) {
 }
 void RenderingWidget::mouseReleaseEvent(QMouseEvent*) {
   mCurrentTrackingMode = TM_NO_TRACK;
-  updateGL();
+  update();
 }
 
 void RenderingWidget::mouseMoveEvent(QMouseEvent* e) {
+  const QPoint position = e->position().toPoint();
   // tracking
   if (mCurrentTrackingMode != TM_NO_TRACK) {
-    float dx = float(e->x() - mMouseCoords.x()) / float(mCamera.vpWidth());
-    float dy = -float(e->y() - mMouseCoords.y()) / float(mCamera.vpHeight());
+    float dx = float(position.x() - mMouseCoords.x()) / float(mCamera.vpWidth());
+    float dy = -float(position.y() - mMouseCoords.y()) / float(mCamera.vpHeight());
 
     // speedup the transformations
     if (e->modifiers() & Qt::ShiftModifier) {
@@ -375,7 +384,7 @@ void RenderingWidget::mouseMoveEvent(QMouseEvent* e) {
         if (mRotationMode == RotationStable) {
           // use the stable trackball implementation mapping
           // the 2D coordinates to 3D points on a sphere.
-          mTrackball.track(Vector2i(e->pos().x(), e->pos().y()));
+          mTrackball.track(Vector2i(position.x(), position.y()));
         } else {
           // standard approach mapping the x and y displacements as rotations
           // around the camera's X and Y axes.
@@ -399,10 +408,10 @@ void RenderingWidget::mouseMoveEvent(QMouseEvent* e) {
         break;
     }
 
-    updateGL();
+    update();
   }
 
-  mMouseCoords = Vector2i(e->pos().x(), e->pos().y());
+  mMouseCoords = Vector2i(position.x(), position.y());
 }
 
 void RenderingWidget::paintGL() {
@@ -478,7 +487,7 @@ void RenderingWidget::resetCamera() {
   m_timeline[2] = mInitFrame;
   m_alpha = 0;
   animate();
-  connect(&m_timer, SIGNAL(timeout()), this, SLOT(animate()));
+  connect(&m_timer, &QTimer::timeout, this, &RenderingWidget::animate);
   m_timer.start(1000 / 30);
   mAnimate = true;
 }
@@ -491,7 +500,7 @@ QWidget* RenderingWidget::createNavigationControlWidget() {
     QPushButton* but = new QPushButton("reset");
     but->setToolTip("move the camera to initial position (with animation)");
     layout->addWidget(but);
-    connect(but, SIGNAL(clicked()), this, SLOT(resetCamera()));
+    connect(but, &QPushButton::clicked, this, &RenderingWidget::resetCamera);
   }
   {
     // navigation mode
@@ -508,7 +517,7 @@ QWidget* RenderingWidget::createNavigationControlWidget() {
     group->addButton(but, NavFly);
     boxLayout->addWidget(but);
     group->button(mNavMode)->setChecked(true);
-    connect(group, SIGNAL(buttonClicked(int)), this, SLOT(setNavMode(int)));
+    connect(group, &QButtonGroup::idClicked, this, &RenderingWidget::setNavMode);
     box->setLayout(boxLayout);
     layout->addWidget(box);
   }
@@ -528,7 +537,7 @@ QWidget* RenderingWidget::createNavigationControlWidget() {
     but->setToolTip(
         "standard approach mapping the x and y displacements\nas rotations around the camera's X and Y axes");
     group->button(mRotationMode)->setChecked(true);
-    connect(group, SIGNAL(buttonClicked(int)), this, SLOT(setRotationMode(int)));
+    connect(group, &QButtonGroup::idClicked, this, &RenderingWidget::setRotationMode);
     box->setLayout(boxLayout);
     layout->addWidget(box);
   }
@@ -546,8 +555,8 @@ QWidget* RenderingWidget::createNavigationControlWidget() {
     group->addButton(but, LerpEulerAngles);
     boxLayout->addWidget(but);
     but->setToolTip("use Euler angles to interpolate orientations");
-    group->button(mNavMode)->setChecked(true);
-    connect(group, SIGNAL(buttonClicked(int)), this, SLOT(setLerpMode(int)));
+    group->button(mLerpMode)->setChecked(true);
+    connect(group, &QButtonGroup::idClicked, this, &RenderingWidget::setLerpMode);
     box->setLayout(boxLayout);
     layout->addWidget(box);
   }
@@ -578,11 +587,16 @@ int main(int argc, char* argv[]) {
   std::cout << "C : clear the animation\n";
   std::cout << "G : add a key frame\n";
 
+  // The renderer uses matrix stacks, display lists and GLU, which require desktop OpenGL's legacy functions.
+  QSurfaceFormat format;
+  format.setRenderableType(QSurfaceFormat::OpenGL);
+  format.setVersion(2, 1);
+  format.setDepthBufferSize(24);
+  QSurfaceFormat::setDefaultFormat(format);
+
   QApplication app(argc, argv);
   QuaternionDemo demo;
   demo.resize(600, 500);
   demo.show();
   return app.exec();
 }
-
-#include "quaternion_demo.moc"

@@ -1,5 +1,8 @@
 *** Mandelbrot demo ***
 
+Requires Qt6 Widgets and a C++17 compiler. Configure Eigen with
+EIGEN_BUILD_DEMOS=ON, then build the mandelbrot target. Qt is optional for Eigen.
+
 Controls:
 * Left mouse button to center view at a point.
 * Drag vertically with left mouse button to zoom in and out.

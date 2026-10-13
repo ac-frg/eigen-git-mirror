@@ -13,7 +13,7 @@
 #include <QtGui/QPainter>
 #include <QtGui/QImage>
 #include <QtGui/QMouseEvent>
-#include <QtCore/QTime>
+#include <QtCore/QElapsedTimer>
 
 void MandelbrotWidget::resizeEvent(QResizeEvent *) {
   if (size < width() * height()) {
@@ -26,26 +26,26 @@ void MandelbrotWidget::resizeEvent(QResizeEvent *) {
 
 template <typename T>
 struct iters_before_test {
-  enum { ret = 8 };
+  static constexpr int ret = 8;
 };
 template <>
 struct iters_before_test<double> {
-  enum { ret = 16 };
+  static constexpr int ret = 16;
 };
 
 template <typename Real>
 void MandelbrotThread::render(int img_width, int img_height) {
-  enum { packetSize = Eigen::internal::packet_traits<Real>::size };  // number of reals in a Packet
-  typedef Eigen::Array<Real, packetSize, 1> Packet;                  // wrap a Packet as a vector
+  constexpr int packetSize = Eigen::internal::packet_traits<Real>::size;  // number of reals in a Packet
+  using Packet = Eigen::Array<Real, packetSize, 1>;                       // wrap a Packet as a vector
 
-  enum { iters_before_test = iters_before_test<Real>::ret };
+  constexpr int iters_before_test = ::iters_before_test<Real>::ret;
   max_iter = (max_iter / iters_before_test) * iters_before_test;
   const int alignedWidth = (img_width / packetSize) * packetSize;
   unsigned char *const buffer = widget->buffer;
   const double xradius = widget->xradius;
   const double yradius = xradius * img_height / img_width;
   const int threadcount = widget->threadcount;
-  typedef Eigen::Array<Real, 2, 1> Vector2;
+  using Vector2 = Eigen::Array<Real, 2, 1>;
   Vector2 start(widget->center.x() - widget->xradius, widget->center.y() - yradius);
   Vector2 step(2 * widget->xradius / img_width, 2 * yradius / img_height);
   total_iter = 0;
@@ -67,7 +67,7 @@ void MandelbrotThread::render(int img_width, int img_height) {
       // do the iterations. Every iters_before_test iterations we check for divergence,
       // in which case we can stop iterating.
       int j = 0;
-      typedef Eigen::Matrix<int, packetSize, 1> Packeti;
+      using Packeti = Eigen::Matrix<int, packetSize, 1>;
       Packeti pix_iter = Packeti::Zero(),  // number of iteration per pixel in the packet
           pix_dont_diverge;                // whether or not each pixel has already diverged
       do {
@@ -127,14 +127,14 @@ void MandelbrotWidget::paintEvent(QPaintEvent *) {
   static float max_speed = 0;
   long long total_iter = 0;
 
-  QTime time;
+  QElapsedTimer time;
   time.start();
   for (int th = 0; th < threadcount; th++) threads[th]->start(QThread::LowPriority);
   for (int th = 0; th < threadcount; th++) {
     threads[th]->wait();
     total_iter += threads[th]->total_iter;
   }
-  int elapsed = time.elapsed();
+  const qint64 elapsed = time.elapsed();
 
   if (draft == 1) {
     float speed = elapsed ? float(total_iter) * 1000 / elapsed : 0;
@@ -163,10 +163,10 @@ void MandelbrotWidget::paintEvent(QPaintEvent *) {
 
 void MandelbrotWidget::mousePressEvent(QMouseEvent *event) {
   if (event->buttons() & Qt::LeftButton) {
-    lastpos = event->pos();
+    lastpos = event->position().toPoint();
     double yradius = xradius * height() / width();
-    center = Eigen::Vector2d(center.x() + (event->pos().x() - width() / 2) * xradius * 2 / width(),
-                             center.y() + (event->pos().y() - height() / 2) * yradius * 2 / height());
+    center = Eigen::Vector2d(center.x() + (event->position().x() - width() / 2) * xradius * 2 / width(),
+                             center.y() + (event->position().y() - height() / 2) * yradius * 2 / height());
     draft = 16;
     for (int th = 0; th < threadcount; th++) threads[th]->terminate();
     update();
@@ -174,8 +174,8 @@ void MandelbrotWidget::mousePressEvent(QMouseEvent *event) {
 }
 
 void MandelbrotWidget::mouseMoveEvent(QMouseEvent *event) {
-  QPoint delta = event->pos() - lastpos;
-  lastpos = event->pos();
+  QPoint delta = event->position().toPoint() - lastpos;
+  lastpos = event->position().toPoint();
   if (event->buttons() & Qt::LeftButton) {
     double t = 1 + 5 * double(delta.y()) / height();
     if (t < 0.5) t = 0.5;
@@ -193,5 +193,3 @@ int main(int argc, char *argv[]) {
   w.show();
   return app.exec();
 }
-
-#include "mandelbrot.moc"
