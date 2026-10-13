@@ -301,7 +301,7 @@ void test_constructors() {
   VectorXd x(1);
   MatrixXd jac(1, 1);
   MatrixXd expected(1, 1);
-  x << 1.0;
+  x << -1.0;
 
   NumericalDiff<G> g(2.0, 3.0);
   g.setRelTol(1.0);
@@ -313,7 +313,7 @@ void test_constructors() {
   MatrixXf fjac(1, 1);
   MatrixXf fexpected(1, 1);
   float_functor ff;
-  fx << 1.0;
+  fx << -1.0;
 
   NumericalDiff<float_functor> nd(ff, 1.0);
   nd.df(fx, fjac);
@@ -326,6 +326,7 @@ EIGEN_DECLARE_TEST(NumericalDiff) {
   CALL_SUBTEST(test_central());
   CALL_SUBTEST(test_small());
   CALL_SUBTEST(test_step_size());
+  CALL_SUBTEST(test_constructors());
   CALL_SUBTEST(test_step_alignment<Forward>(std::sqrt(std::numeric_limits<double>::epsilon())));
   CALL_SUBTEST(test_step_alignment<Central>(std::cbrt(std::numeric_limits<double>::epsilon())));
   // A non-dyadic eps also misaligns the absolute step taken for |x| < 1.
