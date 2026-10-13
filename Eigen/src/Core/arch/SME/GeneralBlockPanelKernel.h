@@ -3333,9 +3333,9 @@ EIGEN_ALWAYS_INLINE bool sme_small_gemm_wins(Index rows, Index cols, Index depth
 
 // Both sides are packed with NEON, so the NEON kernel never reads a streaming-packed panel.
 template <typename Scalar, int LhsOrder, int RhsOrder, bool ConjLhs, bool ConjRhs, int ResInnerStride, typename Index>
-void sme_small_gemm(Index rows, Index cols, Index depth, const Scalar* lhs, Index lhsStride, const Scalar* rhs,
-                    Index rhsStride, Scalar* res, Index resIncr, Index resStride, Scalar alpha, Scalar* blockA_,
-                    Scalar* blockB_) {
+EIGEN_DONT_INLINE void sme_small_gemm(Index rows, Index cols, Index depth, const Scalar* lhs, Index lhsStride,
+                                      const Scalar* rhs, Index rhsStride, Scalar* res, Index resIncr, Index resStride,
+                                      Scalar alpha, Scalar* blockA_, Scalar* blockB_) {
   constexpr int MR = sme_block<Scalar>::mr;
   constexpr int NR = sme_block<Scalar>::nr;
   using LhsMapper = const_blas_data_mapper<Scalar, Index, LhsOrder>;
