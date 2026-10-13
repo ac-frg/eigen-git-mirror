@@ -8,6 +8,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 #include "sparse.h"
+#include "CustomComplex.h"
 
 using namespace Eigen;
 
@@ -714,6 +715,24 @@ void test_block_sparse_isapprox_extreme_scales() {
   }
 }
 
+// Custom scalars keep the squared comparison, so isApprox() must not widen them to std::complex.
+void test_block_sparse_isapprox_custom_complex() {
+  using Scalar = CustomComplex<double>;
+  using BSM = BlockSparseMatrix<Scalar, ColMajor, 2, 2>;
+  STATIC_CHECK(!internal::use_scaled_comparison<Scalar>::value);
+  SparseMatrix<Scalar> sparse(4, 6);
+  sparse.insert(0, 0) = Scalar(1, 2);
+  sparse.insert(1, 1) = Scalar(-2, 0.5);
+  sparse.insert(3, 4) = Scalar(0.5, -1);
+  sparse.makeCompressed();
+  const BSM a = BSM::fromSparse(sparse);
+  VERIFY(a.isApprox(a));
+  VERIFY(!a.isApprox(a * Scalar(3)));
+  VERIFY(!a.isApprox(-a));
+  VERIFY(sparse.isApprox(sparse));
+  VERIFY(!sparse.isApprox(-sparse));
+}
+
 void test_block_triplet_traits() {
   // Flat scalar array means BlockTriplet should be trivially copyable and
   // standard-layout for any trivially-copyable Scalar and StorageIndex.
@@ -797,6 +816,7 @@ EIGEN_DECLARE_TEST(block_sparse_matrix) {
   CALL_SUBTEST_17((test_block_sparse_isapprox_extreme_scales<float, ColMajor>()));
   CALL_SUBTEST_17((test_block_sparse_isapprox_extreme_scales<double, RowMajor>()));
   CALL_SUBTEST_17((test_block_sparse_isapprox_extreme_scales<std::complex<double>, ColMajor>()));
+  CALL_SUBTEST_17(test_block_sparse_isapprox_custom_complex());
 
   // Complex scalar coverage: conjugation paths in adjoint, selfadjoint, triangular products
   CALL_SUBTEST_18((test_block_sparse<2, 2, ColMajor, std::complex<double>>(4, 6)));

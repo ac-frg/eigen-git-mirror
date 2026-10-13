@@ -22,6 +22,8 @@ template <typename Scalar, bool UseScaledComparison>
 struct sparse_approx_comparison {
   using RealScalar = typename NumTraits<Scalar>::Real;
   using Accumulator = RealScalar;
+  // Custom scalars are summed as they are; a conversion to std::complex is not required of them.
+  using Wide = Scalar;
 
   template <typename DifferenceNorm2, typename Scaled>
   static bool compare(const RealScalar& x2, const RealScalar& y2, Index, const RealScalar& prec,
@@ -43,6 +45,8 @@ template <typename Scalar>
 struct sparse_approx_comparison<Scalar, true> {
   using RealScalar = typename NumTraits<Scalar>::Real;
   using Accumulator = typename stable_norm_accumulator<RealScalar>::type;
+  // Coefficients widened to the accumulator, as approx_comparison_wide_t widens an expression's.
+  using Wide = std::conditional_t<NumTraits<Scalar>::IsComplex, std::complex<Accumulator>, Accumulator>;
   using Dense = approx_comparison_impl<Scalar, true>;
 
   // x2 and y2 are the squared norms of operands with at most size stored values between them; difference2() gives

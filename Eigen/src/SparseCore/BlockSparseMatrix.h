@@ -602,8 +602,7 @@ class BlockSparseMatrix
   bool isApprox(const BlockSparseMatrix& other,
                 const typename NumTraits<Scalar>::Real& prec = NumTraits<Scalar>::dummy_precision()) const {
     using Comparison = internal::sparse_approx_comparison<Scalar>;
-    using Accumulator = typename Comparison::Accumulator;
-    using Wide = std::conditional_t<NumTraits<Scalar>::IsComplex, std::complex<Accumulator>, Accumulator>;
+    using Wide = typename Comparison::Wide;
     // Frobenius-norm comparison, matching SparseMatrixBase::isApprox semantics
     // but computed directly from the block values — no scalar-level SparseMatrix
     // materialization of either operand while the squared norms are in range.
