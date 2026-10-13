@@ -17,7 +17,7 @@ namespace test {
 
 #ifdef EIGEN_TEST_LARGE_STRIDE_GATHER
 // Lane i at from[i * stride] for a stride near the limit of 32-bit lane offsets (lanes - 1) * stride. Only the pages
-// holding lanes are mapped, so the reserved range costs address space but no memory.
+// holding the lanes set in `mapped` are mapped, so the reserved range costs address space but no memory.
 template <typename Scalar>
 struct large_stride_lanes {
   Index stride;
@@ -25,14 +25,18 @@ struct large_stride_lanes {
   void* reserved = MAP_FAILED;
   Scalar* from = nullptr;
 
-  large_stride_lanes(int lanes, Index stride_) : stride(stride_) {
+  large_stride_lanes(int lanes, Index stride_, std::uint32_t mapped = ~std::uint32_t(0)) : stride(stride_) {
     const std::uintptr_t page = std::uintptr_t(sysconf(_SC_PAGESIZE));
     const Index span = (lanes - 1) * numext::abs(stride);
     bytes = std::size_t(span + 1) * sizeof(Scalar) + page;
     reserved = mmap(nullptr, bytes, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
-    if (reserved == MAP_FAILED) return;
+    if (reserved == MAP_FAILED) {
+      std::cerr << "Skipping the gather test at stride " << stride << ": cannot reserve " << bytes << " bytes.\n";
+      return;
+    }
     from = static_cast<Scalar*>(reserved) + (stride < 0 ? span : 0);
     for (Index i = 0; i < lanes; ++i) {
+      if (((mapped >> i) & 1) == 0) continue;
       void* lane_page = reinterpret_cast<void*>(reinterpret_cast<std::uintptr_t>(from + i * stride) & ~(page - 1));
       VERIFY_IS_EQUAL(mprotect(lane_page, page, PROT_READ | PROT_WRITE), 0);
       from[i * stride] = Scalar(i + 1);
@@ -55,7 +59,7 @@ void pgather_pscatter_large_stride() {
   constexpr int PacketSize = internal::unpacket_traits<Packet>::size;
   if (PacketSize < 2) return;
   for (Index s : large_strides<Packet>()) {
-    // Opaque, as in production: clang 18-20 merge _mm_set_pd(p[0x7fffffff], p[0]) into one load at a constant stride.
+    // Opaque, as in production: clang 14-20 merge _mm_set_pd(p[0x7fffffff], p[0]) into one load at a constant stride.
     volatile Index runtime_stride = s;
     const Index stride = runtime_stride;
     large_stride_lanes<Scalar> lanes(PacketSize, stride);
@@ -72,26 +76,23 @@ void pgather_pscatter_large_stride() {
 }
 
 #ifdef EIGEN_VECTORIZE_AVX512
-// The masked forms, which the AVX-512 GEMM kernel uses on a strided result.
+// The masked forms, which the AVX-512 GEMM kernel uses on a strided result. The masked-off lanes stay unmapped, so
+// touching one faults.
 template <typename Scalar, typename Packet>
 void masked_pgather_pscatter_large_stride() {
   constexpr int PacketSize = internal::unpacket_traits<Packet>::size;
+  const auto mask = static_cast<typename internal::unpacket_traits<Packet>::mask_t>(0x5555);
   for (Index s : large_strides<Packet>()) {
     volatile Index runtime_stride = s;  // see pgather_pscatter_large_stride
     const Index stride = runtime_stride;
-    large_stride_lanes<Scalar> lanes(PacketSize, stride);
+    large_stride_lanes<Scalar> lanes(PacketSize, stride, mask);
     if (lanes.from == nullptr) continue;
-    const auto mask = static_cast<typename internal::unpacket_traits<Packet>::mask_t>(0x5555);
     Scalar actual[PacketSize], expected[PacketSize];
     for (Index i = 0; i < PacketSize; ++i) expected[i] = (i % 2 == 0) ? Scalar(i + 1) : Scalar(-1);
     internal::pstoreu(actual, internal::pgather(internal::pset1<Packet>(Scalar(-1)), lanes.from, stride, mask));
     VERIFY(areEqualBits(expected, actual, PacketSize, false));
     internal::pscatter(lanes.from, internal::pset1<Packet>(Scalar(0)), stride, mask);
-    for (Index i = 0; i < PacketSize; ++i) {
-      actual[i] = lanes.from[i * stride];
-      expected[i] = (i % 2 == 0) ? Scalar(0) : Scalar(i + 1);
-    }
-    VERIFY(areEqualBits(expected, actual, PacketSize, false));
+    for (Index i = 0; i < PacketSize; i += 2) VERIFY_IS_EQUAL(lanes.from[i * stride], Scalar(0));
   }
 }
 #endif
