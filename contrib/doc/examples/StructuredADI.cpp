@@ -19,11 +19,13 @@ using namespace Eigen;
 SparseMatrix<double> secondDifference(int n) {
   const double h = 1.0 / (n + 1);
   SparseMatrix<double> D(n, n);
+  D.reserve(VectorXi::Constant(n, 3));  // at most 3 nonzeros per column
   for (int i = 0; i < n; ++i) {
     D.insert(i, i) = 2 / (h * h);
     if (i > 0) D.insert(i, i - 1) = -1 / (h * h);
     if (i + 1 < n) D.insert(i, i + 1) = -1 / (h * h);
   }
+  D.makeCompressed();
   return D;
 }
 

@@ -15,11 +15,13 @@ using namespace Eigen;
 SparseMatrix<double> convectionDiffusion(int n, double eps, double b) {
   const double h = 1.0 / (n + 1);
   SparseMatrix<double> A(n, n);
+  A.reserve(VectorXi::Constant(n, 3));  // at most 3 nonzeros per column
   for (int i = 0; i < n; ++i) {
     A.insert(i, i) = 2 * eps / (h * h);
     if (i > 0) A.insert(i, i - 1) = -eps / (h * h) - b / (2 * h);
     if (i + 1 < n) A.insert(i, i + 1) = -eps / (h * h) + b / (2 * h);
   }
+  A.makeCompressed();
   return A;
 }
 
