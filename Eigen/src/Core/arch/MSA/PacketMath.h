@@ -914,6 +914,26 @@ EIGEN_STRONG_INLINE Packet2l pcast<Packet2d, Packet2l>(const Packet2d& a) {
 }
 
 template <>
+EIGEN_STRONG_INLINE Packet2l pand<Packet2l>(const Packet2l& a, const Packet2l& b) {
+  return (Packet2l)__builtin_msa_and_v((v16u8)a, (v16u8)b);
+}
+
+template <>
+EIGEN_STRONG_INLINE Packet2l por<Packet2l>(const Packet2l& a, const Packet2l& b) {
+  return (Packet2l)__builtin_msa_or_v((v16u8)a, (v16u8)b);
+}
+
+template <>
+EIGEN_STRONG_INLINE Packet2l pxor<Packet2l>(const Packet2l& a, const Packet2l& b) {
+  return (Packet2l)__builtin_msa_xor_v((v16u8)a, (v16u8)b);
+}
+
+template <>
+EIGEN_STRONG_INLINE Packet2l pandnot<Packet2l>(const Packet2l& a, const Packet2l& b) {
+  return pand(a, (Packet2l)__builtin_msa_xori_b((v16u8)b, 255));
+}
+
+template <>
 EIGEN_STRONG_INLINE Packet2d pset1<Packet2d>(const double& from) {
   EIGEN_MSA_DEBUG;
 
