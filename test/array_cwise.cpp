@@ -975,7 +975,9 @@ void array_real(const ArrayType& m) {
     const Scalar inf = NumTraits<Scalar>::infinity();
     const Scalar big[] = {inf, -inf, Scalar(20), Scalar(-20)};
     for (Index i = 0; i < x.size(); ++i) x(i) = big[i % 4];
-    VERIFY_IS_CWISE_EQUAL(x.tanh(), x.sign());
+    // Evaluate into an array: comparing the expression would call the scalar tanh, which is std::tanh for double.
+    const Array<Scalar, Dynamic, 1> t = x.tanh(), sgn = x.sign();
+    VERIFY_IS_CWISE_EQUAL(t, sgn);
   }
 
   // Division by zero and by infinity is exact, also where pdiv refines a reciprocal estimate.
