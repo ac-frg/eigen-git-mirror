@@ -542,7 +542,7 @@ MatrixBase<Derived>::lpNorm() const {
  */
 template <typename Derived>
 template <int p>
-typename DenseBase<Derived>::RealScalar DenseBase<Derived>::lpNorm() const {
+EIGEN_DEVICE_FUNC inline typename DenseBase<Derived>::RealScalar DenseBase<Derived>::lpNorm() const {
   return derived().matrix().template lpNorm<p>();
 }
 
