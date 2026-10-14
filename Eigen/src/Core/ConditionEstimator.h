@@ -103,6 +103,8 @@ typename Decomposition::RealScalar rcond_invmatrix_L1_norm_estimate(const Decomp
     }
     // Supergradient: z = A^{-T} * sign(v), pick argmax |z_i|.
     v = dec.adjoint().solve(sign_vector);
+    // maxCoeff() would skip a NaN, and the solves with A may stay finite where this one is not.
+    if (!v.allFinite()) return infinite_norm;
     v.real().cwiseAbs().maxCoeff(&v_max_abs_index);
     if (v_max_abs_index == old_v_max_abs_index) {
       // Optimality: supergradient points to the same unit vector.
