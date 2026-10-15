@@ -1062,7 +1062,8 @@ struct TensorEvaluator<const TensorSelectOp<IfArgType, ThenArgType, ElseArgType>
   }
 
   // Tag dispatch rather than enable_if overloads: MSVC 19.29 folds the non-dependent part of each enable_if
-  // condition and then rejects the overloads whose conditions fold alike as redeclarations (C2535).
+  // condition and then rejects the overloads whose conditions fold alike as redeclarations (C2535). Modes 1-3 are
+  // member templates so that explicitly instantiating the evaluator does not instantiate pcasts its packet types lack.
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE PacketReturnType condPacket(Index index) const {
     return condPacket(index, std::integral_constant<int, CondPacketMode>());
   }
@@ -1071,15 +1072,18 @@ struct TensorEvaluator<const TensorSelectOp<IfArgType, ThenArgType, ElseArgType>
     return scalarCondPacket(index);
   }
 
+  template <typename Unused = void>
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE PacketReturnType condPacket(Index index, std::integral_constant<int, 1>) const {
     return internal::pcast<CondPacket, PacketReturnType>(m_condImpl.template packet<Unaligned>(index));
   }
 
+  template <typename Unused = void>
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE PacketReturnType condPacket(Index index, std::integral_constant<int, 2>) const {
     return internal::pcast<CondPacket, PacketReturnType>(m_condImpl.template packet<Unaligned>(index),
                                                          m_condImpl.template packet<Unaligned>(index + CondPacketSize));
   }
 
+  template <typename Unused = void>
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE PacketReturnType condPacket(Index index, std::integral_constant<int, 3>) const {
     if (index + CondPacketSize <= m_condSize) {
       return internal::pcast<CondPacket, PacketReturnType>(m_condImpl.template packet<Unaligned>(index));
