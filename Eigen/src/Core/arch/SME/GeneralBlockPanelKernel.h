@@ -3318,16 +3318,17 @@ EIGEN_ALWAYS_INLINE bool sme_small_gemm_wins(Index rows, Index cols, Index depth
   EIGEN_UNUSED_VARIABLE(depth);
   return false;
 #else
-  if (rows <= 0 || cols <= 0 || depth <= 0) return false;
   constexpr bool kReal = !NumTraits<Scalar>::IsComplex;
+  constexpr Index kRhs = Index(65536 / sizeof(Scalar)), kSize = Index(sme_neon_small_product<Scalar>::value);
+  if (rows <= 0 || cols <= 0 || depth <= 0) return false;
   // The narrow ZA kernel reads a tall real LHS in place.
   if (kReal && cols <= 3 && rows >= 3 * Index(sme_block<Scalar>::mr)) return false;
-  // Rows of at most two NEON vectors leave most of a ZA tile idle: NEON up to a 64 KB RHS, real ones 128 deep.
-  if (rows <= Index(32 / sizeof(Scalar)) && depth <= Index(65536 / sizeof(Scalar)) / cols && (!kReal || depth <= 128))
+  // Rows of at most two NEON vectors leave most of a ZA tile idle: NEON up to a 64 KB RHS, real ones 128 deep. The
+  // factors are bounded before each product, which then fits a 32-bit Index.
+  if (rows <= Index(32 / sizeof(Scalar)) && cols <= kRhs && depth <= (kReal ? Index(128) : kRhs) &&
+      cols * depth <= kRhs)
     return true;
-  // rows * cols * depth <= limit, without the product overflowing Index.
-  const Index limit = Index(sme_neon_small_product<Scalar>::value);
-  return depth <= limit && cols <= limit / depth && rows <= limit / depth / cols;
+  return rows <= kSize && cols <= kSize && rows * cols <= kSize && depth <= kSize && rows * cols * depth <= kSize;
 #endif
 }
 
