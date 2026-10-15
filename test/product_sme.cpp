@@ -1288,7 +1288,8 @@ static void test_complex_alpha_range() {
   const Scalar initial(3 * h, 0);
   const Scalar alphas[] = {Scalar(1, 1), Scalar(-1, 0)};
   const Scalar expected[] = {Scalar(3 * h, 2 * h), Scalar(2 * h, -h)};
-  // At depth 8 the products with n > 5 run on the NEON kernel (smaller ones are coefficient-based), at 65 on ZA.
+  // At depth 8 the products with 5 < n <= sme_neon_shallow_width run on the NEON kernel (smaller ones are
+  // coefficient-based), at 65 on ZA.
   for (Index depth : {Index(8), Index(65)}) {
     for (int n : {svl / 2 - 1, svl / 2, svl / 2 + 1, svl, svl + 1}) {
       if (n < 2) continue;
@@ -1344,6 +1345,40 @@ static void test_complex_alpha_range() {
   }
 }
 
+// With a real alpha, an overflowing imaginary part leaves the real part finite
+// in every store of the NEON kernel: 5 - (2 + inf i) = 3 - inf i, where
+// ar*re - ai*im would give NaN. Rows cover the packet and scalar-row tiles,
+// rs = 2 the strided store.
+template <typename Real>
+static void test_neon_real_alpha_overflow() {
+  using Scalar = std::complex<Real>;
+  const Index PS = Index(internal::packet_traits<Real>::size);
+  const Index MR = sme_mr<Scalar>();
+  const Index cols = numext::mini(Index(5), Index(sme_nr<Scalar>()));
+  const Index depth = 2;
+  const Real big = Real(0.75) * NumTraits<Real>::highest();
+  for (Index rows : {Index(1), PS, PS + 1, 2 * PS + 1}) {
+    if (rows > MR) continue;
+    std::vector<Scalar> pa(rows * depth), pb(cols * depth);
+    for (Index k = 0; k < depth; ++k) {
+      for (Index i = 0; i < rows; ++i) set_packed(pa.data(), rows, k, i, Scalar(1, big));
+      for (Index j = 0; j < cols; ++j) set_packed(pb.data(), cols, k, j, Scalar(1, 0));
+    }
+    for (Index rs : {Index(1), Index(2)}) {
+      const Index cs = rs * rows;
+      std::vector<Scalar> c(cs * cols, Scalar(5, 0));
+      internal::sme_gebp_neon<Scalar, false, false>(c.data(), rs, cs, pa.data(), pb.data(), rows, depth, cols,
+                                                    Scalar(-1, 0), depth, depth, Index(0), Index(0));
+      for (Index j = 0; j < cols; ++j) {
+        for (Index i = 0; i < rows; ++i) {
+          VERIFY_IS_EQUAL(c[j * cs + i * rs].real(), Real(3));
+          VERIFY(c[j * cs + i * rs].imag() == -NumTraits<Real>::infinity());
+        }
+      }
+    }
+  }
+}
+
 EIGEN_DECLARE_TEST(product_sme) {
   CALL_SUBTEST_1(test_whilelt_operand_types<float>());
   CALL_SUBTEST_1(test_packet_ops<float>());
@@ -1390,6 +1425,7 @@ EIGEN_DECLARE_TEST(product_sme) {
   CALL_SUBTEST_3(test_disjoint_parts<std::complex<float>>());
   CALL_SUBTEST_3((test_complex_alpha_range<float, ColMajor>()));
   CALL_SUBTEST_3((test_complex_alpha_range<float, RowMajor>()));
+  CALL_SUBTEST_3(test_neon_real_alpha_overflow<float>());
 
   // complex<double> accumulates into ZA.D tiles, so it needs FEAT_SME_F64F64
   // exactly as double does.
@@ -1404,6 +1440,7 @@ EIGEN_DECLARE_TEST(product_sme) {
   CALL_SUBTEST_4(test_disjoint_parts<std::complex<double>>());
   CALL_SUBTEST_4((test_complex_alpha_range<double, ColMajor>()));
   CALL_SUBTEST_4((test_complex_alpha_range<double, RowMajor>()));
+  CALL_SUBTEST_4(test_neon_real_alpha_overflow<double>());
 #endif
 
   // A scalar type SME does not specialize, proving it still routes through the

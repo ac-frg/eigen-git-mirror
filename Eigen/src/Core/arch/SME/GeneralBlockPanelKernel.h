@@ -2562,6 +2562,20 @@ struct sme_neon_tile<Scalar, Index, 0, NCol> {
   }
 };
 
+// pc[0..1] += alpha * (re, im). A real alpha skips ai*im and ai*re, since
+// 0*inf = NaN would spread an infinite half into the other one.
+template <typename RealScalar>
+EIGEN_ALWAYS_INLINE void sme_neon_cstore_scalar(RealScalar* pc, RealScalar re, RealScalar im, RealScalar ar,
+                                                RealScalar ai) {
+  if (ai == RealScalar(0)) {
+    pc[0] += ar * re;
+    pc[1] += ar * im;
+  } else {
+    pc[0] += ar * re - ai * im;
+    pc[1] += ar * im + ai * re;
+  }
+}
+
 // Complex counterpart over the real view of the panels. Conjugation is folded
 // into the signs of the four real products.
 template <typename RealScalar, typename Index, bool ConjLhs, bool ConjRhs, int NPack, int NCol>
@@ -2630,11 +2644,7 @@ struct sme_neon_ctile {
         RealScalar re[PS], im[PS];
         pstoreu(re, acc_re[p][c]);
         pstoreu(im, acc_im[p][c]);
-        for (int l = 0; l < PS; ++l) {
-          RealScalar* pl = pc + Index(l) * 2 * rs;
-          pl[0] += ar * re[l] - ai * im[l];
-          pl[1] += ar * im[l] + ai * re[l];
-        }
+        for (int l = 0; l < PS; ++l) sme_neon_cstore_scalar(pc + Index(l) * 2 * rs, re[l], im[l], ar, ai);
       }
     }
   }
@@ -2667,11 +2677,8 @@ struct sme_neon_ctile<RealScalar, Index, ConjLhs, ConjRhs, 0, NCol> {
         acc_im[0][c] += acc_im[u][c];
       }
     const RealScalar ar = numext::real(alpha), ai = numext::imag(alpha);
-    for (int c = 0; c < NCol; ++c) {
-      RealScalar* pc = reinterpret_cast<RealScalar*>(C + Index(c) * cs);
-      pc[0] += ar * acc_re[0][c] - ai * acc_im[0][c];
-      pc[1] += ar * acc_im[0][c] + ai * acc_re[0][c];
-    }
+    for (int c = 0; c < NCol; ++c)
+      sme_neon_cstore_scalar(reinterpret_cast<RealScalar*>(C + Index(c) * cs), acc_re[0][c], acc_im[0][c], ar, ai);
   }
 };
 
