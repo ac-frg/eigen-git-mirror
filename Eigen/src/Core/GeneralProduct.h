@@ -433,8 +433,28 @@ EIGEN_STRONG_INLINE void gemv_single_column_update(const Lhs& lhs, const Rhs& rh
 
 template <>
 struct gemv_dense_selector<OnTheRight, ColMajor, true> {
-  template <typename Lhs, typename Rhs, typename Dest>
+  template <typename Lhs, typename Rhs, typename Dest, std::enable_if_t<Lhs::ColsAtCompileTime != Dynamic, int> = 0>
   static inline void run(const Lhs& lhs, const Rhs& rhs, Dest& dest, const typename Dest::Scalar& alpha) {
+    run_general(lhs, rhs, dest, alpha);
+  }
+
+  template <typename Lhs, typename Rhs, typename Dest, std::enable_if_t<Lhs::ColsAtCompileTime == Dynamic, int> = 0>
+  static EIGEN_STRONG_INLINE void run(const Lhs& lhs, const Rhs& rhs, Dest& dest, const typename Dest::Scalar& alpha) {
+    constexpr bool RealScalars =
+        std::is_same<typename Lhs::Scalar, typename Rhs::Scalar>::value &&
+        std::is_same<typename Lhs::Scalar, typename Dest::Scalar>::value &&
+        (std::is_same<typename Dest::Scalar, float>::value || std::is_same<typename Dest::Scalar, double>::value);
+    // Bypass the destination buffer for strided real updates; complex arithmetic benefits from the packet kernel.
+    if (!RealScalars || Dest::InnerStrideAtCompileTime == 1 || lhs.cols() != 1 ||
+        (Dest::InnerStrideAtCompileTime == Dynamic && dest.innerStride() == 1)) {
+      run_general(lhs, rhs, dest, alpha);
+      return;
+    }
+    gemv_single_column_update(lhs, rhs, dest, alpha);
+  }
+
+  template <typename Lhs, typename Rhs, typename Dest>
+  static inline void run_general(const Lhs& lhs, const Rhs& rhs, Dest& dest, const typename Dest::Scalar& alpha) {
     using LhsScalar = typename Lhs::Scalar;
     using RhsScalar = typename Rhs::Scalar;
     using ResScalar = typename Dest::Scalar;
