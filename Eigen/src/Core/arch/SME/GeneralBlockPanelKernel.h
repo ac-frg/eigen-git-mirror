@@ -2709,7 +2709,24 @@ struct sme_neon_ctile<RealScalar, Index, ConjLhs, ConjRhs, 0, NCol> {
   }
 };
 
-// Row loop of one column group: 3, 2 and 1 packets of rows, then scalar rows.
+// Rows r .. pw - 1, fewer than a packet. When the group's columns fill whole packets, C^T = B^T A^T runs on the tile
+// with the operands and C's strides swapped: vectorized over the columns, two rows (Cols lanes) at a time.
+template <int NCol, typename Scalar, typename Index>
+EIGEN_ALWAYS_INLINE void sme_neon_row_tail(std::true_type, Scalar* C, Index rs, Index cs, const Scalar* blA,
+                                           const Scalar* blB, Index depth, Scalar alpha, Index r, Index pw, Index cw) {
+  constexpr int NV = NCol / packet_traits<Scalar>::size;
+  for (; r + 2 <= pw; r += 2)
+    sme_neon_tile<Scalar, Index, NV, 2>::run(C + r * rs, cs, rs, blB, blA + r, depth, alpha, cw, pw);
+  if (r < pw) sme_neon_tile<Scalar, Index, NV, 1>::run(C + r * rs, cs, rs, blB, blA + r, depth, alpha, cw, pw);
+}
+template <int NCol, typename Scalar, typename Index>
+EIGEN_ALWAYS_INLINE void sme_neon_row_tail(std::false_type, Scalar* C, Index rs, Index cs, const Scalar* blA,
+                                           const Scalar* blB, Index depth, Scalar alpha, Index r, Index pw, Index cw) {
+  for (; r < pw; ++r)
+    sme_neon_tile<Scalar, Index, 0, NCol>::run(C + r * rs, rs, cs, blA + r, blB, depth, alpha, pw, cw);
+}
+
+// Row loop of one column group: 3, 2 and 1 packets of rows, then the row tail.
 template <bool ConjLhs, bool ConjRhs, int NCol, typename Scalar, typename Index>
 EIGEN_ALWAYS_INLINE void sme_neon_column_group(Scalar* C, Index rs, Index cs, const Scalar* blA, const Scalar* blB,
                                                Index depth, Scalar alpha, Index pw, Index cw) {
@@ -2721,8 +2738,29 @@ EIGEN_ALWAYS_INLINE void sme_neon_column_group(Scalar* C, Index rs, Index cs, co
     sme_neon_tile<Scalar, Index, 2, NCol>::run(C + r * rs, rs, cs, blA + r, blB, depth, alpha, pw, cw);
   for (; r + PS <= pw; r += PS)
     sme_neon_tile<Scalar, Index, 1, NCol>::run(C + r * rs, rs, cs, blA + r, blB, depth, alpha, pw, cw);
+  sme_neon_row_tail<NCol>(bool_constant<NCol % PS == 0>(), C, rs, cs, blA, blB, depth, alpha, r, pw, cw);
+}
+
+template <bool ConjLhs, bool ConjRhs, int NCol, typename RealScalar, typename Index>
+EIGEN_ALWAYS_INLINE void sme_neon_crow_tail(std::true_type, std::complex<RealScalar>* C, Index rs, Index cs,
+                                            const RealScalar* rA, const RealScalar* rB, Index depth,
+                                            std::complex<RealScalar> alpha, Index r, Index pw, Index cw) {
+  constexpr int NV = NCol / packet_traits<RealScalar>::size;
+  // conj(a) b = b conj(a): the swapped tile swaps the conjugations too.
+  for (; r + 2 <= pw; r += 2)
+    sme_neon_ctile<RealScalar, Index, ConjRhs, ConjLhs, NV, 2>::run(C + r * rs, cs, rs, rB, rA + r, depth, alpha, cw,
+                                                                    pw);
+  if (r < pw)
+    sme_neon_ctile<RealScalar, Index, ConjRhs, ConjLhs, NV, 1>::run(C + r * rs, cs, rs, rB, rA + r, depth, alpha, cw,
+                                                                    pw);
+}
+template <bool ConjLhs, bool ConjRhs, int NCol, typename RealScalar, typename Index>
+EIGEN_ALWAYS_INLINE void sme_neon_crow_tail(std::false_type, std::complex<RealScalar>* C, Index rs, Index cs,
+                                            const RealScalar* rA, const RealScalar* rB, Index depth,
+                                            std::complex<RealScalar> alpha, Index r, Index pw, Index cw) {
   for (; r < pw; ++r)
-    sme_neon_tile<Scalar, Index, 0, NCol>::run(C + r * rs, rs, cs, blA + r, blB, depth, alpha, pw, cw);
+    sme_neon_ctile<RealScalar, Index, ConjLhs, ConjRhs, 0, NCol>::run(C + r * rs, rs, cs, rA + r, rB, depth, alpha, pw,
+                                                                      cw);
 }
 
 template <bool ConjLhs, bool ConjRhs, int NCol, typename RealScalar, typename Index>
@@ -2738,9 +2776,8 @@ EIGEN_ALWAYS_INLINE void sme_neon_column_group(std::complex<RealScalar>* C, Inde
   for (; r + PS <= pw; r += PS)
     sme_neon_ctile<RealScalar, Index, ConjLhs, ConjRhs, 1, NCol>::run(C + r * rs, rs, cs, rA + r, rB, depth, alpha, pw,
                                                                       cw);
-  for (; r < pw; ++r)
-    sme_neon_ctile<RealScalar, Index, ConjLhs, ConjRhs, 0, NCol>::run(C + r * rs, rs, cs, rA + r, rB, depth, alpha, pw,
-                                                                      cw);
+  sme_neon_crow_tail<ConjLhs, ConjRhs, NCol>(bool_constant<NCol % PS == 0>(), C, rs, cs, rA, rB, depth, alpha, r, pw,
+                                             cw);
 }
 
 // One pw x cw block: columns in groups of eight, four, two, then single columns.
