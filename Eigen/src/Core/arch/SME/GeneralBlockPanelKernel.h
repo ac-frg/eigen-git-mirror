@@ -2526,8 +2526,8 @@ struct sme_neon_tile {
   using Packet = typename packet_traits<Scalar>::type;
   using Cols = sme_neon_cols<Scalar, NCol>;
   static constexpr int PS = packet_traits<Scalar>::size;
-  // Narrow tiles split the depth over KU accumulator chains to hide FMA latency.
-  static constexpr int KU = (NPack * NCol >= 4) ? 1 : 4 / (NPack * NCol);
+  // Narrow tiles split the depth over KU accumulator sets, for at least 8 FMA chains.
+  static constexpr int KU = (NPack * NCol >= 8) ? 1 : 8 / (NPack * NCol);
   static EIGEN_ALWAYS_INLINE void step(Packet (&acc)[NPack][NCol], const Scalar* a, const Scalar* b) {
     Packet av[NPack];
     for (int p = 0; p < NPack; ++p) av[p] = ploadu<Packet>(a + p * PS);
@@ -2636,32 +2636,48 @@ struct sme_neon_ctile {
       }
     }
   }
+  // Narrow tiles split the depth over KU accumulator sets, for at least 16 FMA chains (two per cell).
+  static constexpr int KU = (NPack * NCol >= 8) ? 1 : 8 / (NPack * NCol);
+  static EIGEN_ALWAYS_INLINE void step(Packet (&acc_re)[NPack][NCol], Packet (&acc_im)[NPack][NCol],
+                                       const RealScalar* a, const RealScalar* b, Index pw, Index cw) {
+    Packet are[NPack], aim[NPack];
+    for (int p = 0; p < NPack; ++p) {
+      are[p] = ploadu<Packet>(a + p * PS);
+      aim[p] = ploadu<Packet>(a + pw + p * PS);
+    }
+    sme_neon_col_loop<0, NCol>::template cplx<ConjLhs, ConjRhs, Cols, Packet, NPack>(acc_re, acc_im, are, aim,
+                                                                                     Cols::load(b), Cols::load(b + cw));
+  }
   static EIGEN_ALWAYS_INLINE void run(Scalar* C, Index rs, Index cs, const RealScalar* rA, const RealScalar* rB,
                                       Index depth, Scalar alpha, Index pw, Index cw) {
-    Packet acc_re[NPack][NCol], acc_im[NPack][NCol];
-    for (int p = 0; p < NPack; ++p) {
-      for (int c = 0; c < NCol; ++c) {
-        acc_re[p][c] = pset1<Packet>(RealScalar(0));
-        acc_im[p][c] = pset1<Packet>(RealScalar(0));
+    Packet acc_re[KU][NPack][NCol], acc_im[KU][NPack][NCol];
+    for (int u = 0; u < KU; ++u) {
+      for (int p = 0; p < NPack; ++p) {
+        for (int c = 0; c < NCol; ++c) {
+          acc_re[u][p][c] = pset1<Packet>(RealScalar(0));
+          acc_im[u][p][c] = pset1<Packet>(RealScalar(0));
+        }
       }
     }
-    for (Index k = 0; k < depth; ++k) {
-      const RealScalar* a = rA + k * 2 * pw;
-      const RealScalar* b = rB + k * 2 * cw;
-      Packet are[NPack], aim[NPack];
+    Index k = 0;
+    for (; k + KU <= depth; k += KU) {
+      for (int u = 0; u < KU; ++u) step(acc_re[u], acc_im[u], rA + (k + u) * 2 * pw, rB + (k + u) * 2 * cw, pw, cw);
+    }
+    for (; k < depth; ++k) step(acc_re[0], acc_im[0], rA + k * 2 * pw, rB + k * 2 * cw, pw, cw);
+    for (int u = 1; u < KU; ++u) {
       for (int p = 0; p < NPack; ++p) {
-        are[p] = ploadu<Packet>(a + p * PS);
-        aim[p] = ploadu<Packet>(a + pw + p * PS);
+        for (int c = 0; c < NCol; ++c) {
+          acc_re[0][p][c] = padd(acc_re[0][p][c], acc_re[u][p][c]);
+          acc_im[0][p][c] = padd(acc_im[0][p][c], acc_im[u][p][c]);
+        }
       }
-      sme_neon_col_loop<0, NCol>::template cplx<ConjLhs, ConjRhs, Cols, Packet, NPack>(
-          acc_re, acc_im, are, aim, Cols::load(b), Cols::load(b + cw));
     }
     const RealScalar ar = numext::real(alpha), ai = numext::imag(alpha);
     if (rs == 1) {
       if (ai == RealScalar(0)) {
-        store_unit_stride<true>(C, cs, acc_re, acc_im, ar, ai);
+        store_unit_stride<true>(C, cs, acc_re[0], acc_im[0], ar, ai);
       } else {
-        store_unit_stride<false>(C, cs, acc_re, acc_im, ar, ai);
+        store_unit_stride<false>(C, cs, acc_re[0], acc_im[0], ar, ai);
       }
       return;
     }
@@ -2669,8 +2685,8 @@ struct sme_neon_ctile {
       for (int p = 0; p < NPack; ++p) {
         RealScalar* pc = reinterpret_cast<RealScalar*>(C + Index(p * PS) * rs + Index(c) * cs);
         RealScalar re[PS], im[PS];
-        pstoreu(re, acc_re[p][c]);
-        pstoreu(im, acc_im[p][c]);
+        pstoreu(re, acc_re[0][p][c]);
+        pstoreu(im, acc_im[0][p][c]);
         for (int l = 0; l < PS; ++l) sme_neon_cstore_scalar(pc + Index(l) * 2 * rs, re[l], im[l], ar, ai);
       }
     }
