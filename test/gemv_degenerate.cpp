@@ -169,14 +169,20 @@ void degenerate_gemv_array_destinations() {
 
 EIGEN_DECLARE_TEST(gemv_degenerate) {
   degenerate_gemv_array_destinations<float, RowMajor>();
+  degenerate_gemv_array_destinations<float, ColMajor>();
   degenerate_gemv_array_destinations<double, RowMajor>();
+  degenerate_gemv_array_destinations<double, ColMajor>();
   degenerate_gemv_array_destinations<std::complex<float>, RowMajor>();
+  degenerate_gemv_array_destinations<std::complex<float>, ColMajor>();
   degenerate_gemv_array_destinations<std::complex<double>, RowMajor>();
+  degenerate_gemv_array_destinations<std::complex<double>, ColMajor>();
 
   degenerate_gemv_zero_alpha<float, RowMajor>();
   degenerate_gemv_zero_alpha<double, RowMajor>();
   degenerate_gemv_zero_alpha<std::complex<float>, RowMajor>();
   degenerate_gemv_zero_alpha<std::complex<double>, RowMajor>();
+  degenerate_gemv_zero_alpha<float, ColMajor>();
+  degenerate_gemv_zero_alpha<double, ColMajor>();
   STATIC_CHECK(!std::is_trivially_copyable<AnnoyingScalar>::value);
   for (int repeat = 0; repeat < g_repeat; ++repeat) {
     degenerate_gemv<float>();
@@ -202,4 +208,16 @@ EIGEN_DECLARE_TEST(gemv_degenerate) {
   Matrix<AnnoyingScalar, Dynamic, 1> customResult(5);
   customResult.noalias() = custom * customRhs;
   for (Index i = 0; i < customResult.size(); ++i) VERIFY_IS_EQUAL(customResult[i], AnnoyingScalar(6));
+
+  MatrixXd column = MatrixXd::Constant(20000, 1, 2.0);
+  VectorXd factor = VectorXd::Constant(1, 3.0);
+  VectorXd backing = VectorXd::Zero(2 * column.rows());
+  Map<VectorXd, Unaligned, InnerStride<2>> strided(backing.data(), column.rows());
+  internal::set_is_malloc_allowed(false);
+  strided.noalias() += 0.75 * column * factor;
+  internal::set_is_malloc_allowed(true);
+  for (Index i = 0; i < column.rows(); ++i) {
+    VERIFY_IS_EQUAL(strided[i], 4.5);
+    VERIFY_IS_EQUAL(backing[2 * i + 1], 0.0);
+  }
 }
