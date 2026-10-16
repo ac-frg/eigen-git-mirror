@@ -2576,11 +2576,14 @@ void packetmath_complex() {
       for (int i = 0; i < PacketSize; ++i) VERIFY_IS_APPROX(pval[i], quotients[(i + k) % 4]);
     }
 
-    // A denominator with a zero component raises no exception: the ratio of the other component to it is not formed.
+    // Zero components and infinite denominators need not raise any exception for a finite quotient.
     const RealScalar two = RealScalar(2), three = RealScalar(3), four = RealScalar(4), three_halves = RealScalar(1.5);
     const Scalar exact_operands[][3] = {{Scalar(one, zero), Scalar(one, zero), Scalar(one, zero)},
                                         {Scalar(three, four), Scalar(zero, two), Scalar(two, -three_halves)},
-                                        {Scalar(three, four), Scalar(-two, zero), Scalar(-three_halves, -two)}};
+                                        {Scalar(three, four), Scalar(-two, zero), Scalar(-three_halves, -two)},
+                                        {Scalar(three, four), Scalar(inf, zero), Scalar(zero, zero)},
+                                        {Scalar(three, four), Scalar(zero, inf), Scalar(zero, -zero)},
+                                        {Scalar(three, four), Scalar(inf, inf), Scalar(zero, zero)}};
     for (const auto& operands : exact_operands) {
       VERIFY_IS_EQUAL((pdiv_complex_exceptions<Scalar, Packet>(operands[0], operands[1], operands[2])), 0);
     }
