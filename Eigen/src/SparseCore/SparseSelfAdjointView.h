@@ -493,15 +493,15 @@ void permute_symm_to_fullsymm(
         dest.innerIndexPtr()[k] = StorageOrderMatch ? ip : jp;
         dest.valuePtr()[k] = it.value();
       } else if (r == c) {
-        StorageIndex k = count.data()[ip]++;
+        StorageIndex k = count[internal::convert_index<Index>(ip)]++;
         dest.innerIndexPtr()[k] = ip;
         dest.valuePtr()[k] = it.value();
       } else if (((Mode & Lower) == Lower && r > c) || ((Mode & Upper) == Upper && r < c)) {
         EIGEN_IF_CONSTEXPR (!StorageOrderMatch) std::swap(ip, jp);
-        StorageIndex k = count.data()[jp]++;
+        StorageIndex k = count[internal::convert_index<Index>(jp)]++;
         dest.innerIndexPtr()[k] = ip;
         dest.valuePtr()[k] = it.value();
-        k = count.data()[ip]++;
+        k = count[internal::convert_index<Index>(ip)]++;
         dest.innerIndexPtr()[k] = jp;
         dest.valuePtr()[k] = (NonHermitian ? it.value() : numext::conj(it.value()));
       }
@@ -540,7 +540,7 @@ void permute_symm_to_symm(const MatrixType& mat,
       if ((int(SrcMode) == int(Lower) && i < j) || (int(SrcMode) == int(Upper) && i > j)) continue;
 
       StorageIndex ip = perm ? perm[i] : i;
-      count.data()[int(DstMode) == int(Lower) ? (std::min)(ip, jp) : (std::max)(ip, jp)]++;
+      count[internal::convert_index<Index>(int(DstMode) == int(Lower) ? (std::min)(ip, jp) : (std::max)(ip, jp))]++;
     }
   }
   dest.outerIndexPtr()[0] = 0;
@@ -556,7 +556,8 @@ void permute_symm_to_symm(const MatrixType& mat,
       StorageIndex jp = perm ? perm[j] : j;
       StorageIndex ip = perm ? perm[i] : i;
 
-      StorageIndex k = count.data()[int(DstMode) == int(Lower) ? (std::min)(ip, jp) : (std::max)(ip, jp)]++;
+      StorageIndex k =
+          count[internal::convert_index<Index>(int(DstMode) == int(Lower) ? (std::min)(ip, jp) : (std::max)(ip, jp))]++;
       dest.innerIndexPtr()[k] = int(DstMode) == int(Lower) ? (std::max)(ip, jp) : (std::min)(ip, jp);
 
       EIGEN_IF_CONSTEXPR (!StorageOrderMatch) std::swap(ip, jp);

@@ -352,7 +352,7 @@ void SimplicialCholeskyBase<Derived>::factorize_preordered_impl(const CholMatrix
       if (i <= k) {
         y[i] += getSymm(it.value()); /* scatter A(i,k) into Y (sum duplicates) */
         Index len;
-        for (len = 0; tags[i] != k; i = m_parent.data()[i]) {
+        for (len = 0; tags[i] != k; i = m_parent[internal::convert_index<Index>(i)]) {
           pattern[len++] = i; /* L(k,i) is nonzero */
           tags[i] = k;        /* mark i as visited */
         }
@@ -388,7 +388,7 @@ void SimplicialCholeskyBase<Derived>::factorize_preordered_impl(const CholMatrix
       ++nonZerosPerCol[i]; /* increment count of nonzeros in col i */
     }
     EIGEN_IF_CONSTEXPR (DoLDLT) {
-      m_diag.data()[k] = d;
+      m_diag[internal::convert_index<Index>(k)] = d;
       if (d == RealScalar(0)) {
         ok = false; /* failure, D(k,k) is zero */
         break;

@@ -232,12 +232,18 @@ python3 scripts/add_spdx_headers.py --paths path/to/new-file.cpp
 
 Test builds compile with the warning set in the top-level [`CMakeLists.txt`](../CMakeLists.txt) (`-Wall -Wextra`,
 `-Wshorten-64-to-32`, `-Wdouble-promotion`, `-Wundef`, `-Wshadow`, among others), and no job fails on a warning. A
-new warning therefore turns up only in a build log. A change must not add one. Read the build-job logs of the
-merge request pipeline, and compare them against the newest scheduled or web pipeline on the target branch. Those
-pipelines run every build job, while default-branch pushes run only a few:
+new warning therefore turns up only in a build log. Do not add a warning. When a new warning is a compiler false
+positive, keep the code and say so in the merge request rather than suppressing it. Read the build-job logs of the
+merge request pipeline, and compare them against a scheduled or web pipeline on the target branch. Those pipelines run
+every build job, while default-branch pushes run only a few. Prefer one at the merge request's base commit; the newest
+scheduled pipeline can be days older, and the master changes in between then show up in the diff:
 
 ```bash
-glab api "projects/libeigen%2Feigen/pipelines?ref=master&source=schedule&per_page=1"    # base pipeline id
+base=$(glab api "projects/libeigen%2Feigen/merge_requests/<iid>" |
+  python3 -c 'import json, sys; print(json.load(sys.stdin)["diff_refs"]["base_sha"])')
+glab api "projects/libeigen%2Feigen/pipelines?sha=$base&per_page=100" |       # base pipeline id, if one exists
+  python3 -c 'import json, sys; print(*[p["id"] for p in json.load(sys.stdin) if p["source"] in ("schedule", "web")][:1])'
+glab api "projects/libeigen%2Feigen/pipelines?ref=master&source=schedule&per_page=1"    # otherwise the newest scheduled
 warnings() {  # warnings() <pipeline-id>: one line per build job and warning site
   glab api --paginate "projects/libeigen%2Feigen/pipelines/$1/jobs?per_page=100" | python3 -c '
 import json, sys
@@ -247,14 +253,20 @@ while i < len(s):
     for j in page:
         if j["stage"] == "build" and j["status"] in ("success", "failed"): print(j["id"], j["name"])' |
   while read -r id name; do
-    glab api "projects/libeigen%2Feigen/jobs/$id/trace" | sed -E 's/\x1b\[[0-9;]*[mK]//g; s/\r//' |
-      grep -E ': warning[: #]|warning C[0-9]{4}' | sed -E "s|^.*/eigen/||; s|:[0-9]+:[0-9]+:|:|; s|^|$name: |"
+    name=${name%:affected}
+    glab api "projects/libeigen%2Feigen/jobs/$id/trace" |
+      sed -E 's/\x1b\[[0-9;]*[mK]//g; s/\r//; s/^[0-9-]+T[0-9:.]+Z [0-9A-Z]+ //' |
+      grep -E ': warning[: #]|warning C[0-9]{4}' |
+      sed -E "s|\\\\|/|g; s|^.*/eigen/||; s|:[0-9]+:[0-9]+:|:|; s|\([0-9]+\)||; s|^|$name: |"
   done | sort -u
 }
 diff <(warnings <base-id>) <(warnings <mr-id>)
 ```
 
-Line numbers are stripped so that unrelated line shifts do not show up in the diff. A warning in a changed file that
+The normalization strips what differs between runs of the same warning: the `:affected` suffix that merge request
+build jobs carry, the runners' per-line timestamps, line numbers in both the `file:12:3:` and the MSVC/nvcc
+`file(12):` forms, and the checkout prefix, which on Windows is a backslash path with a per-run runner directory.
+Without it, every warning in a merge request pipeline reads as new. A warning in a changed file that
 appears on both sides can still come from a changed line, so check those as well. The default merge request
 pipeline builds only the smoke targets. Most warnings below appear only in configurations that the `affected-tests`
 labels enable.
@@ -274,7 +286,7 @@ Each build log prints its configure line (`+++ cmake -G Ninja ...`); rerun it lo
 and emulator arguments, to reproduce a job's warnings. `-fsyntax-only` with the commands from
 `compile_commands.json` reports the same front-end warnings and needs no target libraries. To convert
 `StorageIndex` to `Index`, use `internal::convert_index<Index>(x)`, or follow the local file's idiom. A warning from
-a compiler false positive or a third-party build is outside a change's scope; mention it rather than suppressing it.
+a third-party build, such as Doxygen's own sources, is outside a change's scope.
 
 ## Clang-Tidy
 

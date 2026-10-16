@@ -630,8 +630,8 @@ void packetmath_gpu_real_math() {
   const int kSize = packet_layout<Packet>::kSize;
   // The CUDA Math API's documented maximum error for each function, plus one for the rounding of the reference from
   // the wider type. The Windows CRT expm1 reference can be 3 ulps off, and its long double has no extra precision.
-  MathUlpBudget budget = std::is_same<Scalar, double>::value ? MathUlpBudget{2, 2, 2, 2, EIGEN_COMP_MSVC ? 3 : 2}
-                                                             : MathUlpBudget{2, 2, 3, 3, 2};
+  const MathUlpBudget budget = std::is_same<Scalar, double>::value ? MathUlpBudget{2, 2, 2, 2, EIGEN_COMP_MSVC ? 3 : 2}
+                                                                   : MathUlpBudget{2, 2, 3, 3, 2};
 
   const std::vector<int> traits = device_traits<Scalar>();
   VERIFY_IS_EQUAL(traits[kHasExp], 1);
@@ -722,7 +722,7 @@ void packetmath_gpu_real_core() {
   // and 1 ulp for rsqrt. The float reference rounds 1/sqrt from double. The double reference uses long double, which
   // is double itself under MSVC; rounding y = sqrt(x) and then 1/y is still within 1.5 ulp of 1/sqrt(x), so a device
   // result within 1 ulp is at most 2 representable steps from the reference.
-  uint64_t rsqrt_ulps = std::is_same<Scalar, double>::value ? 2 : 3;
+  const uint64_t rsqrt_ulps = std::is_same<Scalar, double>::value ? 2 : 3;
 
   // The device's view of the type, and what this part covers of it.
   const std::vector<int> traits = device_traits<Scalar>();
