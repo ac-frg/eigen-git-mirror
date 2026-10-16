@@ -589,6 +589,11 @@ static void verify_small_products(Index m, Index n, Index k) {
 
 template <typename Scalar>
 static void test_small_products() {
+#if defined(EIGEN_SME_NO_NEON_SMALL_BLOCKS) || defined(EIGEN_SME_FORCE_NEON_SMALL_BLOCKS) || defined(EIGEN_USE_BLAS)
+  constexpr bool kSmallProductEnabled = false;
+#else
+  constexpr bool kSmallProductEnabled = true;
+#endif
   const Index size = internal::sme_neon_small_product<Scalar>::value;
   const Index thin = Index(32 / sizeof(Scalar));
   // Both sides of the RHS bound for a thin LHS and of the size bound past it, a tall real LHS against three columns,
@@ -622,10 +627,11 @@ static void test_small_products() {
     verify_small_products<Scalar, ColMajor, ColMajor, RowMajor>(s[0], s[1], s[2]);
     verify_small_products<Scalar, RowMajor, RowMajor, RowMajor>(s[0], s[1], s[2]);
   }
-  VERIFY(on_neon > 0 && past > 0);
-  // Sub-blocks of larger operands and a result with an inner stride, on the NEON kernel.
+  VERIFY_IS_EQUAL(on_neon > 0, kSmallProductEnabled);
+  VERIFY(past > 0);
+  // Sub-blocks of larger operands and a result with an inner stride.
   const Index m = thin + 3, n = 9, k = 33;
-  VERIFY(internal::sme_small_gemm_wins<Scalar>(m, n, k));
+  VERIFY_IS_EQUAL(internal::sme_small_gemm_wins<Scalar>(m, n, k), kSmallProductEnabled && m * n * k <= size);
   const SmeColMajorMat<Scalar> Abig = SmeColMajorMat<Scalar>::Random(m + 5, k + 2);
   const SmeRowMajorMat<Scalar> Bbig = SmeRowMajorMat<Scalar>::Random(k + 3, n + 4);
   const auto A = Abig.block(2, 1, m, k);
