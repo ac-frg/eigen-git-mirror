@@ -3377,7 +3377,8 @@ EIGEN_ALWAYS_INLINE bool sme_small_gemm_wins(Index rows, Index cols, Index depth
   return false;
 #else
   constexpr bool kReal = !NumTraits<Scalar>::IsComplex;
-  constexpr Index kRhs = Index(65536 / sizeof(Scalar)), kSize = Index(sme_neon_small_product<Scalar>::value);
+  constexpr Index kRhs = Index(65536 / sizeof(Scalar));
+  constexpr int kSize = sme_neon_small_product<Scalar>::value;
   if (rows <= 0 || cols <= 0 || depth <= 0) return false;
   // The narrow ZA kernel reads a tall real LHS in place.
   if (kReal && cols <= 3 && rows >= 3 * Index(sme_block<Scalar>::mr)) return false;
@@ -3386,7 +3387,9 @@ EIGEN_ALWAYS_INLINE bool sme_small_gemm_wins(Index rows, Index cols, Index depth
   if (rows <= Index(32 / sizeof(Scalar)) && cols <= kRhs && depth <= (kReal ? Index(128) : kRhs) &&
       cols * depth <= kRhs)
     return true;
-  return rows <= kSize && cols <= kSize && rows * cols <= kSize && depth <= kSize && rows * cols * depth <= kSize;
+  // Each product is bounded by kSize^2. Widen before multiplying: kSize is an int, including overrides.
+  return rows <= kSize && cols <= kSize && int64_t(rows) * int64_t(cols) <= kSize && depth <= kSize &&
+         int64_t(rows) * int64_t(cols) * int64_t(depth) <= kSize;
 #endif
 }
 

@@ -16,6 +16,25 @@
 // and they keep the generic kernel, so their subtests pack their cases through
 // that path instead.
 
+#ifdef EIGEN_TEST_PART_6
+#undef EIGEN_SME_NEON_SMALL_PRODUCT
+#define EIGEN_SME_NEON_SMALL_PRODUCT 65536
+#undef EIGEN_DEFAULT_DENSE_INDEX_TYPE
+#define EIGEN_DEFAULT_DENSE_INDEX_TYPE int
+#endif
+
+#ifdef EIGEN_TEST_PART_7
+#ifndef EIGEN_SME_NO_NEON_SMALL_BLOCKS
+#define EIGEN_SME_NO_NEON_SMALL_BLOCKS
+#endif
+#endif
+
+#ifdef EIGEN_TEST_PART_8
+#ifndef EIGEN_SME_FORCE_NEON_SMALL_BLOCKS
+#define EIGEN_SME_FORCE_NEON_SMALL_BLOCKS
+#endif
+#endif
+
 #include "product.h"
 
 #include <array>
@@ -643,6 +662,17 @@ static void test_small_products() {
   Map<SmeColMajorMat<Scalar>, 0, Stride<Dynamic, 2>>(ref.data(), m, n, Stride<Dynamic, 2>(2 * m, 2)) -=
       Scalar(3) * A.lazyProduct(B);
   VERIFY_IS_APPROX(Cbig, ref);
+}
+
+template <typename TestIndex>
+static void test_small_product_overflow() {
+  // With a 65536 threshold, both the two-factor and three-factor products can wrap a 32-bit index to zero.
+  VERIFY(!internal::sme_small_gemm_wins<float>(TestIndex(65536), TestIndex(65536), TestIndex(1)));
+  VERIFY(!internal::sme_small_gemm_wins<float>(TestIndex(256), TestIndex(256), TestIndex(65536)));
+  VERIFY(!internal::sme_small_gemm_wins<float>(TestIndex(16), TestIndex(16), TestIndex(257)));
+#if !defined(EIGEN_SME_NO_NEON_SMALL_BLOCKS) && !defined(EIGEN_SME_FORCE_NEON_SMALL_BLOCKS) && !defined(EIGEN_USE_BLAS)
+  VERIFY(internal::sme_small_gemm_wins<float>(TestIndex(16), TestIndex(16), TestIndex(256)));
+#endif
 }
 
 // Every tail width of a deep block, which the ZA transposer packs: a ColMajor RHS tail and, through a RowMajor
@@ -1538,4 +1568,17 @@ EIGEN_DECLARE_TEST(product_sme) {
   // generic product path inside an SME build -- where packet traits, alignment
   // and cache blocking all differ from a plain NEON build.
   CALL_SUBTEST_5(product(Matrix<long double, Dynamic, Dynamic>(33, 17)));
+
+  CALL_SUBTEST_6(test_small_product_overflow<int>());
+  CALL_SUBTEST_6(test_small_product_overflow<int64_t>());
+  CALL_SUBTEST_6(test_small_products<float>());
+
+#if defined(EIGEN_TEST_PART_7) || defined(EIGEN_TEST_PART_8)
+  CALL_SUBTEST(test_small_products<float>());
+  CALL_SUBTEST(test_small_products<std::complex<float>>());
+#ifdef EIGEN_VECTORIZE_SME_F64F64
+  CALL_SUBTEST(test_small_products<double>());
+  CALL_SUBTEST(test_small_products<std::complex<double>>());
+#endif
+#endif
 }
