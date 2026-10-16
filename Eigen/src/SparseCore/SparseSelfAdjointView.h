@@ -489,7 +489,7 @@ void permute_symm_to_fullsymm(
       StorageIndex ip = perm ? perm[i] : i;
 
       EIGEN_IF_CONSTEXPR (Mode == int(Upper | Lower)) {
-        StorageIndex k = count.data()[StorageOrderMatch ? jp : ip]++;
+        StorageIndex k = count[internal::convert_index<Index>(StorageOrderMatch ? jp : ip)]++;
         dest.innerIndexPtr()[k] = StorageOrderMatch ? ip : jp;
         dest.valuePtr()[k] = it.value();
       } else if (r == c) {

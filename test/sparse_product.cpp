@@ -8,9 +8,8 @@
 // with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // SPDX-License-Identifier: MPL-2.0
 
-long int nb_temporaries;
+static long int nb_temporaries;
 
-template <typename = void>
 inline void on_temporary_creation() {
   // here's a great place to set a breakpoint when debugging failures in this test!
   nb_temporaries++;

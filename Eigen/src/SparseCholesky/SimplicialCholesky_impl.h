@@ -253,7 +253,7 @@ struct simpl_chol_helper {
   static void run(const StorageIndex size, const CholMatrixType& ap, CholMatrixType& L, VectorI& parent,
                   VectorI& workSpace, bool doLDLT) {
     parent.resize(convert_index<Index>(size));
-    workSpace.resize(convert_index<Index>(4 * size));
+    workSpace.resize(4 * convert_index<Index>(size));
     L.resize(convert_index<Index>(size), convert_index<Index>(size));
 
     StorageIndex* tmp1 = workSpace.data();
