@@ -2471,10 +2471,10 @@ void exp_complex_test(Scalar* data1, Scalar* data2, Scalar* ref, int size) {
   exp_complex_test_impl<Scalar, Packet>::run(data1, data2, ref, size);
 }
 
-// Checks pdiv(x, y) against its exact value, expected, in every element, and returns the FE_DIVBYZERO, FE_INVALID and
-// FE_OVERFLOW flags it raised.
+// Computes pdiv(x, y) in every element, checks that the elements agree, stores their value in quotient, and returns the
+// FE_DIVBYZERO, FE_INVALID and FE_OVERFLOW flags it raised.
 template <typename Scalar, typename Packet>
-int pdiv_complex_exceptions(const Scalar& x, const Scalar& y, const Scalar& expected) {
+int pdiv_complex_exceptions(const Scalar& x, const Scalar& y, Scalar& quotient) {
   constexpr int PacketSize = internal::unpacket_traits<Packet>::size;
   Scalar operands[2 * PacketSize], q[PacketSize];
   for (int i = 0; i < PacketSize; ++i) {
@@ -2485,9 +2485,10 @@ int pdiv_complex_exceptions(const Scalar& x, const Scalar& y, const Scalar& expe
     internal::pstoreu(out, internal::pdiv(internal::ploadu<Packet>(in),
                                           internal::ploadu<Packet>(in + internal::unpacket_traits<Packet>::size)));
   });
-  for (int i = 0; i < PacketSize; ++i) {
-    VERIFY_IS_EQUAL(numext::real(q[i]), numext::real(expected));
-    VERIFY_IS_EQUAL(numext::imag(q[i]), numext::imag(expected));
+  quotient = q[0];
+  for (int i = 1; i < PacketSize; ++i) {
+    VERIFY_IS_EQUAL(numext::real(q[i]), numext::real(quotient));
+    VERIFY_IS_EQUAL(numext::imag(q[i]), numext::imag(quotient));
   }
   return raised;
 }
@@ -2584,8 +2585,20 @@ void packetmath_complex() {
                                         {Scalar(three, four), Scalar(inf, zero), Scalar(zero, zero)},
                                         {Scalar(three, four), Scalar(zero, inf), Scalar(zero, -zero)},
                                         {Scalar(three, four), Scalar(inf, inf), Scalar(zero, zero)}};
+    Scalar quotient;
     for (const auto& operands : exact_operands) {
-      VERIFY_IS_EQUAL((pdiv_complex_exceptions<Scalar, Packet>(operands[0], operands[1], operands[2])), 0);
+      VERIFY_IS_EQUAL((pdiv_complex_exceptions<Scalar, Packet>(operands[0], operands[1], quotient)), 0);
+      VERIFY_IS_EQUAL(numext::real(quotient), numext::real(operands[2]));
+      VERIFY_IS_EQUAL(numext::imag(quotient), numext::imag(operands[2]));
+    }
+
+    // A zero denominator, whatever the signs of its zeros, raises no exception other than FE_DIVBYZERO.
+    const Scalar zero_denominators[] = {Scalar(zero, zero), Scalar(-zero, zero), Scalar(zero, -zero),
+                                        Scalar(-zero, -zero)};
+    for (const Scalar& denominator : zero_denominators) {
+      VERIFY_IS_EQUAL(
+          (pdiv_complex_exceptions<Scalar, Packet>(Scalar(three, four), denominator, quotient)) & ~FE_DIVBYZERO, 0);
+      VERIFY((numext::isinf)(numext::real(quotient)) && (numext::isinf)(numext::imag(quotient)));
     }
 
 #if !EIGEN_ARCH_ARM  // 32-bit ARM flushes subnormals.
