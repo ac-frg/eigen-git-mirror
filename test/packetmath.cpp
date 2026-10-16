@@ -1415,8 +1415,7 @@ void packetmath_real() {
   data1[0] = Scalar(1e-20);
   CHECK_CWISE1_IF(PacketTraits::HasTanh, std::tanh, internal::ptanh);
   if (PacketTraits::HasTanh && PacketSize >= 2) {
-    // tanh(x) rounds to +-1 for |x| >= 20 in every type here; the rational approximations clamp |x| where they reach 1,
-    // which depends on whether pmadd is fused.
+    // Keep constant inputs foldable: contraction during constant folding may differ from runtime evaluation.
     test::packet_helper<PacketTraits::HasTanh, Packet> h;
     for (const Scalar x : {NumTraits<Scalar>::infinity(), Scalar(20)}) {
       data1[0] = x;
@@ -1424,6 +1423,26 @@ void packetmath_real() {
       h.store(data2, internal::ptanh(h.load(data1)));
       VERIFY_IS_EQUAL(data2[0], Scalar(1));
       VERIFY_IS_EQUAL(data2[1], Scalar(-1));
+    }
+    // Volatile inputs exercise runtime evaluation, with saturated and ordinary values sharing a packet.
+    const volatile double values[] = {
+        NumTraits<double>::infinity(), -NumTraits<double>::infinity(), 20.0, -20.0, 0.0, -0.0, 0.5,
+        NumTraits<double>::quiet_NaN()};
+    constexpr int NumValues = int(sizeof(values) / sizeof(values[0]));
+    for (int offset = 0; offset < NumValues; ++offset) {
+      for (int i = 0; i < PacketSize; ++i) data1[i] = Scalar(values[(offset + i) % NumValues]);
+      h.store(data2, internal::ptanh(h.load(data1)));
+      for (int i = 0; i < PacketSize; ++i) {
+        if ((numext::isnan)(data1[i])) {
+          VERIFY((numext::isnan)(data2[i]));
+        } else if (data1[i] == Scalar(0)) {
+          VERIFY(test::biteq(data2[i], data1[i]));
+        } else if (numext::abs(data1[i]) >= Scalar(20)) {
+          VERIFY_IS_EQUAL(data2[i], data1[i] > Scalar(0) ? Scalar(1) : Scalar(-1));
+        } else {
+          VERIFY_IS_APPROX(data2[i], Scalar(std::tanh(double(data1[i]))));
+        }
+      }
     }
   }
   if (PacketTraits::HasExp && PacketSize >= 2) {
