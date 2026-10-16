@@ -36,15 +36,12 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet pdiv_complex(const Pa
   const RealPacket abs_y_flip = pcplxflip(Packet(abs_y)).v;
 
   const RealPacket mask = pcmp_lt(abs_y, abs_y_flip);  // |c| < |d|
-  // min(|c|, |d|) / max(|c|, |d|) never divides by zero for a nonzero denominator, even in unused elements. Cap the
-  // numerator to avoid inf/inf when both components are infinite, and divide 0 / highest rather than 0 / 0 for a zero
-  // denominator; those elements select 1 below. A divisor of 1 would not do: Clang rewrites x / (z ? 1 : m) as
-  // z ? x : x / m, which divides 0 / 0 again.
-  const RealPacket highest = pset1<RealPacket>(NumTraits<RealScalar>::highest());
-  const RealPacket ratio_numerator = pmin(pmin(abs_y, abs_y_flip), highest);
-  const RealPacket ratio_denominator = pmax(abs_y, abs_y_flip);
+  // min(|c|, |d|) / max(|c|, |d|) never divides by zero for a nonzero denominator, even in unused elements. Elements
+  // with |c| == |d|, which include 0 / 0 and inf / inf, divide by 2 instead; they select 1 below. A divisor of 1 would
+  // not do: Clang rewrites x / (z ? 1 : m) as z ? x : x / m.
   const RealPacket ratio =
-      pdiv(ratio_numerator, pselect(pcmp_eq(ratio_denominator, pzero(one)), highest, ratio_denominator));
+      pdiv(pmin(abs_y, abs_y_flip),
+           pselect(pcmp_eq(abs_y, abs_y_flip), pset1<RealPacket>(RealScalar(2)), pmax(abs_y, abs_y_flip)));
   RealPacket y_scaled = pselect(mask, ratio, one);
   y_scaled = por(y_scaled, pandnot(y.v, abs_y));  // copy signs in case |c| == |d|
   RealPacket denom = pmul(y.v, y_scaled);

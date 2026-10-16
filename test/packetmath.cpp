@@ -2577,11 +2577,13 @@ void packetmath_complex() {
       for (int i = 0; i < PacketSize; ++i) VERIFY_IS_APPROX(pval[i], quotients[(i + k) % 4]);
     }
 
-    // Zero components and infinite denominators need not raise any exception for a finite quotient.
+    // Zero components, components of equal magnitude and infinite denominators raise no exception for a finite
+    // quotient.
     const RealScalar two = RealScalar(2), three = RealScalar(3), four = RealScalar(4), three_halves = RealScalar(1.5);
     const Scalar exact_operands[][3] = {{Scalar(one, zero), Scalar(one, zero), Scalar(one, zero)},
                                         {Scalar(three, four), Scalar(zero, two), Scalar(two, -three_halves)},
                                         {Scalar(three, four), Scalar(-two, zero), Scalar(-three_halves, -two)},
+                                        {Scalar(four, zero), Scalar(two, two), Scalar(one, -one)},
                                         {Scalar(three, four), Scalar(inf, zero), Scalar(zero, zero)},
                                         {Scalar(three, four), Scalar(zero, inf), Scalar(zero, -zero)},
                                         {Scalar(three, four), Scalar(inf, inf), Scalar(zero, zero)}};
