@@ -212,24 +212,6 @@ struct nontrivial_alpha_impl<std::complex<RealScalar>> {
   static std::complex<RealScalar> run() { return std::complex<RealScalar>(RealScalar(1.375), RealScalar(-0.625)); }
 };
 
-// C0 + alpha*A*B = [alpha*A, C0] * [B; I]. Passing those operands to verifyProduct gives the bound
-// 10*sqrt(k+n)*eps*|| |alpha*A|*|B| + |C0| ||_F (Higham-Mary, two evaluations), which also covers the rounding of the
-// sum with C0: the bound on A*B alone does not once |A|*|B| << |C0|, and a relative check fails whenever a
-// one-coefficient result cancels.
-template <typename DA, typename DC0>
-static SmeColMajorMat<typename DA::Scalar> update_lhs(const typename DA::Scalar& alpha, const MatrixBase<DA>& A,
-                                                      const MatrixBase<DC0>& C0) {
-  SmeColMajorMat<typename DA::Scalar> lhs(A.rows(), A.cols() + C0.cols());
-  lhs << alpha * A, C0;
-  return lhs;
-}
-template <typename DB>
-static SmeColMajorMat<typename DB::Scalar> update_rhs(const MatrixBase<DB>& B) {
-  SmeColMajorMat<typename DB::Scalar> rhs(B.rows() + B.cols(), B.cols());
-  rhs << B, SmeColMajorMat<typename DB::Scalar>::Identity(B.cols(), B.cols());
-  return rhs;
-}
-
 // Conjugated operands and a non-real alpha.
 //
 // blas_traits folds .adjoint()/.conjugate() and a scalar factor into the
@@ -277,19 +259,19 @@ static void verify_conjugated_products(int n) {
   const SmeColMajorMat<Scalar> reference = deepA.lazyProduct(deepB);
   C = initial;
   C.noalias() += deepA * deepB;
-  VERIFY(verifyProduct(C, initial + reference, update_lhs(Scalar(1), deepA, initial), update_rhs(deepB)));
+  VERIFY(verifyProductUpdate(C, initial + reference, Scalar(1), deepA, deepB, initial));
   C = initial;
   C.noalias() += alpha * (deepA * deepB);
-  VERIFY(verifyProduct(C, initial + alpha * reference, update_lhs(alpha, deepA, initial), update_rhs(deepB)));
+  VERIFY(verifyProductUpdate(C, initial + alpha * reference, alpha, deepA, deepB, initial));
   // A real alpha takes the complex store's fused path: -1 from -=, and a
   // non-unit real scale.
   const Scalar real_alpha(typename NumTraits<Scalar>::Real(1.375));
   C = initial;
   C.noalias() -= deepA * deepB;
-  VERIFY(verifyProduct(C, initial - reference, update_lhs(Scalar(-1), deepA, initial), update_rhs(deepB)));
+  VERIFY(verifyProductUpdate(C, initial - reference, Scalar(-1), deepA, deepB, initial));
   C = initial;
   C.noalias() += real_alpha * (deepA * deepB);
-  VERIFY(verifyProduct(C, initial + real_alpha * reference, update_lhs(real_alpha, deepA, initial), update_rhs(deepB)));
+  VERIFY(verifyProductUpdate(C, initial + real_alpha * reference, real_alpha, deepA, deepB, initial));
 
 #ifdef EIGEN_VECTORIZE_SME_F64F64
   // RowMajor GEMM normally transposes the computation. Call the packed kernel
@@ -307,7 +289,7 @@ static void verify_conjugated_products(int n) {
       internal::sme_gebp_dispatch<Scalar, false, false>::run(
           C.data(), Index(ResMat::IsRowMajor ? n : 1), Index(ResMat::IsRowMajor ? 1 : n), packedA.data(),
           packedB.data(), Index(n), Index(65), Index(n), scale, Index(65), Index(65), Index(0), Index(0));
-      VERIFY(verifyProduct(C, initial + scale * reference, update_lhs(scale, deepA, initial), update_rhs(deepB)));
+      VERIFY(verifyProductUpdate(C, initial + scale * reference, scale, deepA, deepB, initial));
     }
   }
 #endif
@@ -511,10 +493,10 @@ static void test_tiny_results_order() {
         VERIFY(verifyProduct(C, ref, A, B));
         C = C0;
         C.noalias() += A * B;
-        VERIFY(verifyProduct(C, C0 + ref, update_lhs(Scalar(1), A, C0), update_rhs(B)));
+        VERIFY(verifyProductUpdate(C, C0 + ref, Scalar(1), A, B, C0));
         C = C0;
         C.noalias() -= Scalar(2) * A * B;
-        VERIFY(verifyProduct(C, C0 - Scalar(2) * ref, update_lhs(Scalar(-2), A, C0), update_rhs(B)));
+        VERIFY(verifyProductUpdate(C, C0 - Scalar(2) * ref, Scalar(-2), A, B, C0));
         const MA At = A.transpose();
         C.noalias() = At.transpose() * B;
         VERIFY(verifyProduct(C, ref, A, B));
@@ -678,7 +660,7 @@ static void verify_neon_small_block(Index rows, Index cols, Index depth, const S
   const SmeColMajorMat<Scalar> Ac = ConjLhs ? A.conjugate().eval() : A;
   const SmeColMajorMat<Scalar> Bc = ConjRhs ? B.conjugate().eval() : B;
   const SmeColMajorMat<Scalar> ref = c_before + alpha * Ac.lazyProduct(Bc);
-  VERIFY(verifyProduct(C, ref, update_lhs(alpha, Ac, c_before), update_rhs(Bc)));
+  VERIFY(verifyProductUpdate(C, ref, alpha, Ac, Bc, c_before));
 
   // Cells the strided map skips stay untouched.
   if (strided_c) {
