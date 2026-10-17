@@ -1571,11 +1571,19 @@ EIGEN_ALWAYS_INLINE void sme_store_tile_pair_colmajor(Scalar* EIGEN_RESTRICT C, 
   const typename Traits::type valpha = pset1<typename Traits::type>(alpha);
   int c = 0;
   for (; c + 4 <= cols; c += 4) {
+    // GCC 14 misallocates live ZA tuple components across C loads. Keep the reordered loads GCC-only:
+    // moving them ahead of the ZA reads regresses Clang on M4.
+#if !EIGEN_COMP_GNUC_STRICT
     const auto lo = sme_read_ver_za_vg4<TileLo, Scalar>(uint32_t(c));
     const auto hi = sme_read_ver_za_vg4<TileHi, Scalar>(uint32_t(c));
+#endif
     Scalar* p = C + Index(c) * ldc;
     const auto c0 = ploadu_x2(pn, p), c1 = ploadu_x2(pn, p + ldc), c2 = ploadu_x2(pn, p + 2 * ldc),
                c3 = ploadu_x2(pn, p + 3 * ldc);
+#if EIGEN_COMP_GNUC_STRICT
+    const auto lo = sme_read_ver_za_vg4<TileLo, Scalar>(uint32_t(c));
+    const auto hi = sme_read_ver_za_vg4<TileHi, Scalar>(uint32_t(c));
+#endif
     pstoreu_x2(pn, p,
                pcreate(pmadd(pg, pget<0>(lo), valpha, pget<0>(c0)), pmadd(pg, pget<0>(hi), valpha, pget<1>(c0))));
     pstoreu_x2(pn, p + ldc,
