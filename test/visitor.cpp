@@ -501,10 +501,49 @@ void checkAnyRaisesNoInvalid() {
   for (Index size : {2 * PacketSize, 3 * PacketSize, 8 * PacketSize, 9 * PacketSize + 3}) {
     Array<Scalar, Dynamic, 1> a(size);
     for (Index i = 0; i < size; ++i) a(i) = numext::bit_cast<Scalar>((i / PacketSize) % 2 ? one : two);
+#if defined(FE_ALL_EXCEPT) && defined(FE_INVALID)
     std::feclearexcept(FE_ALL_EXCEPT);
     VERIFY(anyOfArray(a));
     VERIFY_IS_EQUAL(std::fetestexcept(FE_INVALID) & FE_INVALID, 0);
+#else
+    VERIFY(anyOfArray(a));
+#endif
   }
+}
+
+template <typename ArrayType>
+EIGEN_DONT_INLINE bool quotientAllFinite(const ArrayType& a, const ArrayType& b) {
+  return (a / b).allFinite();
+}
+template <typename ArrayType>
+EIGEN_DONT_INLINE bool quotientIsZero(const ArrayType& a, const ArrayType& b) {
+  return (a / b).matrix().isZero();
+}
+
+template <typename ArrayType>
+void checkQuotientRaisesNoInvalid(const ArrayType& a, const ArrayType& b) {
+#if defined(FE_ALL_EXCEPT) && defined(FE_INVALID)
+  std::feclearexcept(FE_ALL_EXCEPT);
+  VERIFY(quotientAllFinite(a, b));
+  VERIFY(!quotientIsZero(a, b) || a.size() == 0);
+  VERIFY_IS_EQUAL(std::fetestexcept(FE_INVALID) & FE_INVALID, 0);
+#else
+  VERIFY(quotientAllFinite(a, b));
+  VERIFY(!quotientIsZero(a, b) || a.size() == 0);
+#endif
+}
+
+// A segment shorter than a packet is tested with one masked load only where the expression loads its coefficients:
+// a quotient would also divide the zeros past the segment, 0 / 0, and flag an invalid operation that the scalar tests
+// of the same coefficients do not.
+template <typename Scalar>
+void checkPartialPacketsRaiseNoInvalid() {
+  constexpr Index PacketSize = internal::packet_traits<Scalar>::size;
+  for (Index size = 0; size <= 2 * PacketSize + 1; ++size)
+    checkQuotientRaisesNoInvalid<Array<Scalar, Dynamic, 1>>(Array<Scalar, Dynamic, 1>::Constant(size, Scalar(1)),
+                                                            Array<Scalar, Dynamic, 1>::Constant(size, Scalar(2)));
+  checkQuotientRaisesNoInvalid<Array<Scalar, 3, 1>>(Array<Scalar, 3, 1>::Constant(Scalar(1)),
+                                                    Array<Scalar, 3, 1>::Constant(Scalar(2)));
 }
 
 template <bool Vectorize = false>
@@ -755,8 +794,10 @@ EIGEN_DECLARE_TEST(visitor) {
   CALL_SUBTEST_14((checkBooleanVisitorTraversal<bool, ColMajor>()));
   CALL_SUBTEST_14((checkBooleanVisitorTraversal<bool, RowMajor>()));
   CALL_SUBTEST_14((checkBooleanVisitorTraversal<float, ColMajor>()));
+  CALL_SUBTEST_14((checkBooleanVisitorTraversal<float, RowMajor>()));
   CALL_SUBTEST_14((checkBooleanVisitorTraversal<double, RowMajor>()));
   CALL_SUBTEST_14((checkBooleanVisitorTraversal<int, ColMajor>()));
+  CALL_SUBTEST_14((checkBooleanVisitorTraversal<int, RowMajor>()));
   CALL_SUBTEST_14((checkBooleanVisitorTraversal<int64_t, RowMajor>()));
   CALL_SUBTEST_14((checkBooleanVisitorTraversal<Eigen::half, ColMajor>()));
   CALL_SUBTEST_14((checkBooleanVisitorTraversal<std::complex<float>, RowMajor>()));
@@ -770,10 +811,13 @@ EIGEN_DECLARE_TEST(visitor) {
   CALL_SUBTEST_15(checkFindCoeffWithoutPacketCmp<RowMajor>());
   CALL_SUBTEST_16(checkAnyRaisesNoInvalid<float>());
   CALL_SUBTEST_16(checkAnyRaisesNoInvalid<double>());
+  CALL_SUBTEST_16(checkPartialPacketsRaiseNoInvalid<float>());
+  CALL_SUBTEST_16(checkPartialPacketsRaiseNoInvalid<double>());
   CALL_SUBTEST_17(checkPartialPackets<float>());
   CALL_SUBTEST_17(checkPartialPackets<double>());
   CALL_SUBTEST_17(checkPartialPackets<int>());
   CALL_SUBTEST_17(checkPartialPackets<int64_t>());
   CALL_SUBTEST_17(checkPartialPackets<Eigen::half>());
   CALL_SUBTEST_17(checkPartialPackets<std::complex<float>>());
+  CALL_SUBTEST_17(checkPartialPackets<std::complex<double>>());
 }

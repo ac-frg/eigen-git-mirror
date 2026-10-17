@@ -214,8 +214,7 @@ struct predicate_search_for<false, nonzero_predicate<Scalar>> {
 };
 template <typename Scalar>
 struct predicate_search_for<true, nonzero_predicate<Scalar>> {
-  using type = std::conditional_t<NumTraits<Scalar>::IsInteger && !NumTraits<Scalar>::IsComplex, or_lane_search,
-                                  predicate_search<true>>;
+  using type = std::conditional_t<std::is_integral<Scalar>::value, or_lane_search, predicate_search<true>>;
 };
 template <>
 struct predicate_search_for<true, nonzero_predicate<bool>> {
@@ -226,7 +225,8 @@ struct predicate_search_for<true, nonzero_predicate<bool>> {
 template <typename Evaluator, bool Linear = Evaluator::LinearAccess>
 struct predicate_segment {
   using Scalar = typename Evaluator::Scalar;
-  static constexpr bool FixedSize = Evaluator::RowsAtCompileTime != Dynamic && Evaluator::ColsAtCompileTime != Dynamic;
+  static constexpr bool FixedSize = Evaluator::RowsAtCompileTime > 0 && Evaluator::ColsAtCompileTime > 0;
+  static constexpr bool PlainLoad = int(Evaluator::CoeffReadCost) <= int(NumTraits<Scalar>::ReadCost);
   const Evaluator& eval;
   Index length;
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE predicate_segment(const Evaluator& evaluator, Index, Index size)
@@ -248,7 +248,8 @@ template <typename Evaluator>
 struct predicate_segment<Evaluator, false> {
   using Scalar = typename Evaluator::Scalar;
   static constexpr bool FixedSize =
-      (Evaluator::IsRowMajor ? Evaluator::ColsAtCompileTime : Evaluator::RowsAtCompileTime) != Dynamic;
+      (Evaluator::IsRowMajor ? Evaluator::ColsAtCompileTime : Evaluator::RowsAtCompileTime) > 0;
+  static constexpr bool PlainLoad = int(Evaluator::CoeffReadCost) <= int(NumTraits<Scalar>::ReadCost);
   const Evaluator& eval;
   Index outer;
   Index length;
@@ -363,21 +364,27 @@ struct predicate_search_segment {
     return run(seg, pred);
   }
 };
-// A mask of the first count lanes of a packet: a load at lane size - count from a table of size set lanes followed by
-// size clear ones, in bytes so that lanes of any width (complex<double> too) are covered.
+// first(count) is a packet whose first count lanes are all ones and whose other lanes are zero. table is one packet of
+// 0xff bytes followed by one packet of zero bytes; an unaligned load that starts Size - count lanes into it reads count
+// lanes of ones, then zeros. Bytes rather than Scalars, so that one table serves lanes of any width.
 template <typename Packet, typename Bytes = std::make_index_sequence<2 * sizeof(Packet)>>
 struct predicate_lane_table;
 template <typename Packet, std::size_t... Byte>
 struct predicate_lane_table<Packet, std::index_sequence<Byte...>> {
   using Scalar = typename unpacket_traits<Packet>::type;
   static constexpr Index Size = unpacket_traits<Packet>::size;
-  static constexpr unsigned char table[2 * sizeof(Packet)] = {(Byte < sizeof(Packet) ? 0xff : 0)...};
+  // Aligned to the packet, so that every load start is aligned to its Scalar.
+  alignas(sizeof(Packet)) static constexpr unsigned char table[2 * sizeof(Packet)] = {
+      (Byte < sizeof(Packet) ? 0xff : 0)...};
   static EIGEN_STRONG_INLINE Packet first(Index count) {
-    return ploadu<Packet>(reinterpret_cast<const Scalar*>(table + (Size - count) * sizeof(Scalar)));
+    return ploadu<Packet>(
+        reinterpret_cast<const Scalar*>(static_cast<const void*>(table + (Size - count) * sizeof(Scalar))));
   }
 };
+#if EIGEN_COMP_CXXVER < 17
 template <typename Packet, std::size_t... Byte>
-constexpr unsigned char predicate_lane_table<Packet, std::index_sequence<Byte...>>::table[];
+alignas(sizeof(Packet)) constexpr unsigned char predicate_lane_table<Packet, std::index_sequence<Byte...>>::table[];
+#endif
 
 template <typename Search, typename Packet>
 struct predicate_search_segment<Search, Packet, true> {
@@ -410,7 +417,7 @@ struct predicate_search_segment<Search, Packet, true> {
         i = 3 * PacketSize;
       }
       if (EIGEN_PREDICT_TRUE(i == size)) return false;
-    } else if (has_packet_segment<Packet>::value && (Segment::FixedSize || size >= 4)) {
+    } else if (has_packet_segment<Packet>::value && Segment::PlainLoad && (Segment::FixedSize || size >= 4)) {
       return run_partial(seg, pred, bool_constant<has_packet_segment<Packet>::value>());
     } else if (size < 4 && predicate_groups_scalars<Predicate>::value) {
       // Shorter than one packet and than a group of four: only these sizes reach this check.
@@ -421,7 +428,9 @@ struct predicate_search_segment<Search, Packet, true> {
 
   // A segment shorter than one packet, of a compile-time length or of at least four coefficients: one masked load,
   // with the lanes past the segment masked off. Shorter runtime lengths keep their scalar tests, which are faster than
-  // building the masks; a compile-time length folds them.
+  // building the masks; a compile-time length folds them. Only for a segment that loads its coefficients
+  // (Segment::PlainLoad): an expression computes on the zeros past the segment too, and 0 / 0 there would raise
+  // FE_INVALID, which the scalar tests of the same coefficients do not.
   template <typename Segment, typename Predicate>
   static EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE bool run_partial(const Segment& seg, Predicate pred, std::true_type) {
     const Index size = seg.size();
