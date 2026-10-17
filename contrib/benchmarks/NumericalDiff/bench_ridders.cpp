@@ -50,6 +50,6 @@ static void BM_Ridders(benchmark::State& state) {
   }
 }
 
-BENCHMARK_TEMPLATE(BM_Ridders, float, Eigen::ColMajor)->ArgsProduct({{1, 16, 128}, {2, 10}});
-BENCHMARK_TEMPLATE(BM_Ridders, double, Eigen::ColMajor)->ArgsProduct({{1, 16, 128}, {2, 10}});
-BENCHMARK_TEMPLATE(BM_Ridders, double, Eigen::RowMajor)->ArgsProduct({{1, 16, 128}, {2, 10}});
+BENCHMARK_TEMPLATE(BM_Ridders, float, Eigen::ColMajor)->ArgsProduct({{1, 16, 128, 1024}, {2, 10}});
+BENCHMARK_TEMPLATE(BM_Ridders, double, Eigen::ColMajor)->ArgsProduct({{1, 16, 128, 1024}, {2, 10}});
+BENCHMARK_TEMPLATE(BM_Ridders, double, Eigen::RowMajor)->ArgsProduct({{1, 16, 128, 1024}, {2, 10}});

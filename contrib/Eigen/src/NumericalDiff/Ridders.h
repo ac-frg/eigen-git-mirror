@@ -178,7 +178,7 @@ class Ridders {
 
         current->col(0) = (plus - minus) / separation;
         if (!current->col(0).allFinite()) break;
-        if (step == 0) jac.col(j) = current->col(0);
+        Index bestOrder = step == 0 ? 0 : -1;
 
         Scalar factor = reductionSquared;
         bool finite = true;
@@ -195,11 +195,12 @@ class Ridders {
                            (current->col(order) - previous->col(order - 1)).template lpNorm<Infinity>());
           if ((numext::isfinite)(estimate) && estimate <= bestError) {
             bestError = estimate;
-            jac.col(j) = current->col(order);
+            bestOrder = order;
           }
 
           factor *= reductionSquared;
         }
+        if (bestOrder >= 0) jac.col(j) = current->col(bestOrder);
         if (!finite) break;
         if (step > 0 &&
             (current->col(step) - previous->col(step - 1)).template lpNorm<Infinity>() >= Scalar(2) * bestError)
