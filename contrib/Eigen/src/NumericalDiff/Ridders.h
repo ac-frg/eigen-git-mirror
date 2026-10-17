@@ -142,7 +142,14 @@ class Ridders {
       if (error) error->setZero();
       return 0;
     }
-    Tableau previous(values, m_parameters.maxSteps), current(values, m_parameters.maxSteps);
+
+    Tableau workspace(values, 2 * Index(m_parameters.maxSteps));
+    auto first = workspace.leftCols(m_parameters.maxSteps);
+    auto second = workspace.rightCols(m_parameters.maxSteps);
+    auto current = &first;
+    auto previous = &second;
+
+    // Functors may require ValueType& outputs, which cannot bind to column views.
     ValueType plus(values), minus(values);
     InputType x = input;
     const Scalar reductionSquared = m_parameters.stepReduction * m_parameters.stepReduction;
@@ -157,43 +164,48 @@ class Ridders {
         Scalar xMinus = input[j] - h;
         internal::numerical_diff_barrier(xPlus);
         internal::numerical_diff_barrier(xMinus);
+        if (!(numext::isfinite)(xPlus) || !(numext::isfinite)(xMinus)) break;
+
         const Scalar separation = xPlus - xMinus;
-        if (!(separation > Scalar(0)) || !(numext::isfinite)(separation) || !(numext::isfinite)(xPlus) ||
-            !(numext::isfinite)(xMinus))
-          break;
+        if (!(separation > Scalar(0)) || !(numext::isfinite)(separation)) break;
+
         x[j] = xPlus;
         m_functor(x, plus);
         x[j] = xMinus;
         m_functor(x, minus);
-        evaluations += 2;
         x[j] = input[j];
-        current.col(0) = (plus - minus) / separation;
-        if (!current.col(0).allFinite()) break;
-        if (step == 0) jac.col(j) = current.col(0);
+        evaluations += 2;
+
+        current->col(0) = (plus - minus) / separation;
+        if (!current->col(0).allFinite()) break;
+        if (step == 0) jac.col(j) = current->col(0);
 
         Scalar factor = reductionSquared;
         bool finite = true;
         for (int order = 1; order <= step; ++order) {
           // A(k,i) = (t^(2k) * A(k-1,i) - A(k-1,i-1)) / (t^(2k) - 1).
-          current.col(order) = (factor * current.col(order - 1) - previous.col(order - 1)) / (factor - Scalar(1));
-          if (!current.col(order).allFinite()) {
+          current->col(order) = (factor * current->col(order - 1) - previous->col(order - 1)) / (factor - Scalar(1));
+          if (!current->col(order).allFinite()) {
             finite = false;
             break;
           }
+
           const Scalar estimate =
-              numext::maxi((current.col(order) - current.col(order - 1)).template lpNorm<Infinity>(),
-                           (current.col(order) - previous.col(order - 1)).template lpNorm<Infinity>());
+              numext::maxi((current->col(order) - current->col(order - 1)).template lpNorm<Infinity>(),
+                           (current->col(order) - previous->col(order - 1)).template lpNorm<Infinity>());
           if ((numext::isfinite)(estimate) && estimate <= bestError) {
             bestError = estimate;
-            jac.col(j) = current.col(order);
+            jac.col(j) = current->col(order);
           }
+
           factor *= reductionSquared;
         }
         if (!finite) break;
         if (step > 0 &&
-            (current.col(step) - previous.col(step - 1)).template lpNorm<Infinity>() >= Scalar(2) * bestError)
+            (current->col(step) - previous->col(step - 1)).template lpNorm<Infinity>() >= Scalar(2) * bestError)
           break;
-        previous.swap(current);
+
+        std::swap(current, previous);
         h /= m_parameters.stepReduction;
       }
       if (error) (*error)[j] = bestError;
@@ -202,7 +214,6 @@ class Ridders {
   }
 };
 
-// Redundant out-of-class definitions are required pre-C++17 but deprecated since.
 #if EIGEN_COMP_CXXVER < 17
 template <typename Functor>
 constexpr int Ridders<Functor>::InputsAtCompileTime;
