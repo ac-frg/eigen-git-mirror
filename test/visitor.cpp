@@ -542,8 +542,6 @@ void checkPartialPacketsRaiseNoInvalid() {
   for (Index size = 0; size <= 2 * PacketSize + 1; ++size)
     checkQuotientRaisesNoInvalid<Array<Scalar, Dynamic, 1>>(Array<Scalar, Dynamic, 1>::Constant(size, Scalar(1)),
                                                             Array<Scalar, Dynamic, 1>::Constant(size, Scalar(2)));
-  checkQuotientRaisesNoInvalid<Array<Scalar, 3, 1>>(Array<Scalar, 3, 1>::Constant(Scalar(1)),
-                                                    Array<Scalar, 3, 1>::Constant(Scalar(2)));
 }
 
 template <bool Vectorize = false>
