@@ -377,8 +377,7 @@ struct predicate_lane_table<Packet, std::index_sequence<Byte...>> {
   alignas(sizeof(Packet)) static constexpr unsigned char table[2 * sizeof(Packet)] = {
       (Byte < sizeof(Packet) ? 0xff : 0)...};
   static EIGEN_STRONG_INLINE Packet first(Index count) {
-    return ploadu<Packet>(
-        reinterpret_cast<const Scalar*>(static_cast<const void*>(table + (Size - count) * sizeof(Scalar))));
+    return ploadu<Packet>(reinterpret_cast<const Scalar*>(table + (Size - count) * sizeof(Scalar)));
   }
 };
 #if EIGEN_COMP_CXXVER < 17
