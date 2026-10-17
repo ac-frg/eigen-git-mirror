@@ -93,7 +93,12 @@ static void BM_EigenGemmRowMajorRhs(benchmark::State& state) { eigen_gemm<ColMaj
     /* Small and thin products on both sides of the SME backend's NEON small-product bound. */ \
     ->Args({17, 17, 17})->Args({20, 20, 20})->Args({25, 25, 25})->Args({28, 28, 28})->Args({31, 31, 31}) \
     ->Args({4, 32, 32})->Args({8, 32, 32})->Args({32, 4, 32})->Args({32, 8, 32})->Args({16, 16, 32}) \
-    ->Args({24, 24, 48})->Args({12, 12, 64})->Args({2, 64, 64})->Args({8, 64, 128})->Args({64, 8, 128})
+    ->Args({24, 24, 48})->Args({12, 12, 64})->Args({2, 64, 64})->Args({8, 64, 128})->Args({64, 8, 128}) \
+    /* Full tiles and narrow panels affected by SME store code generation. */ \
+    ->Args({32, 8, 128})->Args({32, 16, 128})->Args({40, 40, 40})->Args({48, 48, 48}) \
+    /* Ragged C columns at SVL 512, beyond the NEON small-product bound. */ \
+    ->Args({9, 17, 256})->Args({13, 17, 256})->Args({15, 17, 256}) \
+    ->Args({17, 17, 256})->Args({23, 17, 256})->Args({31, 17, 256})
 
 // Depth sweeps through the packers' transposer, which packs b and a row-major a; their leading dimension is k, so
 // these also sweep the source stride. At SVL 512, k = 41 (complex<double>) and 81 (double) end in a paired step and a

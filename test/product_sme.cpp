@@ -1496,6 +1496,47 @@ static void test_neon_real_alpha_overflow() {
   }
 }
 
+// GCC 14 must keep the full-grid store's ZA tuples intact across C loads. Exact integer results and sentinel
+// padding also cover the single-tile stores used for ragged rows and columns.
+template <typename Scalar>
+EIGEN_DONT_INLINE __arm_locally_streaming __arm_new("za") void sme_test_store_grid(Scalar* out, Index ldc,
+                                                                                   const Scalar* a, const Scalar* b,
+                                                                                   int rows, int cols) {
+  using Traits = internal::sme_packet_traits<Scalar>;
+  const int svl = Traits::size();
+  const auto pg = Traits::ptrue();
+  svzero_za();
+  internal::outer_product_2x2<Scalar>(internal::ploadu(pg, a), internal::ploadu(pg, a + svl), internal::ploadu(pg, b),
+                                      internal::ploadu(pg, b + svl));
+  internal::sme_store_2x2_grid(out, Index(1), ldc, Scalar(2), Index(2), svl, rows - svl, Index(1),
+                               internal::sme_min(cols, svl), cols > svl ? cols - svl : 0);
+}
+
+template <typename Scalar>
+static void test_tile_pair_stores() {
+  const int svl = internal::sme_packet_traits<Scalar>::size();
+  const Index ldc = 2 * svl + 7;
+  std::vector<Scalar> a(2 * svl), b(2 * svl);
+  for (int i = 0; i < 2 * svl; ++i) {
+    a[i] = Scalar(i % 7 + 1);
+    b[i] = Scalar(i % 5 + 2);
+  }
+  const int widths[] = {1, 2, 3, 4, 5, svl - 1, svl, svl + 1, svl + 2, 2 * svl - 1, 2 * svl};
+  std::vector<Scalar> out(ldc * (2 * svl + 3)), expected(out.size());
+  for (int rows = svl + 1; rows <= 2 * svl; ++rows) {
+    for (int cols : widths) {
+      if (cols > 2 * svl) continue;
+      std::fill(out.begin(), out.end(), Scalar(-9999));
+      expected = out;
+      for (int j = 0; j < cols; ++j)
+        for (int i = 0; i < rows; ++i) expected[2 + i + (1 + j) * ldc] += Scalar(2) * a[i] * b[j];
+      internal::sme_fpsr_guard guard;
+      sme_test_store_grid(out.data(), ldc, a.data(), b.data(), rows, cols);
+      for (Index i = 0; i < Index(out.size()); ++i) VERIFY_IS_EQUAL(out[i], expected[i]);
+    }
+  }
+}
+
 EIGEN_DECLARE_TEST(product_sme) {
   CALL_SUBTEST_1(test_whilelt_operand_types<float>());
   CALL_SUBTEST_1(test_packet_ops<float>());
@@ -1580,5 +1621,9 @@ EIGEN_DECLARE_TEST(product_sme) {
   CALL_SUBTEST(test_small_products<double>());
   CALL_SUBTEST(test_small_products<std::complex<double>>());
 #endif
+#endif
+  CALL_SUBTEST_9(test_tile_pair_stores<float>());
+#ifdef EIGEN_VECTORIZE_SME_F64F64
+  CALL_SUBTEST_9(test_tile_pair_stores<double>());
 #endif
 }
