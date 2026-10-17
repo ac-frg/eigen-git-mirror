@@ -1496,8 +1496,8 @@ static void test_neon_real_alpha_overflow() {
   }
 }
 
-// Exercise the four-column ZA reads with two-vector C accesses: GCC 14 must keep every live tuple component
-// intact across the C loads. Exact integer results and sentinel padding cover full and ragged rows and columns.
+// GCC 14 must keep the full-grid store's ZA tuples intact across C loads. Exact integer results and sentinel
+// padding also cover the single-tile stores used for ragged rows and columns.
 template <typename Scalar>
 EIGEN_DONT_INLINE __arm_locally_streaming __arm_new("za") void sme_test_store_grid(Scalar* out, Index ldc,
                                                                                    const Scalar* a, const Scalar* b,
