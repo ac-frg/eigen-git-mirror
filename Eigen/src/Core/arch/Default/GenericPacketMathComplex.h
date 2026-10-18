@@ -415,9 +415,10 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet psqrt_complex(const P
 // https://doi.org/10.48550/arXiv.1904.09481: h = fl(sqrt(fl(a^2 + b^2))) is refined by one Newton step with the
 // residual x = h^2 - a^2 - b^2 formed from the exact squares h^2 = h_sq + h_lo, a^2 = a_sq + a_lo and b^2 = b_sq +
 // b_lo. With a the larger component, a_sq <= h_sq <= 2 a_sq and h_sq - a_sq is exact; the remaining terms are of order
-// u h^2, so their rounding errors are of order u^2 h^2 and the result is correctly rounded. Both the order and the
-// exact residuals matter: with the components unordered, or with residuals from an unfused pmadd, the error exceeds
-// 0.8 and 1.3 ulps.
+// u h^2, so their rounding errors are of order u^2 h^2 and the result is within (1/2 + O(u)) ulp of sqrt(a^2 + b^2).
+// It is correctly rounded unless the exact value lies within O(u) ulp of a rounding midpoint: for a = b^2 with b odd,
+// sqrt(a^2 + a) = a + 1/2 - 1/(8a) + ..., and the result rounds up to a + 1. Both the order and the exact residuals
+// matter: with the components unordered, or with residuals from an unfused pmadd, the error exceeds 0.8 and 1.3 ulps.
 template <typename Packet>
 EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet phypot_complex(const Packet& a) {
   using Scalar = typename unpacket_traits<Packet>::type;

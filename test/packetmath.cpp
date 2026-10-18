@@ -1074,9 +1074,10 @@ bool log_part_matches(const RealScalar& actual, const RealScalar& expected) {
   return numext::abs(actual - expected) <= RealScalar(8) * NumTraits<RealScalar>::epsilon() * numext::abs(expected);
 }
 
-// phypot_complex, the modulus of plog, is correctly rounded: the result is within 0.5 + 2^-8 ulp of sqrt(a^2 + b^2)
-// in the wider type W, whose own error is below 2^-8 ulp when it has 8 more significand bits. The larger component
-// falls in either lane, so the test covers the order of the components and, without FMA, the exact residuals.
+// phypot_complex, the modulus of plog, is within 0.5 + O(u) ulp of sqrt(a^2 + b^2): correctly rounded except within
+// O(u) ulp of a rounding midpoint. The test allows 0.5 + 2^-8 ulp in the wider type W, whose own error is below 2^-8
+// ulp when it has 8 more significand bits. The larger component falls in either lane, so the test covers the order of
+// the components and, without FMA, the exact residuals.
 template <typename Scalar, typename Packet, typename W, std::enable_if_t<!internal::is_scalar<Packet>::value, int> = 0>
 void complex_hypot_test() {
   using RealScalar = typename Scalar::value_type;
@@ -1085,13 +1086,23 @@ void complex_hypot_test() {
   const int PacketSize = internal::unpacket_traits<Packet>::size;
   EIGEN_ALIGN_TO_BOUNDARY(unpacket_traits<Packet>::alignment) Scalar data1[PacketSize];
   EIGEN_ALIGN_TO_BOUNDARY(unpacket_traits<Packet>::alignment) Scalar data2[PacketSize];
-  const Scalar exact[] = {Scalar(RealScalar(3), RealScalar(-4)), Scalar(RealScalar(-4), RealScalar(3)),
-                          Scalar(RealScalar(0), RealScalar(-2)), Scalar(RealScalar(2), RealScalar(0)),
-                          Scalar(RealScalar(5), RealScalar(5)),  Scalar(RealScalar(1), RealScalar(-1))};
+  // The last case is a = b^2 with b the smallest odd integer whose square has ulp 1: sqrt(a^2 + a) = a + 1/2 - 1/(8a)
+  // + ..., which the result rounds up to a + 1. That is 0.5 + 2^-26 ulp off for float, within the bound but not the
+  // correctly rounded value.
+  RealScalar b = std::ceil(std::sqrt(std::ldexp(RealScalar(1), digits - 1)));
+  if (std::fmod(b, RealScalar(2)) == RealScalar(0)) b += RealScalar(1);
+  const Scalar cases[] = {Scalar(RealScalar(3), RealScalar(-4)),
+                          Scalar(RealScalar(-4), RealScalar(3)),
+                          Scalar(RealScalar(0), RealScalar(-2)),
+                          Scalar(RealScalar(2), RealScalar(0)),
+                          Scalar(RealScalar(5), RealScalar(5)),
+                          Scalar(RealScalar(1), RealScalar(-1)),
+                          Scalar(b * b, b)};
+  constexpr int num_cases = 7;
   for (int trial = 0; trial < 1024; ++trial) {
     for (int i = 0; i < PacketSize; ++i) {
-      if (trial < 6) {
-        data1[i] = exact[trial];
+      if (trial < num_cases) {
+        data1[i] = cases[trial];
         continue;
       }
       const RealScalar re =
