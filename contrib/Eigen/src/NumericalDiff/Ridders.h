@@ -184,7 +184,9 @@ class Ridders {
         bool finite = true;
         for (int order = 1; order <= step; ++order) {
           // A(k,i) = (t^(2k) * A(k-1,i) - A(k-1,i-1)) / (t^(2k) - 1).
-          current->col(order) = (factor * current->col(order - 1) - previous->col(order - 1)) / (factor - Scalar(1));
+          // Avoid forming `t^(2k) * A(k-1,i)` directly, since it can overflow.
+          current->col(order) =
+              current->col(order - 1) + (current->col(order - 1) - previous->col(order - 1)) / (factor - Scalar(1));
           if (!current->col(order).allFinite()) {
             finite = false;
             break;
