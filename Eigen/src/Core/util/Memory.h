@@ -709,8 +709,10 @@ EIGEN_DEVICE_FUNC inline T* scratch_malloc(std::size_t size) {
     void* original = std::malloc(size);
     if (!original) throw_std_bad_alloc();
     // std::align is host-only with CUDA.
-    void* aligned = reinterpret_cast<void*>((reinterpret_cast<std::uintptr_t>(original) + overhead) &
-                                            ~(std::uintptr_t(alignof(T)) - 1));
+    char* start = static_cast<char*>(original) + sizeof(void*);
+    const std::uintptr_t offset = reinterpret_cast<std::uintptr_t>(start) % alignof(T);
+    const std::uintptr_t shift = offset > 0 ? alignof(T) - offset : 0;
+    void* aligned = start + shift;
     std::memcpy(static_cast<char*>(aligned) - sizeof(void*), reinterpret_cast<const void*>(&original), sizeof(void*));
     return static_cast<T*>(aligned);
   }
