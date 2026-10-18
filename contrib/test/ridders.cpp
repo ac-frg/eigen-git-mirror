@@ -61,7 +61,7 @@ struct RiddersScalarFunctor {
   using InputType = Matrix<double, 1, 1>;
   using ValueType = InputType;
   using JacobianType = InputType;
-  enum Function { Cubic, Quintic, SquareRoot, NoisyExp, Identity, Invalid, InvalidRefinement };
+  enum Function { Cubic, LargeCubic, Quintic, SquareRoot, NoisyExp, Identity, Invalid, InvalidRefinement };
   Function function = Cubic;
   mutable int evaluations = 0;
 
@@ -71,6 +71,9 @@ struct RiddersScalarFunctor {
     switch (function) {
       case Cubic:
         y[0] = x[0] * x[0] * x[0];
+        break;
+      case LargeCubic:
+        y[0] = 2e307 * x[0] * x[0] * x[0];
         break;
       case Quintic:
         y[0] = x[0] * x[0] * x[0] * x[0] * x[0];
@@ -152,6 +155,23 @@ void test_ridders_domain_and_noise() {
   VERIFY(diff.df(x, jac, error) < 20);
   VERIFY(std::abs(jac[0] - std::exp(1.0)) <= 256 * double(NumTraits<float>::epsilon()) * std::exp(1.0));
   VERIFY((numext::isfinite)(error[0]));
+}
+
+void test_ridders_richardson_overflow() {
+  Ridders<RiddersScalarFunctor> diff;
+  diff.functor().function = RiddersScalarFunctor::LargeCubic;
+  RiddersScalarFunctor::InputType x, error;
+  RiddersScalarFunctor::JacobianType jac;
+  x[0] = 1;
+
+  const int evaluations = diff.df(x, jac, error);
+  VERIFY_IS_EQUAL(evaluations, diff.functor().evaluations);
+  VERIFY(evaluations > 4 && evaluations <= 20);
+  VERIFY((numext::isfinite)(jac[0]));
+  VERIFY((numext::isfinite)(error[0]));
+  VERIFY(error[0] >= 0);
+  // The cubic's truncation error cancels on extrapolation; divide before comparing near the range limit.
+  VERIFY(std::abs(jac[0] / 6e307 - 1) <= 256 * NumTraits<double>::epsilon());
 }
 
 void test_ridders_stencil() {
@@ -286,6 +306,7 @@ EIGEN_DECLARE_TEST(ridders) {
   CALL_SUBTEST((test_ridders_jacobian<long double, Dynamic, Dynamic, RowMajor>()));
   CALL_SUBTEST(test_ridders_parameters());
   CALL_SUBTEST(test_ridders_domain_and_noise());
+  CALL_SUBTEST(test_ridders_richardson_overflow());
   CALL_SUBTEST(test_ridders_stencil());
   CALL_SUBTEST(test_ridders_composition());
   CALL_SUBTEST(test_ridders_step_alignment());
