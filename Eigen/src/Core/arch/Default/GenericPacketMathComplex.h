@@ -395,7 +395,7 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet phypot_complex(const 
   using RealPacket = typename unpacket_traits<Packet>::as_real;
 
   const RealPacket cst_zero_rp = pset1<RealPacket>(static_cast<RealScalar>(0.0));
-  const RealPacket cst_two_rp = pset1<RealPacket>(static_cast<RealScalar>(2.0));
+  const RealPacket cst_half_rp = pset1<RealPacket>(static_cast<RealScalar>(0.5));
 
   RealPacket a_abs = pabs(a.v);
   RealPacket a_flip = pcplxflip(Packet(a_abs)).v;  // |b|, |a|
@@ -412,7 +412,7 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet phypot_complex(const 
   RealPacket a_lo = twoprod_low(a_all, a_all, a_sq);
   RealPacket b_lo = twoprod_low(b_all, b_all, b_sq);
   RealPacket x = padd(psub(psub(h_sq, a_sq), b_sq), psub(h_lo, padd(a_lo, b_lo)));
-  h = psub(h, pdiv(x, pmul(cst_two_rp, h)));  // |h - x/(2*h), h - x/(2*h)|
+  h = pnmadd(pdiv(x, h), cst_half_rp, h);  // |h - x/(2*h), h - x/(2*h)|
 
   // handle zero-case
   RealPacket iszero = pcmp_eq(por(a_abs, a_flip), cst_zero_rp);
