@@ -3,6 +3,7 @@
 
 #include "main.h"
 #include <contrib/Eigen/NumericalDiff>
+#include <contrib/Eigen/LevenbergMarquardt>
 
 template <typename Scalar_, int Inputs = Dynamic, int Values = Dynamic, int Options = ColMajor>
 struct RiddersFunctor {
@@ -279,6 +280,29 @@ void test_ridders_fallback() {
   VERIFY_IS_EQUAL(error[0], 0.0);
 }
 
+struct RiddersLevenbergMarquardtFunctor : DenseFunctor<double> {
+  RiddersLevenbergMarquardtFunctor() : DenseFunctor<double>(1, 1) {}
+
+  int operator()(const InputType& x, ValueType& y) const {
+    y[0] = x[0] * x[0] - 2;
+    return 0;
+  }
+};
+
+void test_ridders_levenberg_marquardt() {
+  using Functor = RiddersLevenbergMarquardtFunctor;
+  using Derivative = Ridders<Functor>;
+  static_assert(std::is_same<typename Derivative::QRSolver, typename Functor::QRSolver>::value,
+                "Ridders must preserve the functor's QRSolver type");
+  Derivative derivative;
+  LevenbergMarquardt<Derivative> solver(derivative);
+  VectorXd x = VectorXd::Ones(1);
+  const auto status = solver.minimize(x);
+  VERIFY(status >= LevenbergMarquardtSpace::RelativeReductionTooSmall &&
+         status <= LevenbergMarquardtSpace::CosinusTooSmall);
+  VERIFY(std::abs(x[0] - std::sqrt(2.0)) <= 256 * NumTraits<double>::epsilon());
+}
+
 struct EmptyRiddersFunctor : RiddersFunctor<double> {
   int values() const { return 0; }
 };
@@ -311,5 +335,6 @@ EIGEN_DECLARE_TEST(ridders) {
   CALL_SUBTEST(test_ridders_composition());
   CALL_SUBTEST(test_ridders_step_alignment());
   CALL_SUBTEST(test_ridders_fallback());
+  CALL_SUBTEST(test_ridders_levenberg_marquardt());
   CALL_SUBTEST(test_ridders_empty());
 }
