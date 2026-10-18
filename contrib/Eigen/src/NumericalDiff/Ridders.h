@@ -9,6 +9,18 @@
 
 namespace Eigen {
 
+namespace internal {
+
+template <typename F, typename = void>
+struct ridders_solver_traits {};
+
+template <typename F>
+struct ridders_solver_traits<F, void_t<typename F::QRSolver>> {
+  using QRSolver = typename F::QRSolver;
+};
+
+}  // namespace internal
+
 /** \class Ridders
  * \ingroup NumericalDiff_Module
  * \brief Adaptive numerical Jacobians using Ridders' extrapolation method.
@@ -34,7 +46,7 @@ namespace Eigen {
  * \tparam Functor_ The vector-valued functor to differentiate.
  */
 template <typename Functor_>
-class Ridders {
+class Ridders : public internal::ridders_solver_traits<Functor_> {
  public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
