@@ -1074,6 +1074,46 @@ bool log_part_matches(const RealScalar& actual, const RealScalar& expected) {
   return numext::abs(actual - expected) <= RealScalar(8) * NumTraits<RealScalar>::epsilon() * numext::abs(expected);
 }
 
+// phypot_complex, the modulus of plog, is correctly rounded: the result is within 0.5 + 2^-8 ulp of sqrt(a^2 + b^2)
+// in the wider type W, whose own error is below 2^-8 ulp when it has 8 more significand bits. The larger component
+// falls in either lane, so the test covers the order of the components and, without FMA, the exact residuals.
+template <typename Scalar, typename Packet, typename W, std::enable_if_t<!internal::is_scalar<Packet>::value, int> = 0>
+void complex_hypot_test() {
+  using RealScalar = typename Scalar::value_type;
+  constexpr int digits = std::numeric_limits<RealScalar>::digits;
+  if (std::numeric_limits<W>::digits < digits + 8) return;
+  const int PacketSize = internal::unpacket_traits<Packet>::size;
+  EIGEN_ALIGN_TO_BOUNDARY(unpacket_traits<Packet>::alignment) Scalar data1[PacketSize];
+  EIGEN_ALIGN_TO_BOUNDARY(unpacket_traits<Packet>::alignment) Scalar data2[PacketSize];
+  const Scalar exact[] = {Scalar(RealScalar(3), RealScalar(-4)), Scalar(RealScalar(-4), RealScalar(3)),
+                          Scalar(RealScalar(0), RealScalar(-2)), Scalar(RealScalar(2), RealScalar(0)),
+                          Scalar(RealScalar(5), RealScalar(5)),  Scalar(RealScalar(1), RealScalar(-1))};
+  for (int trial = 0; trial < 1024; ++trial) {
+    for (int i = 0; i < PacketSize; ++i) {
+      if (trial < 6) {
+        data1[i] = exact[trial];
+        continue;
+      }
+      const RealScalar re =
+          std::ldexp(internal::random<RealScalar>(RealScalar(-4), RealScalar(4)), internal::random<int>(-20, 20));
+      const RealScalar im =
+          std::ldexp(internal::random<RealScalar>(RealScalar(-4), RealScalar(4)), internal::random<int>(-20, 20));
+      data1[i] = Scalar(re, im);
+    }
+    internal::pstore(data2, internal::phypot_complex(internal::pload<Packet>(data1)));
+    for (int i = 0; i < PacketSize; ++i) {
+      const W re = W(data1[i].real()), im = W(data1[i].imag());
+      const W ref = std::sqrt(re * re + im * im);
+      const W ulp = std::ldexp(W(1), std::ilogb(ref) - digits + 1);
+      const W tol = (W(0.5) + std::ldexp(W(1), -8)) * ulp;
+      VERIFY(numext::abs(W(data2[i].real()) - ref) <= tol && "internal::phypot_complex");
+      VERIFY_IS_EQUAL(data2[i].real(), data2[i].imag());
+    }
+  }
+}
+template <typename Scalar, typename Packet, typename W, std::enable_if_t<internal::is_scalar<Packet>::value, int> = 0>
+void complex_hypot_test() {}
+
 // Notice that this definition works for complex types as well.
 // std::log2 only supports real types, not complex.
 template <typename Scalar>
@@ -2864,6 +2904,8 @@ void packetmath_complex() {
         }
       }
     }
+    complex_hypot_test<Scalar, Packet,
+                       typename std::conditional<std::is_same<RealScalar, float>::value, double, long double>::type>();
   }
   exp_complex_test<Scalar, Packet>(data1, data2, ref, size);
 }
