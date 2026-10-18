@@ -25,12 +25,31 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void absolute_split(const Packet& x, Packe
   r = psub(x, n);
 }
 
+// Knuth two-sum: x + y = s_hi + s_lo exactly, with no magnitude ordering required.
+// The barriers preserve the separately rounded subtractions under reassociation.
+template <typename Packet>
+EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void twosum(const Packet& x, const Packet& y, Packet& s_hi, Packet& s_lo) {
+  s_hi = padd(x, y);
+  EIGEN_OPTIMIZATION_BARRIER(s_hi)
+  Packet y_part = psub(s_hi, x);
+  EIGEN_OPTIMIZATION_BARRIER(y_part)
+  Packet x_part = psub(s_hi, y_part);
+  EIGEN_OPTIMIZATION_BARRIER(x_part)
+  Packet x_err = psub(x, x_part);
+  EIGEN_OPTIMIZATION_BARRIER(x_err)
+  Packet y_err = psub(y, y_part);
+  EIGEN_OPTIMIZATION_BARRIER(y_err)
+  s_lo = padd(x_err, y_err);
+}
+
 // This function computes the sum {s_hi, s_lo}, such that x + y = s_hi + s_lo
 // holds exactly, and s_hi = fl(x+y), if |x| >= |y|.
 template <typename Packet>
 EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void fast_twosum(const Packet& x, const Packet& y, Packet& s_hi, Packet& s_lo) {
   s_hi = padd(x, y);
-  const Packet t = psub(s_hi, x);
+  EIGEN_OPTIMIZATION_BARRIER(s_hi)
+  Packet t = psub(s_hi, x);
+  EIGEN_OPTIMIZATION_BARRIER(t)
   s_lo = psub(y, t);
 }
 
@@ -98,9 +117,12 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void veltkamp_splitting(const Packet& x, P
   using Scalar = typename unpacket_traits<Packet>::type;
   constexpr int shift = (NumTraits<Scalar>::digits() + 1) / 2;
   const Scalar shift_scale = Scalar(uint64_t(1) << shift);  // Scalar constructor not necessarily constexpr.
-  const Packet gamma = pmul(pset1<Packet>(shift_scale + Scalar(1)), x);
+  Packet gamma = pmul(pset1<Packet>(shift_scale + Scalar(1)), x);
+  EIGEN_OPTIMIZATION_BARRIER(gamma)
   Packet rho = psub(x, gamma);
+  EIGEN_OPTIMIZATION_BARRIER(rho)
   x_hi = padd(rho, gamma);
+  EIGEN_OPTIMIZATION_BARRIER(x_hi)
   x_lo = psub(x, x_hi);
 }
 
@@ -115,9 +137,13 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void twoprod(const Packet& x, const Packet
   veltkamp_splitting(y, y_hi, y_lo);
 
   p_hi = pmul(x, y);
+  EIGEN_OPTIMIZATION_BARRIER(p_hi)
   p_lo = pmsub(x_hi, y_hi, p_hi);
+  EIGEN_OPTIMIZATION_BARRIER(p_lo)
   p_lo = pmadd(x_hi, y_lo, p_lo);
+  EIGEN_OPTIMIZATION_BARRIER(p_lo)
   p_lo = pmadd(x_lo, y_hi, p_lo);
+  EIGEN_OPTIMIZATION_BARRIER(p_lo)
   p_lo = pmadd(x_lo, y_lo, p_lo);
 }
 
@@ -130,8 +156,11 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet twoprod_low(const Packet& x, const 
   veltkamp_splitting(y, y_hi, y_lo);
 
   Packet p_lo = pmsub(x_hi, y_hi, xy);
+  EIGEN_OPTIMIZATION_BARRIER(p_lo)
   p_lo = pmadd(x_hi, y_lo, p_lo);
+  EIGEN_OPTIMIZATION_BARRIER(p_lo)
   p_lo = pmadd(x_lo, y_hi, p_lo);
+  EIGEN_OPTIMIZATION_BARRIER(p_lo)
   p_lo = pmadd(x_lo, y_lo, p_lo);
   return p_lo;
 }
@@ -149,9 +178,8 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet twoprod_low(const Packet& x, const 
 template <typename Packet>
 EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void twosum(const Packet& x_hi, const Packet& x_lo, const Packet& y_hi,
                                                   const Packet& y_lo, Packet& s_hi, Packet& s_lo) {
-  Packet s = padd(x_hi, y_hi);
-  Packet y_part = psub(s, x_hi);
-  Packet err = padd(psub(x_hi, psub(s, y_part)), psub(y_hi, y_part));
+  Packet s, err;
+  twosum(x_hi, y_hi, s, err);
   fast_twosum(s, padd(err, padd(x_lo, y_lo)), s_hi, s_lo);
 }
 
@@ -160,9 +188,8 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void twosum(const Packet& x_hi, const Pack
 template <typename Packet>
 EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void twodiff(const Packet& x_hi, const Packet& x_lo, const Packet& y_hi,
                                                    const Packet& y_lo, Packet& s_hi, Packet& s_lo) {
-  Packet s = psub(x_hi, y_hi);
-  Packet y_part = psub(x_hi, s);
-  Packet err = psub(psub(x_hi, padd(s, y_part)), psub(y_hi, y_part));
+  Packet s, err;
+  twosum(x_hi, pnegate(y_hi), s, err);
   fast_twosum(s, padd(err, psub(x_lo, y_lo)), s_hi, s_lo);
 }
 

@@ -267,20 +267,17 @@ Packet trig_reduce_small_double(const Packet& x, const Packet& q) {
 
   // Error-free addition of x and qp_hi using Knuth's 2sum.
   // Returns t_hi + t_lo = x + qp_hi exactly, with t_hi = fl(x + qp_hi).
-  Packet t_hi = padd(x, qp_hi);
-  Packet v = psub(t_hi, x);
-  Packet t_lo = padd(psub(x, psub(t_hi, v)), psub(qp_hi, v));
+  Packet t_hi, t_lo;
+  twosum(x, qp_hi, t_hi, t_lo);
 
   // Near a multiple of pi/2, t_hi + qp_lo cancels against q * pio2_2 too, so that product is formed exactly as well
   // and the two large terms are added by 2sum: only terms of order u * |q * pio2_2| are rounded.
   Packet qp2_hi, qp2_lo;
   twoprod(cst_pio2_2<Packet>(), q, qp2_hi, qp2_lo);
-  Packet a_hi = padd(t_hi, qp_lo);
-  v = psub(a_hi, t_hi);
-  t_lo = padd(t_lo, padd(psub(t_hi, psub(a_hi, v)), psub(qp_lo, v)));
-  t_hi = padd(a_hi, qp2_hi);
-  v = psub(t_hi, a_hi);
-  t_lo = padd(t_lo, padd(psub(a_hi, psub(t_hi, v)), psub(qp2_hi, v)));
+  Packet a_hi, a_lo, b_lo;
+  twosum(t_hi, qp_lo, a_hi, a_lo);
+  twosum(a_hi, qp2_hi, t_hi, b_lo);
+  t_lo = padd(t_lo, padd(a_lo, b_lo));
 
   // Accumulate the low part of the product and the remaining pi/2 term.
   t_lo = padd(t_lo, qp2_lo);
