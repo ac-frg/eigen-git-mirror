@@ -87,16 +87,16 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet pmul_complex(const Pa
   return padd(tmp_im, tmp_re);                // a*c - b*d, a*d + b*c
 }
 
-// \internal plog_complex. Only when `scaled` does it scale the elements outside [lo, hi] and handle infinities, which
+// \internal plog_complex. Only when `Scaled` does it scale the elements outside [lo, hi] and handle infinities, which
 // plog_complex guarantees are absent otherwise.
-template <typename Packet, bool Base2>
-EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet plog_complex_impl(const Packet& x, bool scaled) {
+template <typename Packet, bool Base2, bool Scaled>
+EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet plog_complex_impl(const Packet& x) {
   using RealPacket = typename unpacket_traits<Packet>::as_real;
   using RealScalar = typename unpacket_traits<RealPacket>::type;
 
   RealPacket x_flip = pcplxflip(x).v;  // b, a
   RealPacket xlogr;
-  if (scaled) {
+  if (Scaled) {
     // Real part. phypot_complex squares the components, which neither overflows nor loses accuracy to underflow for
     // M = max(|a|, |b|) in [lo, hi] = [sqrt(min / eps), sqrt(highest) / 2]. Elements with M > hi are scaled by 2^-k
     // with k = max_exponent / 2 + 2, and those with M < lo by 2^-k with k = -(3 digits - min_exponent - 1) / 2; both
@@ -137,6 +137,12 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet plog_complex_impl(con
   return Packet(pselect(peven_mask(xlogr), xlogr, ximg));  // log(sqrt(a^2 + b^2)), atan2(b, a)
 }
 
+// Out of line, so that the common path stays small enough to inline into the caller.
+template <typename Packet, bool Base2>
+EIGEN_DEVICE_FUNC EIGEN_DONT_INLINE Packet plog_complex_scaled(const Packet& x) {
+  return plog_complex_impl<Packet, Base2, true>(x);
+}
+
 template <typename Packet, bool Base2>
 EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet plog_complex(const Packet& x) {
   using RealPacket = typename unpacket_traits<Packet>::as_real;
@@ -149,12 +155,9 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet plog_complex(const Pa
   // Zero, which is common, needs no scaling: log|0| = -inf either way.
   const RealPacket is_small = pand(pcmp_lt(pzero(x_max), x_max), pcmp_lt(x_max, pset1<RealPacket>(lo)));
   if (predux_any(por(pcmp_lt(pset1<RealPacket>(hi), x_abs), is_small))) {
-    Packet x_scaled = x;
-    // Keeps compilers from executing this branch speculatively on the common path.
-    EIGEN_OPTIMIZATION_BARRIER(x_scaled.v)
-    return plog_complex_impl<Packet, Base2>(x_scaled, true);
+    return plog_complex_scaled<Packet, Base2>(x);
   }
-  return plog_complex_impl<Packet, Base2>(x, false);
+  return plog_complex_impl<Packet, Base2, false>(x);
 }
 
 template <typename Packet>
