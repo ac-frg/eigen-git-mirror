@@ -380,8 +380,14 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet psqrt_complex(const P
   return psqrt_complex_impl(z, false);
 }
 
-// \internal \returns the norm of a complex number z = x + i*y, defined as sqrt(x^2 + y^2).
-// Implemented using the hypot(a,b) algorithm from https://doi.org/10.48550/arXiv.1904.09481
+// \internal \returns the norm of a complex number z = x + i*y, defined as sqrt(x^2 + y^2), in both lanes of each
+// element. This is the corrected hypot of Borges (2019), "An improved algorithm for hypot(a, b)",
+// https://doi.org/10.48550/arXiv.1904.09481: h = fl(sqrt(fl(a^2 + b^2))) is refined by one Newton step with the
+// residual x = h^2 - a^2 - b^2 formed from the exact squares h^2 = h_sq + h_lo, a^2 = a_sq + a_lo and b^2 = b_sq +
+// b_lo. With a the larger component, a_sq <= h_sq <= 2 a_sq and h_sq - a_sq is exact; the remaining terms are of order
+// u h^2, so their rounding errors are of order u^2 h^2 and the result is correctly rounded. Both the order and the
+// exact residuals matter: with the components unordered, or with residuals from an unfused pmadd, the error exceeds
+// 0.8 and 1.3 ulps.
 template <typename Packet>
 EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet phypot_complex(const Packet& a) {
   using Scalar = typename unpacket_traits<Packet>::type;
@@ -389,23 +395,23 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet phypot_complex(const 
   using RealPacket = typename unpacket_traits<Packet>::as_real;
 
   const RealPacket cst_zero_rp = pset1<RealPacket>(static_cast<RealScalar>(0.0));
-  const RealPacket cst_minus_one_rp = pset1<RealPacket>(static_cast<RealScalar>(-1.0));
   const RealPacket cst_two_rp = pset1<RealPacket>(static_cast<RealScalar>(2.0));
-  const RealPacket evenmask = peven_mask(a.v);
 
   RealPacket a_abs = pabs(a.v);
-  RealPacket a_flip = pcplxflip(Packet(a_abs)).v;       // |b|, |a|
-  RealPacket a_all = pselect(evenmask, a_abs, a_flip);  // |a|, |a|
-  RealPacket b_all = pselect(evenmask, a_flip, a_abs);  // |b|, |b|
+  RealPacket a_flip = pcplxflip(Packet(a_abs)).v;  // |b|, |a|
+  RealPacket a_all = pmax(a_abs, a_flip);          // the larger component, in both lanes
+  RealPacket b_all = pmin(a_abs, a_flip);          // the smaller component, in both lanes
 
-  RealPacket a2 = pmul(a.v, a.v);                    // |a^2, b^2|
-  RealPacket a2_flip = pcplxflip(Packet(a2)).v;      // |b^2, a^2|
-  RealPacket h = psqrt(padd(a2, a2_flip));           // |sqrt(a^2 + b^2), sqrt(a^2 + b^2)|
-  RealPacket h_sq = pmul(h, h);                      // |a^2 + b^2, a^2 + b^2|
-  RealPacket a_sq = pselect(evenmask, a2, a2_flip);  // |a^2, a^2|
-  RealPacket m_h_sq = pmul(h_sq, cst_minus_one_rp);
-  RealPacket m_a_sq = pmul(a_sq, cst_minus_one_rp);
-  RealPacket x = psub(psub(pmadd(h, h, m_h_sq), pmadd(b_all, b_all, psub(a_sq, h_sq))), pmadd(a_all, a_all, m_a_sq));
+  RealPacket a2 = pmul(a.v, a.v);                // |a^2, b^2|
+  RealPacket a2_flip = pcplxflip(Packet(a2)).v;  // |b^2, a^2|
+  RealPacket h = psqrt(padd(a2, a2_flip));       // |sqrt(a^2 + b^2), sqrt(a^2 + b^2)|
+  RealPacket h_sq = pmul(h, h);
+  RealPacket a_sq = pmax(a2, a2_flip);
+  RealPacket b_sq = pmin(a2, a2_flip);
+  RealPacket h_lo = twoprod_low(h, h, h_sq);
+  RealPacket a_lo = twoprod_low(a_all, a_all, a_sq);
+  RealPacket b_lo = twoprod_low(b_all, b_all, b_sq);
+  RealPacket x = padd(psub(psub(h_sq, a_sq), b_sq), psub(h_lo, padd(a_lo, b_lo)));
   h = psub(h, pdiv(x, pmul(cst_two_rp, h)));  // |h - x/(2*h), h - x/(2*h)|
 
   // handle zero-case
