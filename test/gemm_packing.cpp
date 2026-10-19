@@ -95,6 +95,18 @@ struct NumTraits<PackingScalar> : GenericNumTraits<PackingScalar> {
 };
 }  // namespace Eigen
 
+#ifdef EIGEN_EXCEPTIONS
+template <typename LhsScalar, typename RhsScalar>
+bool packing_throws_bad_alloc(std::size_t sizeA, std::size_t sizeB) {
+  try {
+    internal::gemm_packing_space<LhsScalar, RhsScalar> packing(sizeA, sizeB, nullptr, nullptr);
+  } catch (const std::bad_alloc&) {
+    return true;
+  }
+  return false;
+}
+#endif
+
 void packing_lifetimes() {
   const std::size_t size = EIGEN_STACK_ALLOCATION_LIMIT / sizeof(PackingScalar) + 3;
   PackingScalar::remaining = Index(2 * size);
@@ -108,25 +120,28 @@ void packing_lifetimes() {
   // EIGEN_STACK_ALLOCATION_LIMIT is 0.
   for (Index count : {Index(0), Index(1), Index(size), Index(size + 1)}) {
     PackingScalar::remaining = count;
-    bool threw = false;
-    try {
-      internal::gemm_packing_space<PackingScalar, PackingScalar> packing(size, size, nullptr, nullptr);
-    } catch (const std::bad_alloc&) {
-      threw = true;
-    }
-    VERIFY(threw);
+    VERIFY((packing_throws_bad_alloc<PackingScalar, PackingScalar>(size, size)));
     VERIFY_IS_EQUAL(PackingScalar::live, Index(0));
   }
   const std::size_t max_bytes = (std::numeric_limits<std::ptrdiff_t>::max)();
-  for (std::size_t sizeA : {max_bytes, max_bytes / 2}) {
-    bool threw = false;
-    try {
-      internal::gemm_packing_space<char, char> packing(sizeA, max_bytes / 2 + 2, nullptr, nullptr);
-    } catch (const std::bad_alloc&) {
-      threw = true;
-    }
-    VERIFY(threw);
-  }
+  for (std::size_t sizeA : {max_bytes, max_bytes / 2})
+    VERIFY((packing_throws_bad_alloc<char, char>(sizeA, max_bytes / 2 + 2)));
+#endif
+}
+
+// Runs product(); where malloc is wrapped, returns whether it allocated at most once.
+template <typename Product>
+bool allocates_at_most_once(Product product) {
+#ifdef EIGEN_TEST_WRAP_MALLOC
+  packing_allocations = 0;
+  count_packing_allocations = true;
+#endif
+  product();
+#ifdef EIGEN_TEST_WRAP_MALLOC
+  count_packing_allocations = false;
+  return packing_allocations <= 1;
+#else
+  return true;
 #endif
 }
 
@@ -140,30 +155,14 @@ void packing_products() {
     const MatrixType b = MatrixType::Random(n + 3, n + 1);
     MatrixType result = MatrixType::Zero(n, n + 1);
     MatrixType reference = a.lazyProduct(b);
-#ifdef EIGEN_TEST_WRAP_MALLOC
-    packing_allocations = 0;
-    count_packing_allocations = true;
-#endif
-    result.noalias() += a * b;
-#ifdef EIGEN_TEST_WRAP_MALLOC
-    count_packing_allocations = false;
-    VERIFY(packing_allocations <= 1);
-#endif
+    VERIFY(allocates_at_most_once([&] { result.noalias() += a * b; }));
     const Real gemm_bound = Real(8) * Real(n + 3) * NumTraits<Real>::epsilon() * a.norm() * b.norm();
     VERIFY((result - reference).norm() <= gemm_bound);
 
     result.setZero(n, n);
     reference = a.lazyProduct(a.adjoint());
     const Real syrk_bound = Real(8) * Real(n + 3) * NumTraits<Real>::epsilon() * a.squaredNorm();
-#ifdef EIGEN_TEST_WRAP_MALLOC
-    packing_allocations = 0;
-    count_packing_allocations = true;
-#endif
-    result.template selfadjointView<Lower>().rankUpdate(a);
-#ifdef EIGEN_TEST_WRAP_MALLOC
-    count_packing_allocations = false;
-    VERIFY(packing_allocations <= 1);
-#endif
+    VERIFY(allocates_at_most_once([&] { result.template selfadjointView<Lower>().rankUpdate(a); }));
     reference.template triangularView<StrictlyUpper>().setZero();
     VERIFY((result - reference).norm() <= syrk_bound);
     result.setZero();
