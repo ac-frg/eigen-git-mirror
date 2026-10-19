@@ -104,7 +104,9 @@ void packing_lifetimes() {
   }
   VERIFY_IS_EQUAL(PackingScalar::live, Index(0));
 #ifdef EIGEN_EXCEPTIONS
-  for (Index count : {Index(0), Index(3), Index(size + 3)}) {
+  // Throw while constructing A's first element, A's second, B's first, and B's second; size >= 3 even when
+  // EIGEN_STACK_ALLOCATION_LIMIT is 0.
+  for (Index count : {Index(0), Index(1), Index(size), Index(size + 1)}) {
     PackingScalar::remaining = count;
     bool threw = false;
     try {
