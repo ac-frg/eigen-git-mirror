@@ -9,10 +9,12 @@
 #ifdef EIGEN_TEST_WRAP_MALLOC
 static volatile bool count_packing_allocations = false;
 static volatile Index packing_allocations = 0;
-extern "C" void* __real_malloc(std::size_t);
-extern "C" void* __wrap_malloc(std::size_t bytes) {
+// Preserve the linker's --wrap symbols without reserved C++ identifiers.
+extern "C" void* real_malloc(std::size_t) asm("__real_malloc");
+extern "C" void* wrap_malloc(std::size_t) asm("__wrap_malloc");
+extern "C" void* wrap_malloc(std::size_t bytes) {
   if (count_packing_allocations) packing_allocations = packing_allocations + 1;
-  return __real_malloc(bytes);
+  return real_malloc(bytes);
 }
 #endif
 
