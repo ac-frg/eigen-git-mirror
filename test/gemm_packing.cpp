@@ -56,6 +56,22 @@ void packing_storage() {
 #endif
 }
 
+// Stricter than the alignment scratch_malloc guarantees, so either panel of this type keeps its own allocation.
+constexpr std::size_t kScratchAlignment = EIGEN_STACK_ALIGN_BYTES > 0 ? EIGEN_STACK_ALIGN_BYTES
+                                                                      : alignof(std::max_align_t);
+struct alignas(2 * kScratchAlignment) OverAlignedScalar {
+  double value = 0;
+};
+
+template <typename LhsScalar, typename RhsScalar>
+void packing_alignment_fallback() {
+  const std::size_t sizeA = EIGEN_STACK_ALLOCATION_LIMIT / sizeof(LhsScalar) + 3;
+  const std::size_t sizeB = EIGEN_STACK_ALLOCATION_LIMIT / sizeof(RhsScalar) + 7;
+  internal::gemm_packing_space<LhsScalar, RhsScalar> packing(sizeA, sizeB, nullptr, nullptr);
+  VERIFY(packing.blockA() == nullptr);
+  VERIFY(packing.blockB() == nullptr);
+}
+
 struct PackingScalar {
   static Index live;
   static Index remaining;
@@ -159,6 +175,8 @@ void packing_products() {
 EIGEN_DECLARE_TEST(gemm_packing) {
   CALL_SUBTEST((packing_storage<float, double>()));
   CALL_SUBTEST((packing_storage<double, std::complex<double>>()));
+  CALL_SUBTEST((packing_alignment_fallback<OverAlignedScalar, float>()));
+  CALL_SUBTEST((packing_alignment_fallback<float, OverAlignedScalar>()));
   CALL_SUBTEST(packing_lifetimes());
   CALL_SUBTEST((packing_products<float, ColMajor>()));
   CALL_SUBTEST((packing_products<double, RowMajor>()));
