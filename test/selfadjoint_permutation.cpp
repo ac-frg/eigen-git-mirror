@@ -134,6 +134,15 @@ void selfadjoint_permutation_preconditions() {
   transpositions.setIdentity();
   VERIFY_RAISES_ASSERT(matrix.selfadjointView<Lower>().applyPermutation(transpositions));
   VERIFY_RAISES_ASSERT(matrix.selfadjointView<Upper>().applyPermutation(transpositions.inverse()));
+  // Indices that do not form a permutation: a repeat would otherwise loop forever.
+  PermutationMatrix<Dynamic> invalid(3);
+  invalid.indices() << 1, 1, 2;
+  VERIFY_RAISES_ASSERT(matrix.selfadjointView<Lower>().applyPermutation(invalid));
+  VERIFY_RAISES_ASSERT(matrix.selfadjointView<Upper>().applyPermutation(invalid));
+  invalid.indices() << 2, 0, 0;
+  VERIFY_RAISES_ASSERT(matrix.selfadjointView<Lower>().applyPermutation(invalid));
+  invalid.indices() << 3, 0, 1;
+  VERIFY_RAISES_ASSERT(matrix.selfadjointView<Upper>().applyPermutation(invalid));
   matrix.resize(2, 3);
   VERIFY_RAISES_ASSERT(matrix.selfadjointView<Lower>().applyPermutation(permutation));
   VERIFY_RAISES_ASSERT(matrix.selfadjointView<Upper>().applyPermutation(permutation));

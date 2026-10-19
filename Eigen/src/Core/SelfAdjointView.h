@@ -62,6 +62,8 @@ EIGEN_DEVICE_FUNC void selfadjoint_apply_permutation_lower(MatrixType& matrix, P
     while (Index(remaining.indices().coeff(i)) != i) {
       const Index j = convert_index<Index>(remaining.indices().coeff(i));
       // Earlier indices are fixed, so j > i. Each swap removes one edge from the permutation cycle.
+      // If P(j) == j as well, index j repeats and this loop would not terminate.
+      eigen_assert(i < j && j < size && Index(remaining.indices().coeff(j)) != j && "indices are not a permutation");
       selfadjoint_swap_lower(matrix, i, j);
       numext::swap(remaining.indices().coeffRef(i), remaining.indices().coeffRef(j));
     }
