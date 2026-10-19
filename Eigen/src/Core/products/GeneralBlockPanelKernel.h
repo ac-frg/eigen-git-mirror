@@ -1273,6 +1273,24 @@ struct gebp_micro_step {
     EIGEN_IF_CONSTEXPR (MrPackets >= 3) traits.loadLhs(&blA[(2 + MrPackets * K) * LhsProg], A[2]);
 
     gebp_rhs_cols<0, MrPackets, NrCols>::run(traits, blB, Index(NrCols * K), A, rhs_panel, T0, C);
+#if EIGEN_ARCH_ARM64 && defined(EIGEN_VECTORIZE_NEON) && EIGEN_GNUC_STRICT_AT_LEAST(8, 0, 0) && \
+    !defined(EIGEN_DONT_DISABLE_GEBP_INSN_SCHEDULING)
+    using AccPacket = typename GEBPTraits::AccPacket;
+    constexpr bool kRealPacket = std::is_same<AccPacket, Packet4f>::value || std::is_same<AccPacket, Packet2d>::value;
+    EIGEN_IF_CONSTEXPR (MrPackets == 3 && NrCols == 8 && kRealPacket) {
+      // Keep the next depth step's loads from extending live ranges beyond the 24 accumulators.
+      __asm__ volatile("" ::: "memory");
+#if EIGEN_GNUC_STRICT_AT_LEAST(16, 0, 0)
+      // GCC 16 also needs the double accumulator updates to stay on their own depth step.
+      EIGEN_IF_CONSTEXPR (std::is_same<AccPacket, Packet2d>::value) {
+#pragma GCC unroll 24
+        for (int n = 0; n < MrPackets * NrCols; ++n) {
+          EIGEN_OPTIMIZATION_BARRIER(C[n]);
+        }
+      }
+#endif
+    }
+#endif
   }
 };
 // Compiler register allocation workarounds for the GEBP micro-kernel.
@@ -1421,6 +1439,10 @@ EIGEN_ALWAYS_INLINE void gebp_micro_panel_impl(GEBPTraits& traits, const DataMap
   constexpr int CSize = 3 * NrCols > MrPackets * NrCols ? 3 * NrCols : MrPackets * NrCols;
 #endif
   alignas(AccPacketLocal) AccPacketLocal C[CSize];
+  // Expose constant accumulator indices before GCC's scalar replacement pass at -O2.
+#if EIGEN_ARCH_ARM64 && defined(EIGEN_VECTORIZE_NEON) && EIGEN_GNUC_STRICT_AT_LEAST(8, 0, 0)
+#pragma GCC unroll 24
+#endif
   for (int n = 0; n < MrPackets * NrCols; ++n) traits.initAcc(C[n]);
 
   // Double-accumulation trick for 1pX4 path to break FMA dependency chains
@@ -1469,6 +1491,9 @@ EIGEN_ALWAYS_INLINE void gebp_micro_panel_impl(GEBPTraits& traits, const DataMap
 
   // Merge double accumulators
   EIGEN_IF_CONSTEXPR (use_double_accum) {
+#if EIGEN_ARCH_ARM64 && defined(EIGEN_VECTORIZE_NEON) && EIGEN_GNUC_STRICT_AT_LEAST(8, 0, 0)
+#pragma GCC unroll 24
+#endif
     for (int n = 0; n < NrCols; ++n) C[n] = padd(C[n], D[n]);
   }
 
@@ -1485,8 +1510,14 @@ EIGEN_ALWAYS_INLINE void gebp_micro_panel_impl(GEBPTraits& traits, const DataMap
 
   // ---- Store results: C[j + p * NrCols] -> res(i + p*ResPacketSz, j2 + j) ----
   alignas(ResPacketLocal) ResPacketLocal alphav = pset1<ResPacketLocal>(alpha);
+#if EIGEN_ARCH_ARM64 && defined(EIGEN_VECTORIZE_NEON) && EIGEN_GNUC_STRICT_AT_LEAST(8, 0, 0)
+#pragma GCC unroll 24
+#endif
   for (int j = 0; j < NrCols; ++j) {
     LinearMapper_ r = res.getLinearMapper(i, j2 + j);
+#if EIGEN_ARCH_ARM64 && defined(EIGEN_VECTORIZE_NEON) && EIGEN_GNUC_STRICT_AT_LEAST(8, 0, 0)
+#pragma GCC unroll 24
+#endif
     for (int p = 0; p < MrPackets; ++p) {
       alignas(ResPacketLocal) ResPacketLocal R = r.template loadPacket<ResPacketLocal>(p * ResPacketSz);
       traits.acc(C[j + p * NrCols], alphav, R);
