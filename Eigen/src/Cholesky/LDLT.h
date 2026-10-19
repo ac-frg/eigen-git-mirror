@@ -361,6 +361,11 @@ struct ldlt_inplace<Lower> {
     const Index size = mat.rows();
     bool found_zero_pivot = false;
     bool ret = true;
+#if EIGEN_COMP_GNUC_STRICT && defined(EIGEN_VECTORIZE_AVX)
+    constexpr bool kUseFusedUpdate = MatrixType::RowsAtCompileTime == 3 && !MatrixType::IsRowMajor &&
+                                     MatrixType::InnerStrideAtCompileTime == 1 &&
+                                     (is_same<Scalar, float>::value || is_same<Scalar, double>::value);
+#endif
 
     if (size <= 1) {
       transpositions.setIdentity();
@@ -410,7 +415,13 @@ struct ldlt_inplace<Lower> {
       if (k > 0) {
         temp.head(k) = mat.diagonal().real().head(k).asDiagonal() * A10.adjoint();
         mat.coeffRef(k, k) -= (A10 * temp.head(k)).value();
+#if EIGEN_COMP_GNUC_STRICT && defined(EIGEN_VECTORIZE_AVX)
+        EIGEN_IF_CONSTEXPR (!kUseFusedUpdate) {
+          if (rs > 0) A21.noalias() -= A20 * temp.head(k);
+        }
+#else
         if (rs > 0) A21.noalias() -= A20 * temp.head(k);
+#endif
       }
 
       // In some previous versions of Eigen (e.g., 3.2.1), the scaling was omitted if the pivot
@@ -431,10 +442,29 @@ struct ldlt_inplace<Lower> {
         return ret;
       }
 
+#if EIGEN_COMP_GNUC_STRICT && defined(EIGEN_VECTORIZE_AVX)
+      if ((rs > 0) && pivot_is_valid) {
+        EIGEN_IF_CONSTEXPR (kUseFusedUpdate) {
+          // The operands read only columns before k, so the update can share the scaling pass.
+          if (k > 0)
+            A21 = (A21 - A20.lazyProduct(temp.head(k))) / realAkk;
+          else
+            A21 /= realAkk;
+        } else {
+          A21 /= realAkk;
+        }
+      } else if (rs > 0) {
+        EIGEN_IF_CONSTEXPR (kUseFusedUpdate) {
+          if (k > 0) A21.noalias() -= A20 * temp.head(k);
+        }
+        ret = ret && (A21.array() == Scalar(0)).all();
+      }
+#else
       if ((rs > 0) && pivot_is_valid)
         A21 /= realAkk;
       else if (rs > 0)
         ret = ret && (A21.array() == Scalar(0)).all();
+#endif
 
       if (found_zero_pivot && pivot_is_valid)
         ret = false;  // factorization failed
