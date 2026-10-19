@@ -34,6 +34,32 @@ namespace Eigen {
 
 namespace internal {
 
+template <typename MatrixType, typename PermutationDerived>
+EIGEN_DEVICE_FUNC void selfadjoint_apply_permutation_lower(MatrixType& matrix,
+                                                           const PermutationBase<PermutationDerived>& permutation) {
+  using Scalar = typename MatrixType::Scalar;
+  typename PermutationDerived::PlainPermutationType remaining(permutation);
+  const Index size = matrix.rows();
+  for (Index i = 0; i < size; ++i) {
+    while (Index(remaining.indices().coeff(i)) != i) {
+      const Index j = convert_index<Index>(remaining.indices().coeff(i));
+      // Earlier indices are fixed, so j > i. Each swap removes one edge from the permutation cycle.
+      eigen_internal_assert(j > i && j < size);
+      matrix.template block<1, Dynamic>(i, 0, 1, i).swap(matrix.template block<1, Dynamic>(j, 0, 1, i));
+      for (Index k = i + 1; k < j; ++k) {
+        const Scalar value = matrix.coeff(k, i);
+        matrix.coeffRef(k, i) = numext::conj(matrix.coeff(j, k));
+        matrix.coeffRef(j, k) = numext::conj(value);
+      }
+      matrix.template block<Dynamic, 1>(j + 1, i, size - j - 1, 1)
+          .swap(matrix.template block<Dynamic, 1>(j + 1, j, size - j - 1, 1));
+      matrix.coeffRef(j, i) = numext::conj(matrix.coeff(j, i));
+      numext::swap(matrix.coeffRef(i, i), matrix.coeffRef(j, j));
+      numext::swap(remaining.indices().coeffRef(i), remaining.indices().coeffRef(j));
+    }
+  }
+}
+
 template <typename MatrixType, unsigned int UpLo>
 struct traits<SelfAdjointView<MatrixType, UpLo>> : traits<MatrixType> {
   using MatrixTypeNested = typename ref_selector<MatrixType>::non_const_type;
@@ -128,6 +154,37 @@ class SelfAdjointView : public TriangularBase<SelfAdjointView<MatrixType_, UpLo>
                  "leave conj(other) on the unstored half.");
     m_matrix.template triangularView<UpLo>() /= other;
     return *this;
+  }
+
+  /** Replaces this view's matrix \f$ S \f$ by \f$ P S P^T \f$ in place, where \a permutation represents \f$ P \f$.
+   * Only the referenced triangle is read or written; the opposite triangle is unchanged. Complex coefficients
+   * crossing the diagonal are conjugated. The matrix must be square and the permutation must have matching size.
+   * The operation takes \f$ O(n^2) \f$ time and \f$ O(n) \f$ auxiliary storage for a copy of the permutation.
+   *
+   * \returns a reference to \c *this, retaining its self-adjoint structure.
+   *
+   * \code
+   * A.selfadjointView<Lower>().applyPermutation(P);
+   * \endcode
+   */
+  template <typename PermutationDerived>
+  EIGEN_DEVICE_FUNC SelfAdjointView& applyPermutation(const PermutationBase<PermutationDerived>& permutation) {
+    EIGEN_STATIC_ASSERT_LVALUE(MatrixType);
+    eigen_assert(this->rows() == this->cols() && this->rows() == permutation.size());
+    EIGEN_IF_CONSTEXPR (UpLo == Lower) {
+      internal::selfadjoint_apply_permutation_lower(m_matrix, permutation);
+    } else {
+      auto transposed = m_matrix.transpose();
+      internal::selfadjoint_apply_permutation_lower(transposed, permutation);
+    }
+    return *this;
+  }
+
+  /** Applies an inverse (or transposed) permutation in place. \sa applyPermutation() */
+  template <typename PermutationDerived>
+  EIGEN_DEVICE_FUNC SelfAdjointView& applyPermutation(
+      const InverseImpl<PermutationDerived, PermutationStorage>& permutation) {
+    return applyPermutation(permutation.derived().eval());
   }
 
   /** \internal */
