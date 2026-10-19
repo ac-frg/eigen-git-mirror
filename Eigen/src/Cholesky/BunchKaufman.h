@@ -1065,10 +1065,8 @@ MatrixType BunchKaufman<MatrixType, UpLo_>::reconstructedMatrix() const {
   applyD(res);
   res = matrixL() * res;
   // P^T (L D L^*) P; the stored pivots cannot alias the new result.
-  for (Index k = m_matrix.rows(); k > 0;) {
-    --k;
-    res.template selfadjointView<Lower>().applyTransposition(k, m_transpositions.coeff(k));
-  }
+  auto lower_triangle = res.template selfadjointView<Lower>();
+  for (Index k = m_matrix.rows() - 1; k >= 0; --k) lower_triangle.applyTransposition(k, m_transpositions.coeff(k));
   res.template triangularView<StrictlyUpper>() = res.adjoint();
 
   return res;
