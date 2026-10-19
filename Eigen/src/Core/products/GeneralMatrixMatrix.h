@@ -35,15 +35,15 @@ class gemm_packing_space {
                                                            RhsScalar*& blockB) {
     check_size_for_overflow<LhsScalar>(sizeA);
     check_size_for_overflow<RhsScalar>(sizeB);
-    constexpr std::size_t alignment =
-        EIGEN_STACK_ALIGN_BYTES > alignof(RhsScalar) ? EIGEN_STACK_ALIGN_BYTES : alignof(RhsScalar);
+    // Not numext::maxi: under SYCL_DEVICE_ONLY its cl_ulong (std::size_t) specialization is not constexpr.
+    constexpr std::size_t alignment = (std::max)(std::size_t{EIGEN_STACK_ALIGN_BYTES}, alignof(RhsScalar));
     const std::size_t max_bytes = (std::numeric_limits<std::ptrdiff_t>::max)();
     const std::size_t bytesA = sizeA * sizeof(LhsScalar);
     const std::size_t bytesB = sizeB * sizeof(RhsScalar);
     if (bytesA > max_bytes - (alignment - 1)) throw_std_bad_alloc();
-    const std::size_t offsetB = (bytesA + alignment - 1) / alignment * alignment;
+    const std::size_t offsetB = first_multiple(bytesA, alignment);
     if (bytesB > max_bytes - offsetB) throw_std_bad_alloc();
-    auto* storage = static_cast<unsigned char*>(scratch_malloc(offsetB + bytesB));
+    unsigned char* storage = static_cast<unsigned char*>(scratch_malloc(offsetB + bytesB));
     blockA = reinterpret_cast<LhsScalar*>(storage);
     blockB = reinterpret_cast<RhsScalar*>(storage + offsetB);
     return storage;
@@ -56,9 +56,10 @@ class gemm_packing_space {
         sizeB <= EIGEN_STACK_ALLOCATION_LIMIT / sizeof(RhsScalar))
       return nullptr;
 #endif
+    // scratch_malloc guarantees only EIGEN_STACK_ALIGN_BYTES, or malloc's alignment when that is 0.
     constexpr std::size_t base_alignment =
         EIGEN_STACK_ALIGN_BYTES > 0 ? EIGEN_STACK_ALIGN_BYTES : alignof(std::max_align_t);
-    if (alignof(LhsScalar) > base_alignment || alignof(RhsScalar) > base_alignment) return nullptr;
+    if ((std::max)(alignof(LhsScalar), alignof(RhsScalar)) > base_alignment) return nullptr;
     return allocateCombined(sizeA, sizeB, blockA, blockB);
   }
 
