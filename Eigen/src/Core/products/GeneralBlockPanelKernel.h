@@ -1258,6 +1258,14 @@ struct gebp_rhs_cols<J, MrPackets, NrCols, true> {
   }
 };
 
+// Fully unrolls a loop over the accumulators (at most 3 x 8 = 24), exposing constant indices before GCC's scalar
+// replacement pass at -O2.
+#if EIGEN_ARCH_ARM64 && defined(EIGEN_VECTORIZE_NEON) && EIGEN_GNUC_STRICT_AT_LEAST(8, 0, 0)
+#define EIGEN_GEBP_UNROLL_ACCUMULATORS _Pragma("GCC unroll 24")
+#else
+#define EIGEN_GEBP_UNROLL_ACCUMULATORS
+#endif
+
 // One step of the micro-kernel: loads MrPackets LHS packets at step K,
 // then processes NrCols RHS columns via gebp_rhs_cols.
 template <int K, int MrPackets, int NrCols>
@@ -1283,7 +1291,7 @@ struct gebp_micro_step {
 #if EIGEN_GNUC_STRICT_AT_LEAST(16, 0, 0)
       // GCC 16 also needs the double accumulator updates to stay on their own depth step.
       EIGEN_IF_CONSTEXPR (std::is_same<AccPacket, Packet2d>::value) {
-#pragma GCC unroll 24
+        EIGEN_GEBP_UNROLL_ACCUMULATORS
         for (int n = 0; n < MrPackets * NrCols; ++n) {
           EIGEN_OPTIMIZATION_BARRIER(C[n]);
         }
@@ -1439,10 +1447,7 @@ EIGEN_ALWAYS_INLINE void gebp_micro_panel_impl(GEBPTraits& traits, const DataMap
   constexpr int CSize = 3 * NrCols > MrPackets * NrCols ? 3 * NrCols : MrPackets * NrCols;
 #endif
   alignas(AccPacketLocal) AccPacketLocal C[CSize];
-  // Expose constant accumulator indices before GCC's scalar replacement pass at -O2.
-#if EIGEN_ARCH_ARM64 && defined(EIGEN_VECTORIZE_NEON) && EIGEN_GNUC_STRICT_AT_LEAST(8, 0, 0)
-#pragma GCC unroll 24
-#endif
+  EIGEN_GEBP_UNROLL_ACCUMULATORS
   for (int n = 0; n < MrPackets * NrCols; ++n) traits.initAcc(C[n]);
 
   // Double-accumulation trick for 1pX4 path to break FMA dependency chains
@@ -1491,9 +1496,7 @@ EIGEN_ALWAYS_INLINE void gebp_micro_panel_impl(GEBPTraits& traits, const DataMap
 
   // Merge double accumulators
   EIGEN_IF_CONSTEXPR (use_double_accum) {
-#if EIGEN_ARCH_ARM64 && defined(EIGEN_VECTORIZE_NEON) && EIGEN_GNUC_STRICT_AT_LEAST(8, 0, 0)
-#pragma GCC unroll 24
-#endif
+    EIGEN_GEBP_UNROLL_ACCUMULATORS
     for (int n = 0; n < NrCols; ++n) C[n] = padd(C[n], D[n]);
   }
 
@@ -1510,14 +1513,10 @@ EIGEN_ALWAYS_INLINE void gebp_micro_panel_impl(GEBPTraits& traits, const DataMap
 
   // ---- Store results: C[j + p * NrCols] -> res(i + p*ResPacketSz, j2 + j) ----
   alignas(ResPacketLocal) ResPacketLocal alphav = pset1<ResPacketLocal>(alpha);
-#if EIGEN_ARCH_ARM64 && defined(EIGEN_VECTORIZE_NEON) && EIGEN_GNUC_STRICT_AT_LEAST(8, 0, 0)
-#pragma GCC unroll 24
-#endif
+  EIGEN_GEBP_UNROLL_ACCUMULATORS
   for (int j = 0; j < NrCols; ++j) {
     LinearMapper_ r = res.getLinearMapper(i, j2 + j);
-#if EIGEN_ARCH_ARM64 && defined(EIGEN_VECTORIZE_NEON) && EIGEN_GNUC_STRICT_AT_LEAST(8, 0, 0)
-#pragma GCC unroll 24
-#endif
+    EIGEN_GEBP_UNROLL_ACCUMULATORS
     for (int p = 0; p < MrPackets; ++p) {
       alignas(ResPacketLocal) ResPacketLocal R = r.template loadPacket<ResPacketLocal>(p * ResPacketSz);
       traits.acc(C[j + p * NrCols], alphav, R);
@@ -1525,6 +1524,7 @@ EIGEN_ALWAYS_INLINE void gebp_micro_panel_impl(GEBPTraits& traits, const DataMap
     }
   }
 }
+#undef EIGEN_GEBP_UNROLL_ACCUMULATORS
 
 // Workaround a GCC/AArch64 register-allocation issue (through at least GCC 14.3): the float
 // kernel's mr=12 x nr=8 tile holds 24 of the 32 NEON registers, and GCC's pre-RA scheduler
@@ -1532,7 +1532,8 @@ EIGEN_ALWAYS_INLINE void gebp_micro_panel_impl(GEBPTraits& traits, const DataMap
 // ~halving GEMM throughput (~2.1x fp32 on Cortex-X925; spills 20 -> 2 with it off). Clang
 // allocates the same tile spill-free, so we keep nr=8 and just disable that GCC pass here.
 // This is a known bug in GCC: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=100697
-// In-order cores can opt out via EIGEN_DONT_DISABLE_GEBP_INSN_SCHEDULING.
+// In-order cores can opt out via EIGEN_DONT_DISABLE_GEBP_INSN_SCHEDULING, which also drops the
+// depth-step barriers in gebp_micro_step.
 #if EIGEN_COMP_GNUC_STRICT && EIGEN_ARCH_ARM64 && !defined(EIGEN_DONT_DISABLE_GEBP_INSN_SCHEDULING)
 #pragma GCC push_options
 #pragma GCC optimize("no-schedule-insns")
