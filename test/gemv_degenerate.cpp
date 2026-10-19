@@ -59,7 +59,7 @@ void degenerate_gemv() {
   using MatrixType = Matrix<LhsScalar, Dynamic, Dynamic>;
   using RhsVector = Matrix<RhsScalar, Dynamic, 1>;
   for (Index n : {0, 1, 3, 8, 17, 257}) {
-    for (Index depth : {0, 1, 2}) {
+    for (Index depth : {0, 1, 2, 4}) {
       MatrixType a = MatrixType::Random(depth, n);
       RhsVector rhsStorage = RhsVector::Random(3 * depth + 1);
       Map<RhsVector, Unaligned, InnerStride<3>> rhs(rhsStorage.data(), depth);
@@ -80,6 +80,9 @@ void degenerate_gemv() {
     check_degenerate_gemv(runtimeLhs, rhs);
     Matrix<LhsScalar, 1, Dynamic> row = Matrix<LhsScalar, 1, Dynamic>::Random(n);
     check_degenerate_gemv(row.transpose(), rhs);
+    Matrix<LhsScalar, 2, Dynamic> fixedDepth = Matrix<LhsScalar, 2, Dynamic>::Random(2, n);
+    RhsVector fixedDepthRhs = RhsVector::Random(2);
+    check_degenerate_gemv(fixedDepth.transpose(), fixedDepthRhs);
   }
 }
 
@@ -168,6 +171,10 @@ void degenerate_gemv_array_destinations() {
 }
 
 EIGEN_DECLARE_TEST(gemv_degenerate) {
+  // The disabled C++14 dispatch must not require coefficient access or instantiate the update.
+  int placeholder = 0;
+  VERIFY((!internal::gemv_single_column<false, false, false>::run(placeholder, placeholder, placeholder, placeholder,
+                                                                  true)));
   degenerate_gemv_array_destinations<float, RowMajor>();
   degenerate_gemv_array_destinations<float, ColMajor>();
   degenerate_gemv_array_destinations<double, RowMajor>();

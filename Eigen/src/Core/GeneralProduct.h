@@ -408,53 +408,47 @@ struct gemv_dense_selector<OnTheLeft, StorageOrder, BlasCompatible> {
   }
 };
 
-template <typename Lhs, typename Rhs, typename Dest>
-EIGEN_STRONG_INLINE void gemv_single_column_update(const Lhs& lhs, const Rhs& rhs, Dest& dest,
-                                                   const typename Dest::Scalar& alpha) {
-  using LhsBlasTraits = blas_traits<Lhs>;
-  using RhsBlasTraits = blas_traits<Rhs>;
-  typename LhsBlasTraits::DirectLinearAccessType actualLhs = LhsBlasTraits::extract(lhs);
-  typename RhsBlasTraits::DirectLinearAccessType actualRhs = RhsBlasTraits::extract(rhs);
-  const typename Dest::Scalar actualAlpha = combine_scalar_factors(alpha, lhs, rhs);
-  if (numext::is_exactly_zero(actualAlpha)) return;
-  const typename Rhs::Scalar rhsValue = conj_if<RhsBlasTraits::NeedToConjugate>()(actualRhs.coeff(0, 0));
-  using Column = Matrix<typename Lhs::Scalar, Dynamic, 1>;
-  const Index stride = actualLhs.col(0).innerStride();
+// Keep the shortcut's expression out of the general GEMV caller's inlining budget.
+template <bool ConjugateLhs, typename LhsScalar, typename RhsScalar, typename Dest>
+EIGEN_DONT_INLINE void gemv_single_column_update(const LhsScalar* data, Index rows, Index stride, RhsScalar rhsValue,
+                                                 typename Dest::Scalar alpha, Dest& dest) {
+  using Column = Matrix<LhsScalar, Dynamic, 1>;
   // A runtime stride of one must be visible to the assignment evaluator to enable packets.
   // Preserve alpha * (lhs * rhs): folding alpha into rhs can overflow before the product.
   if (stride == 1) {
-    Map<const Column> column(actualLhs.data(), actualLhs.rows());
-    dest.col(0).matrix() += actualAlpha * (column.template conjugateIf<LhsBlasTraits::NeedToConjugate>() * rhsValue);
+    Map<const Column> column(data, rows);
+    dest.col(0).matrix() += alpha * (column.template conjugateIf<ConjugateLhs>() * rhsValue);
   } else {
-    Map<const Column, Unaligned, InnerStride<>> column(actualLhs.data(), actualLhs.rows(), InnerStride<>(stride));
-    dest.col(0).matrix() += actualAlpha * (column.template conjugateIf<LhsBlasTraits::NeedToConjugate>() * rhsValue);
+    Map<const Column, Unaligned, InnerStride<>> column(data, rows, InnerStride<>(stride));
+    dest.col(0).matrix() += alpha * (column.template conjugateIf<ConjugateLhs>() * rhsValue);
   }
 }
 
+template <bool Enable, bool ConjugateLhs, bool ConjugateRhs>
+struct gemv_single_column {
+  template <typename Lhs, typename Rhs, typename Scalar, typename Dest>
+  static EIGEN_STRONG_INLINE bool run(const Lhs&, const Rhs&, const Scalar&, Dest&, bool) {
+    return false;
+  }
+};
+
+template <bool ConjugateLhs, bool ConjugateRhs>
+struct gemv_single_column<true, ConjugateLhs, ConjugateRhs> {
+  template <typename Lhs, typename Rhs, typename Scalar, typename Dest>
+  static EIGEN_STRONG_INLINE bool run(const Lhs& lhs, const Rhs& rhs, const Scalar& alpha, Dest& dest, bool eligible) {
+    if (!eligible || lhs.cols() != 1) return false;
+    if (!numext::is_exactly_zero(alpha)) {
+      gemv_single_column_update<ConjugateLhs>(lhs.data(), lhs.rows(), lhs.col(0).innerStride(),
+                                              conj_if<ConjugateRhs>()(rhs.coeff(0, 0)), alpha, dest);
+    }
+    return true;
+  }
+};
+
 template <>
 struct gemv_dense_selector<OnTheRight, ColMajor, true> {
-  template <typename Lhs, typename Rhs, typename Dest, std::enable_if_t<Lhs::ColsAtCompileTime != Dynamic, int> = 0>
-  static inline void run(const Lhs& lhs, const Rhs& rhs, Dest& dest, const typename Dest::Scalar& alpha) {
-    run_general(lhs, rhs, dest, alpha);
-  }
-
-  template <typename Lhs, typename Rhs, typename Dest, std::enable_if_t<Lhs::ColsAtCompileTime == Dynamic, int> = 0>
-  static EIGEN_STRONG_INLINE void run(const Lhs& lhs, const Rhs& rhs, Dest& dest, const typename Dest::Scalar& alpha) {
-    constexpr bool RealScalars =
-        std::is_same<typename Lhs::Scalar, typename Rhs::Scalar>::value &&
-        std::is_same<typename Lhs::Scalar, typename Dest::Scalar>::value &&
-        (std::is_same<typename Dest::Scalar, float>::value || std::is_same<typename Dest::Scalar, double>::value);
-    // Bypass the destination buffer for strided real updates; complex arithmetic benefits from the packet kernel.
-    if (!RealScalars || Dest::InnerStrideAtCompileTime == 1 || lhs.cols() != 1 ||
-        (Dest::InnerStrideAtCompileTime == Dynamic && dest.innerStride() == 1)) {
-      run_general(lhs, rhs, dest, alpha);
-      return;
-    }
-    gemv_single_column_update(lhs, rhs, dest, alpha);
-  }
-
   template <typename Lhs, typename Rhs, typename Dest>
-  static inline void run_general(const Lhs& lhs, const Rhs& rhs, Dest& dest, const typename Dest::Scalar& alpha) {
+  static inline void run(const Lhs& lhs, const Rhs& rhs, Dest& dest, const typename Dest::Scalar& alpha) {
     using LhsScalar = typename Lhs::Scalar;
     using RhsScalar = typename Rhs::Scalar;
     using ResScalar = typename Dest::Scalar;
@@ -468,6 +462,16 @@ struct gemv_dense_selector<OnTheRight, ColMajor, true> {
     ActualRhsType actualRhs = RhsBlasTraits::extract(rhs);
 
     ResScalar actualAlpha = combine_scalar_factors(alpha, lhs, rhs);
+
+    constexpr bool DoubleScalars = std::is_same<LhsScalar, RhsScalar>::value &&
+                                   std::is_same<LhsScalar, ResScalar>::value && std::is_same<ResScalar, double>::value;
+    // Float updates can be slower than the buffered packet kernel; bypass it only for matching double scalars.
+    constexpr bool EnableSingleColumn =
+        Lhs::ColsAtCompileTime == Dynamic && DoubleScalars && Dest::InnerStrideAtCompileTime != 1;
+    if (gemv_single_column<EnableSingleColumn, LhsBlasTraits::NeedToConjugate, RhsBlasTraits::NeedToConjugate>::run(
+            actualLhs, actualRhs, actualAlpha, dest,
+            Dest::InnerStrideAtCompileTime != Dynamic || dest.innerStride() != 1))
+      return;
 
     // make sure Dest is a compile-time vector type (bug 1166)
     using ActualDest = std::conditional_t<Dest::IsVectorAtCompileTime, Dest, typename Dest::ColXpr>;
@@ -519,27 +523,8 @@ struct gemv_dense_selector<OnTheRight, ColMajor, true> {
 
 template <>
 struct gemv_dense_selector<OnTheRight, RowMajor, true> {
-  template <typename Lhs, typename Rhs, typename Dest, std::enable_if_t<Lhs::ColsAtCompileTime != Dynamic, int> = 0>
-  static inline void run(const Lhs& lhs, const Rhs& rhs, Dest& dest, const typename Dest::Scalar& alpha) {
-    run_general(lhs, rhs, dest, alpha);
-  }
-
-  template <typename Lhs, typename Rhs, typename Dest, std::enable_if_t<Lhs::ColsAtCompileTime == Dynamic, int> = 0>
-  static EIGEN_STRONG_INLINE void run(const Lhs& lhs, const Rhs& rhs, Dest& dest, const typename Dest::Scalar& alpha) {
-    // Cost heuristic, not a correctness requirement: broadcasts copy scalars, potentially allocating for owning types.
-    // Keep unmeasured nontrivial custom scalars on their existing GEMV path.
-    constexpr bool TriviallyCopyableScalars = std::is_trivially_copyable<typename Lhs::Scalar>::value &&
-                                              std::is_trivially_copyable<typename Rhs::Scalar>::value &&
-                                              std::is_trivially_copyable<typename Dest::Scalar>::value;
-    if (!TriviallyCopyableScalars || lhs.cols() != 1) {
-      run_general(lhs, rhs, dest, alpha);
-      return;
-    }
-    gemv_single_column_update(lhs, rhs, dest, alpha);
-  }
-
   template <typename Lhs, typename Rhs, typename Dest>
-  static void run_general(const Lhs& lhs, const Rhs& rhs, Dest& dest, const typename Dest::Scalar& alpha) {
+  static void run(const Lhs& lhs, const Rhs& rhs, Dest& dest, const typename Dest::Scalar& alpha) {
     using LhsScalar = typename Lhs::Scalar;
     using RhsScalar = typename Rhs::Scalar;
     using ResScalar = typename Dest::Scalar;
@@ -554,6 +539,15 @@ struct gemv_dense_selector<OnTheRight, RowMajor, true> {
     std::add_const_t<ActualRhsType> actualRhs = RhsBlasTraits::extract(rhs);
 
     ResScalar actualAlpha = combine_scalar_factors(alpha, lhs, rhs);
+
+    // Cost heuristic: broadcasts may allocate for owning scalars. Complex shortcuts can worsen GCC's kernel spilling.
+    constexpr bool EnableSingleColumn = Lhs::ColsAtCompileTime == Dynamic && !NumTraits<ResScalar>::IsComplex &&
+                                        std::is_trivially_copyable<LhsScalar>::value &&
+                                        std::is_trivially_copyable<RhsScalar>::value &&
+                                        std::is_trivially_copyable<ResScalar>::value;
+    if (gemv_single_column<EnableSingleColumn, LhsBlasTraits::NeedToConjugate, RhsBlasTraits::NeedToConjugate>::run(
+            actualLhs, actualRhs, actualAlpha, dest, true))
+      return;
 
     enum {
       // FIXME: find a way to allow an inner stride on the result if packet_traits<Scalar>::size==1
