@@ -44,7 +44,7 @@ struct selfadjoint_permutation {
     permutation.indices() << 1, 3, 0, 2;
     matrix.template selfadjointView<UpLo>().applyPermutation(permutation);
     Map<MatrixType>(out + 48 * i) = matrix;
-    matrix.template selfadjointView<UpLo>().applyPermutation(Inverse<PermutationMatrix<4>>(permutation));
+    matrix.template selfadjointView<UpLo>().applyPermutation(permutation.inverse());
     Map<MatrixType>(out + 48 * i + 16) = matrix;
     matrix.template selfadjointView<UpLo>().applyTransposition(3, 0);
     Map<MatrixType>(out + 48 * i + 32) = matrix;
