@@ -299,8 +299,9 @@ void array_special_functions() {
     // reference in at least double precision so x**a and the recurrence term retain subnormal float results.
     using ReferenceScalar = std::conditional_t<(sizeof(Scalar) < sizeof(double)), double, Scalar>;
     using ReferenceArray = Array<ReferenceScalar, Dynamic, 1>;
-    const ReferenceArray ar = a.template cast<ReferenceScalar>(), br = b.template cast<ReferenceScalar>(),
-                         xr = x.template cast<ReferenceScalar>();
+    const ReferenceArray& ar = a.template cast<ReferenceScalar>();
+    const ReferenceArray& br = b.template cast<ReferenceScalar>();
+    const ReferenceArray& xr = x.template cast<ReferenceScalar>();
     const Scalar tiny = (std::numeric_limits<Scalar>::min)();
 
     // betainc(a, 1, x) == x**a. The absolute floor covers rounding of subnormal results.
