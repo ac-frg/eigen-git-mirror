@@ -402,8 +402,25 @@ struct llt_inplace<Scalar, Lower> {
       if (k > 0) x -= A10.squaredNorm();
       if (x <= RealScalar(0)) return k;
       mat.coeffRef(k, k) = x = sqrt(x);
+#if EIGEN_COMP_GNUC_STRICT && defined(EIGEN_VECTORIZE_AVX)
+      EIGEN_IF_CONSTEXPR (MatrixType::RowsAtCompileTime >= 2 && MatrixType::RowsAtCompileTime <= 4 &&
+                          !MatrixType::IsRowMajor && MatrixType::InnerStrideAtCompileTime == 1 &&
+                          (is_same<Scalar, float>::value || is_same<Scalar, double>::value)) {
+        // Fuse short, fixed-size column updates to avoid reloading a masked store.
+        if (rs > 0) {
+          if (k > 0)
+            A21 = (A21 - A20.lazyProduct(A10.adjoint())) / x;
+          else
+            A21 /= x;
+        }
+      } else {
+        if (k > 0 && rs > 0) A21.noalias() -= A20 * A10.adjoint();
+        if (rs > 0) A21 /= x;
+      }
+#else
       if (k > 0 && rs > 0) A21.noalias() -= A20 * A10.adjoint();
       if (rs > 0) A21 /= x;
+#endif
     }
     return -1;
   }

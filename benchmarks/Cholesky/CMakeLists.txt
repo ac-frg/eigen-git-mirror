@@ -3,6 +3,9 @@
 
 eigen_add_benchmark(bench_cholesky bench_cholesky.cpp)
 eigen_add_benchmark(bench_cholesky_double bench_cholesky.cpp DEFINITIONS SCALAR=double)
+eigen_add_benchmark(bench_cholesky_small bench_cholesky_small.cpp DEFINITIONS SCALAR=double)
+eigen_add_benchmark(bench_cholesky_small_float bench_cholesky_small.cpp DEFINITIONS SCALAR=float)
+eigen_add_benchmark(bench_cholesky_small_cplx bench_cholesky_small.cpp DEFINITIONS "SCALAR=std::complex<double>")
 eigen_add_benchmark(bench_bunchkaufman bench_bunchkaufman.cpp DEFINITIONS SCALAR=double)
 eigen_add_benchmark(bench_bunchkaufman_cplx bench_bunchkaufman.cpp DEFINITIONS "SCALAR=std::complex<double>")
 eigen_add_benchmark(bench_llt_inverse bench_llt_inverse.cpp DEFINITIONS SCALAR=double)
