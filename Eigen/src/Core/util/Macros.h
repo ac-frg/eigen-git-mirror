@@ -1125,6 +1125,7 @@ EIGEN_DEVICE_FUNC constexpr void ignore_unused_variable(const T&) {}
 //   x: (SSE) Any SSE register.
 //      (AArch64) Like w, but restricted to registers 0 to 15 inclusive.
 //   v: (PowerPC) An Altivec vector register.
+//      (x86) Any EVEX-encodable SSE register, including registers 16-31.
 //   wa:(PowerPC) A VSX register.
 //
 // "X" (uppercase) should work for all cases, though this seems to fail for
@@ -1189,12 +1190,89 @@ EIGEN_ALWAYS_INLINE void ppc_optimization_barrier(T& x) {
 // Clang's PPC backend does not accept one register constraint covering all scalar and vector operands. In particular,
 // "wa" crashes the backend for scalar integers narrower than 64 bits.
 #define EIGEN_OPTIMIZATION_BARRIER(X) __asm__("" : "+m"(X));
+#elif (EIGEN_COMP_GNUC_STRICT || EIGEN_COMP_CLANG) && \
+    ((EIGEN_ARCH_ARM_OR_ARM64 && defined(__ARM_FP)) || (EIGEN_ARCH_i386_OR_x86_64 && defined(__SSE2__)))
+// Clang chooses memory for mixed general/vector constraints. Use a register-only constraint for float, double,
+// and builtin vectors that fit in one enabled register. Other operands retain the general/memory alternatives.
+#if EIGEN_ARCH_ARM_OR_ARM64
+#define EIGEN_BARRIER_GENERAL_CONSTRAINT "+g,w"
+#define EIGEN_BARRIER_REGISTER_CONSTRAINT "+w"
+#ifdef __ARM_NEON
+#define EIGEN_BARRIER_VECTOR_BYTES 16
+#else
+#define EIGEN_BARRIER_VECTOR_BYTES 0
+#endif
+#else
+#define EIGEN_BARRIER_GENERAL_CONSTRAINT "+g,x"
+#ifdef __AVX512F__
+// Unlike "x", "v" also allows registers 16-31.
+#define EIGEN_BARRIER_REGISTER_CONSTRAINT "+v"
+#define EIGEN_BARRIER_VECTOR_BYTES 64
+#elif defined(__AVX__)
+#define EIGEN_BARRIER_REGISTER_CONSTRAINT "+x"
+#define EIGEN_BARRIER_VECTOR_BYTES 32
+#else
+#define EIGEN_BARRIER_REGISTER_CONSTRAINT "+x"
+#define EIGEN_BARRIER_VECTOR_BYTES 16
+#endif
+#endif
+namespace Eigen {
+namespace internal {
+// Macros.h precedes Meta.h and <type_traits>. GCC before 14 classifies builtin vectors as -1; newer GCC and Clang
+// use 19. nullptr_t also has category -1 and is excluded below. Classes, unions, and scalars have other categories.
+template <typename T>
+struct optimization_barrier_in_register {
+  static constexpr int kTypeClass = __builtin_classify_type(*static_cast<T*>(nullptr));
+  static constexpr bool value = (kTypeClass == -1 || kTypeClass == 19) && sizeof(T) <= EIGEN_BARRIER_VECTOR_BYTES;
+};
+template <typename T>
+struct optimization_barrier_in_register<const T> : optimization_barrier_in_register<T> {};
+template <typename T>
+struct optimization_barrier_in_register<volatile T> : optimization_barrier_in_register<T> {};
+template <typename T>
+struct optimization_barrier_in_register<const volatile T> : optimization_barrier_in_register<T> {};
+template <>
+struct optimization_barrier_in_register<decltype(nullptr)> {
+  static constexpr bool value = false;
+};
+#if !EIGEN_ARCH_ARM_OR_ARM64 || (__ARM_FP & 4)
+template <>
+struct optimization_barrier_in_register<float> {
+  static constexpr bool value = true;
+};
+#endif
+#if !EIGEN_ARCH_ARM_OR_ARM64 || (__ARM_FP & 8)
+template <>
+struct optimization_barrier_in_register<double> {
+  static constexpr bool value = true;
+};
+#endif
+template <bool InRegister>
+struct optimization_barrier_impl {
+  template <typename T>
+  static EIGEN_ALWAYS_INLINE void run(T& x) {
+    __asm__("" : EIGEN_BARRIER_GENERAL_CONSTRAINT(x));
+  }
+};
+template <>
+struct optimization_barrier_impl<true> {
+  template <typename T>
+  static EIGEN_ALWAYS_INLINE void run(T& x) {
+    __asm__("" : EIGEN_BARRIER_REGISTER_CONSTRAINT(x));
+  }
+};
+template <typename T>
+EIGEN_ALWAYS_INLINE void optimization_barrier(T& x) {
+  optimization_barrier_impl<optimization_barrier_in_register<T>::value>::run(x);
+}
+}  // namespace internal
+}  // namespace Eigen
+#undef EIGEN_BARRIER_GENERAL_CONSTRAINT
+#undef EIGEN_BARRIER_REGISTER_CONSTRAINT
+#undef EIGEN_BARRIER_VECTOR_BYTES
+#define EIGEN_OPTIMIZATION_BARRIER(X) Eigen::internal::optimization_barrier(X);
 #elif EIGEN_ARCH_ARM_OR_ARM64
 #ifdef __ARM_FP
-// General, VFP or NEON.
-// Clang doesn't like "r",
-//    error: non-trivial scalar-to-vector conversion, possible invalid
-//           constraint for vector typ
 #define EIGEN_OPTIMIZATION_BARRIER(X) __asm__("" : "+g,w"(X));
 #else
 // Arm without VFP or NEON.
@@ -1234,8 +1312,7 @@ namespace Eigen {
 namespace internal {
 // A volatile asm that the optimizer must execute exactly where it is written, so a value passed through it is defined
 // only on its branch, and an operation that consumes it stays there instead of being evaluated speculatively.
-// EIGEN_OPTIMIZATION_BARRIER is not volatile, and its "+g,w" and "+g,x" alternatives put a scalar float or double in
-// memory on clang; the float and double overloads keep the value in a register.
+// EIGEN_OPTIMIZATION_BARRIER is not volatile and can move across branches.
 template <typename T>
 EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE void volatile_barrier(T& x) {
   EIGEN_UNUSED_VARIABLE(x);

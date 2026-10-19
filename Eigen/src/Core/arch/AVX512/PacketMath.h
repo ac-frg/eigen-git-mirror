@@ -45,15 +45,6 @@ typedef eigen_packet_wrapper<__m512i, 6> Packet32s;
 typedef eigen_packet_wrapper<__m256i, 6> Packet16s;
 typedef eigen_packet_wrapper<__m128i, 6> Packet8s;
 
-#if !defined(EIGEN_GPU_COMPILE_PHASE) && !defined(SYCL_DEVICE_ONLY) && \
-    (EIGEN_COMP_GNUC || (defined(__clang__) && defined(_MSC_VER)))
-// Keep native double packets in registers: clang chooses memory for "+g,x".
-template <>
-EIGEN_STRONG_INLINE void pbarrier<Packet8d>(Packet8d& x) {
-  __asm__("" : "+x"(x));
-}
-#endif
-
 #if EIGEN_COMP_NVHPC
 #define EIGEN_AVX512_SHUFFLE_PS(A, B, M) ((__m512)_mm512_shuffle_ps(A, B, M))
 #else

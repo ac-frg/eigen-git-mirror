@@ -49,15 +49,6 @@ typedef eigen_packet_wrapper<__m256i, 5> Packet4ul;
 
 #define SIGN_MASK_I64 static_cast<int64_t>(0x8000000000000000ULL)
 
-#if !defined(EIGEN_GPU_COMPILE_PHASE) && !defined(SYCL_DEVICE_ONLY) && \
-    (EIGEN_COMP_GNUC || (defined(__clang__) && defined(_MSC_VER)))
-// Keep native double packets in registers: clang chooses memory for "+g,x".
-template <>
-EIGEN_STRONG_INLINE void pbarrier<Packet4d>(Packet4d& x) {
-  __asm__("" : "+x"(x));
-}
-#endif
-
 template <>
 struct is_arithmetic<__m256> : std::true_type {};
 template <>

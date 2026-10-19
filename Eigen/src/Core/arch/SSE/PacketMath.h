@@ -55,15 +55,6 @@ using Packet16b = eigen_packet_wrapper<__m128i, 1>;
 using Packet4ui = eigen_packet_wrapper<__m128i, 4>;
 using Packet2l = eigen_packet_wrapper<__m128i, 5>;
 
-#if !defined(EIGEN_GPU_COMPILE_PHASE) && !defined(SYCL_DEVICE_ONLY) && \
-    (EIGEN_COMP_GNUC || (defined(__clang__) && defined(_MSC_VER)))
-// Keep native double packets in registers: clang chooses memory for "+g,x".
-template <>
-EIGEN_STRONG_INLINE void pbarrier<Packet2d>(Packet2d& x) {
-  __asm__("" : "+x"(x));
-}
-#endif
-
 template <>
 struct is_arithmetic<__m128> : std::true_type {};
 template <>
