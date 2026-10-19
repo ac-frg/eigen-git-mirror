@@ -1259,6 +1259,20 @@ EIGEN_ALWAYS_INLINE void ppc_optimization_barrier(T& x) {
 #else
 #define EIGEN_BARRIER_VECTOR_BYTES 0
 #endif
+// The SME kernels use the barrier in streaming functions with ZA state. GCC refuses to inline a helper without these
+// attributes there, and Clang 23 calls it out of line, switching streaming mode and lazily saving ZA around each call.
+// Clang 20 and later have __arm_agnostic; for GCC, __arm_streaming_compatible suffices.
+#if EIGEN_ARCH_ARM64 && defined(__ARM_FEATURE_SME)
+#define EIGEN_BARRIER_SME_ATTRIBUTES __arm_streaming_compatible
+#if EIGEN_COMP_CLANG
+#if !__is_identifier(__arm_agnostic)
+#undef EIGEN_BARRIER_SME_ATTRIBUTES
+#define EIGEN_BARRIER_SME_ATTRIBUTES __arm_streaming_compatible __arm_agnostic("sme_za_state")
+#endif
+#endif
+#else
+#define EIGEN_BARRIER_SME_ATTRIBUTES
+#endif
 namespace Eigen {
 namespace internal {
 // GCC before 14 classifies builtin vectors as -1; newer GCC and Clang use 19. nullptr_t also has category -1 and is
@@ -1288,26 +1302,26 @@ enum class optimization_barrier_operand_kind { General, Register, Memory };
 template <optimization_barrier_operand_kind Kind>
 struct optimization_barrier_impl {
   template <typename T>
-  static EIGEN_ALWAYS_INLINE void run(T& x) {
+  static EIGEN_ALWAYS_INLINE void run(T& x) EIGEN_BARRIER_SME_ATTRIBUTES {
     __asm__("" : EIGEN_BARRIER_GENERAL_CONSTRAINT(x));
   }
 };
 template <>
 struct optimization_barrier_impl<optimization_barrier_operand_kind::Register> {
   template <typename T>
-  static EIGEN_ALWAYS_INLINE void run(T& x) {
+  static EIGEN_ALWAYS_INLINE void run(T& x) EIGEN_BARRIER_SME_ATTRIBUTES {
     __asm__("" : EIGEN_BARRIER_REGISTER_CONSTRAINT(x));
   }
 };
 template <>
 struct optimization_barrier_impl<optimization_barrier_operand_kind::Memory> {
   template <typename T>
-  static EIGEN_ALWAYS_INLINE void run(T& x) {
+  static EIGEN_ALWAYS_INLINE void run(T& x) EIGEN_BARRIER_SME_ATTRIBUTES {
     __asm__("" : "+m"(x));
   }
 };
 template <typename T>
-EIGEN_ALWAYS_INLINE void optimization_barrier(T& x) {
+EIGEN_ALWAYS_INLINE void optimization_barrier(T& x) EIGEN_BARRIER_SME_ATTRIBUTES {
   using Operand = typename optimization_barrier_unqualified<T>::type;
   constexpr optimization_barrier_operand_kind kKind =
       optimization_barrier_in_memory<Operand>::value     ? optimization_barrier_operand_kind::Memory
@@ -1320,6 +1334,7 @@ EIGEN_ALWAYS_INLINE void optimization_barrier(T& x) {
 #undef EIGEN_BARRIER_GENERAL_CONSTRAINT
 #undef EIGEN_BARRIER_REGISTER_CONSTRAINT
 #undef EIGEN_BARRIER_VECTOR_BYTES
+#undef EIGEN_BARRIER_SME_ATTRIBUTES
 #define EIGEN_OPTIMIZATION_BARRIER(X) Eigen::internal::optimization_barrier(X);
 #elif EIGEN_ARCH_ARM_OR_ARM64
 #ifdef __ARM_FP
