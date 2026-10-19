@@ -55,6 +55,7 @@ class Ridders : public internal::ridders_solver_traits<Functor_> {
   using InputType = typename Functor::InputType;
   using ValueType = typename Functor::ValueType;
   using JacobianType = typename Functor::JacobianType;
+
   static constexpr int InputsAtCompileTime = Functor::InputsAtCompileTime;
   static constexpr int ValuesAtCompileTime = Functor::ValuesAtCompileTime;
 
@@ -64,9 +65,12 @@ class Ridders : public internal::ridders_solver_traits<Functor_> {
      * Must be positive and finite. */
     Scalar initialStep = Scalar(0.01);
     /** \brief Step reduction factor applied at each refinement.
-     * The factor must be greater than one and its square must be finite. */
+     * The factor must be greater than one and its square must be finite.
+     * Values close to one amplify rounding errors in extrapolation and may repeat sampling points.
+     * Refinement stops when both sampling points repeat; this does not detect all ill-conditioning. */
     Scalar stepReduction = Scalar(2);
-    /** \brief Maximum number of central differences per input coordinate. Must be at least two. */
+    /** \brief Maximum number of central differences per input coordinate.
+     * Must be at least two and at most half the maximum representable Index. */
     int maxSteps = 10;
   };
 
@@ -86,6 +90,7 @@ class Ridders : public internal::ridders_solver_traits<Functor_> {
     eigen_assert(parameters.stepReduction > Scalar(1) &&
                  (numext::isfinite)(parameters.stepReduction * parameters.stepReduction));
     eigen_assert(parameters.maxSteps >= 2);
+    eigen_assert(parameters.maxSteps <= NumTraits<Index>::highest() / 2);
     m_parameters = parameters;
   }
 
@@ -112,8 +117,9 @@ class Ridders : public internal::ridders_solver_traits<Functor_> {
    * The caller sizes \a jac to values() by x.size(). At most \c 2*maxSteps evaluations
    * are made per coordinate. Difference quotients divide by the separation of the representable
    * evaluation points. Refinement stops when successive tableau diagonals differ by at least
-   * twice the best estimated error, or when evaluation points coincide or a non-finite value
-   * is encountered. The best finite estimate is retained; if none exists, the column contains NaNs.
+   * twice the best estimated error, when evaluation points coincide or repeat the previous pair,
+   * or when a non-finite value is encountered. The best finite estimate is retained;
+   * if none exists, the column contains NaNs.
    *
    * \param[in] x The evaluation point.
    * \param[out] jac The Jacobian at \a x.
@@ -150,6 +156,7 @@ class Ridders : public internal::ridders_solver_traits<Functor_> {
     // Advances in Engineering Software 4(2), 75-76 (1982). Extrapolate central differences in h^2.
     using Tableau = Matrix<Scalar, Functor::ValuesAtCompileTime, Dynamic>;
     const Index values = m_functor.values();
+    eigen_assert(jac.rows() == values && jac.cols() == input.size());
     if (values == 0 || input.size() == 0) {
       if (error) error->setZero();
       return 0;
@@ -169,6 +176,7 @@ class Ridders : public internal::ridders_solver_traits<Functor_> {
 
     for (Index j = 0; j < input.size(); ++j) {
       Scalar h = m_parameters.initialStep * numext::maxi(numext::abs(input[j]), Scalar(1));
+      Scalar previousPlus = input[j], previousMinus = input[j];
       Scalar bestError = NumTraits<Scalar>::infinity();
       jac.col(j).setConstant(NumTraits<Scalar>::quiet_NaN());
       for (int step = 0; step < m_parameters.maxSteps; ++step) {
@@ -177,9 +185,12 @@ class Ridders : public internal::ridders_solver_traits<Functor_> {
         internal::numerical_diff_barrier(xPlus);
         internal::numerical_diff_barrier(xMinus);
         if (!(numext::isfinite)(xPlus) || !(numext::isfinite)(xMinus)) break;
+        if (step > 0 && xPlus == previousPlus && xMinus == previousMinus) break;
 
         const Scalar separation = xPlus - xMinus;
         if (!(separation > Scalar(0)) || !(numext::isfinite)(separation)) break;
+        previousPlus = xPlus;
+        previousMinus = xMinus;
 
         x[j] = xPlus;
         m_functor(x, plus);
@@ -189,7 +200,13 @@ class Ridders : public internal::ridders_solver_traits<Functor_> {
         evaluations += 2;
 
         current->col(0) = (plus - minus) / separation;
-        if (!current->col(0).allFinite()) break;
+        if (!current->col(0).allFinite()) {
+          if (separation <= Scalar(1)) break;
+          // Divide before subtracting to avoid overflow, preserving already finite quotients.
+          auto quotient = current->col(0).array();
+          quotient = quotient.isFiniteTyped().select(quotient, plus.array() / separation - minus.array() / separation);
+          if (!current->col(0).allFinite()) break;
+        }
         Index bestOrder = step == 0 ? 0 : -1;
 
         Scalar factor = reductionSquared;
