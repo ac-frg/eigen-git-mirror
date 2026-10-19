@@ -112,6 +112,7 @@ static void BM_EigenGemmRowMajorRhs(benchmark::State& state) { eigen_gemm<ColMaj
 // floats; 12 doubles for 60 and 252), and n = 60 leaves b's. A column-major b and a row-major a pack through the ZA
 // transposer, a row-major b through the copy; a column-major a is mostly read in place.
 #define TAIL_PANEL_SIZES \
+    ->Args({15, 17, 1024})->Args({17, 15, 1024})->Args({31, 31, 1024}) \
     ->Args({60, 60, 1024})->Args({60, 64, 1024})->Args({64, 60, 1024})->Args({120, 120, 1024})->Args({252, 252, 252})
 // clang-format on
 

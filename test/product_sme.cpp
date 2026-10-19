@@ -1092,6 +1092,38 @@ static void verify_pack_rhs_direct(Index depth, Index cols) {
   check_packed_rhs<Scalar, StorageOrder, PanelMode, Conjugate>(Mapper(V.data(), V.outerStride()), V, depth, cols);
 }
 
+template <bool Conjugate, typename Scalar>
+EIGEN_DONT_INLINE __arm_locally_streaming static void sme_copy_range(Scalar* dst, const Scalar* src, Index stride,
+                                                                     Index k0, Index k1, int width) {
+  internal::sve_copy_panel_range<Conjugate>(dst, src, stride, k0, k1, width);
+}
+
+// Every partial-vector width, including copies ending with an unshifted tail and exact vector boundaries.
+template <typename Scalar>
+static void test_copy_panel_range() {
+  const int svl = internal::sme_packet_traits<typename NumTraits<Scalar>::Real>::size();
+  for (int width = 1; width <= 2 * svl; ++width) {
+    for (Index k0 : {0, 1, svl - 1}) {
+      for (Index depth : {0, 1, 2, 3, svl - 1, svl, svl + 1, 2 * svl + 1}) {
+        const Index k1 = k0 + depth;
+        SmeRowMajorMat<Scalar> src = SmeRowMajorMat<Scalar>::Random(k1, width + 3);
+        SmeVector<Scalar> packed = SmeVector<Scalar>::Constant(k1 * width + 2, pack_sentinel<Scalar>());
+        SmeVector<Scalar> ref = packed;
+        sme_copy_range<false>(packed.data() + 1, src.data(), src.outerStride(), k0, k1, width);
+        for (Index k = k0; k < k1; ++k)
+          for (Index c = 0; c < width; ++c) set_packed(ref.data() + 1, Index(width), k, c, Scalar(src(k, c)));
+        VERIFY_IS_EQUAL(packed, ref);
+        packed.setConstant(pack_sentinel<Scalar>());
+        sme_copy_range<true>(packed.data() + 1, src.data(), src.outerStride(), k0, k1, width);
+        for (Index k = k0; k < k1; ++k)
+          for (Index c = 0; c < width; ++c)
+            set_packed(ref.data() + 1, Index(width), k, c, Scalar(numext::conj(src(k, c))));
+        VERIFY_IS_EQUAL(packed, ref);
+      }
+    }
+  }
+}
+
 // Inner-strided blas mapper LHS: element(i, k) laid out with inner stride
 // `incr`.  ColMajor takes the vectorised gather path; RowMajor takes the scalar
 // path (its packets would run along depth, not rows).
@@ -1544,6 +1576,7 @@ EIGEN_DECLARE_TEST(product_sme) {
   CALL_SUBTEST_1(test_conjugated_products<float>());
   CALL_SUBTEST_1(test_symm_pack<float>());
   CALL_SUBTEST_1(test_pack_direct<float>());
+  CALL_SUBTEST_1(test_copy_panel_range<float>());
   CALL_SUBTEST_1(test_mapper_fallback<float>());
   CALL_SUBTEST_1(test_neon_small_blocks<float>());
   CALL_SUBTEST_1(test_small_products<float>());
@@ -1564,6 +1597,7 @@ EIGEN_DECLARE_TEST(product_sme) {
   CALL_SUBTEST_2(test_packet_ops<double>());
   CALL_SUBTEST_2(test_symm_pack<double>());
   CALL_SUBTEST_2(test_pack_direct<double>());
+  CALL_SUBTEST_2(test_copy_panel_range<double>());
   CALL_SUBTEST_2(test_mapper_fallback<double>());
   CALL_SUBTEST_2(test_neon_small_blocks<double>());
   CALL_SUBTEST_2(test_small_products<double>());
@@ -1579,6 +1613,7 @@ EIGEN_DECLARE_TEST(product_sme) {
   CALL_SUBTEST_3(test_conjugated_products<std::complex<float>>());
   CALL_SUBTEST_3(test_symm_pack<std::complex<float>>());
   CALL_SUBTEST_3(test_pack_direct<std::complex<float>>());
+  CALL_SUBTEST_3(test_copy_panel_range<std::complex<float>>());
   CALL_SUBTEST_3(test_mapper_fallback<std::complex<float>>());
   CALL_SUBTEST_3(test_neon_small_blocks<std::complex<float>>());
   CALL_SUBTEST_3(test_small_products<std::complex<float>>());
@@ -1595,6 +1630,7 @@ EIGEN_DECLARE_TEST(product_sme) {
 #ifdef EIGEN_VECTORIZE_SME_F64F64
   CALL_SUBTEST_4(test_symm_pack<std::complex<double>>());
   CALL_SUBTEST_4(test_pack_direct<std::complex<double>>());
+  CALL_SUBTEST_4(test_copy_panel_range<std::complex<double>>());
   CALL_SUBTEST_4(test_mapper_fallback<std::complex<double>>());
   CALL_SUBTEST_4(test_neon_small_blocks<std::complex<double>>());
   CALL_SUBTEST_4(test_small_products<std::complex<double>>());

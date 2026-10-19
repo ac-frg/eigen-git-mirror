@@ -112,24 +112,26 @@ static constexpr int kSmeNrCD = sme_block<std::complex<double>>::nr;
 // do reach them, from the SYMM above-diagonal transposed pack.
 // ---------------------------------------------------------------------------
 
-// Appends the leading w <= svl lanes of v to cur, which holds `fill` < svl lanes, and stores cur at out whenever it
-// fills. A packed panel's lines are contiguous, so a panel narrower than whole vectors is stored in whole vectors
-// this way: a predicated store of each partial line costs about 10 ns on Apple M4 in streaming mode.
+// Appends the leading w <= svl lanes of v to the `fill` < svl lanes of cur that `tail` selects, and stores cur at out
+// whenever it fills. Lanes of v left over after a store stay in place, selected by `tail`; the next splice moves them
+// to the front. A packed panel's lines are contiguous, so a panel narrower than whole vectors is stored in whole
+// vectors this way: a predicated store of each partial line costs about 10 ns on Apple M4 in streaming mode.
 template <typename Scalar>
-EIGEN_ALWAYS_INLINE void sme_append_lanes(typename sme_packet_traits<Scalar>::type& cur, int& fill, Scalar*& out,
-                                          typename sme_packet_traits<Scalar>::type v, int w,
+EIGEN_ALWAYS_INLINE void sme_append_lanes(typename sme_packet_traits<Scalar>::type& cur, svbool_t& tail, int& fill,
+                                          Scalar*& out, typename sme_packet_traits<Scalar>::type v, int w,
                                           int svl) __arm_streaming EIGEN_SME_ZA_AGNOSTIC {
   using Traits = sme_packet_traits<Scalar>;
-  const auto joined = psplice(Traits::whilelt(0, fill), cur, v);  // cur[0, fill) then v[0, svl - fill)
+  const auto joined = psplice(tail, cur, v);
   if (fill + w < svl) {
     cur = joined;
     fill += w;
+    tail = Traits::whilelt(0, fill);
     return;
   }
   pstoreu(Traits::ptrue(), out, joined);
   out += svl;
-  // The rest of v, lanes [svl - fill, w), moves to the front.
-  cur = psplice(svbic_b_z(svptrue_b8(), Traits::whilelt(0, w), Traits::whilelt(0, svl - fill)), v, v);
+  tail = svnot_b_z(Traits::whilelt(0, w), Traits::whilelt(fill, svl));  // v[svl - fill, w)
+  cur = v;
   fill += w - svl;
 }
 
@@ -173,14 +175,15 @@ static EIGEN_ALWAYS_INLINE void sve_copy_panel_range(Scalar* EIGEN_RESTRICT dst,
     const int w_lo = sme_min(width, svl), w_hi = width - w_lo;
     const svbool_t pg_lo = Traits::whilelt(0, w_lo), pg_hi = Traits::whilelt(0, w_hi);
     typename Traits::type cur = pset1<typename Traits::type>(Scalar(0));
+    svbool_t tail = svpfalse_b();
     int fill = 0;
     Scalar* out = dst + k0 * width;
     for (Index k = k0; k < k1; ++k) {
       const Scalar* s = &src[k * src_stride];
-      sme_append_lanes(cur, fill, out, ploadu(pg_lo, s), w_lo, svl);
-      if (w_hi > 0) sme_append_lanes(cur, fill, out, ploadu(pg_hi, sme_offset(s, svl)), w_hi, svl);
+      sme_append_lanes(cur, tail, fill, out, ploadu(pg_lo, s), w_lo, svl);
+      if (w_hi > 0) sme_append_lanes(cur, tail, fill, out, ploadu(pg_hi, sme_offset(s, svl)), w_hi, svl);
     }
-    if (fill > 0) pstoreu(Traits::whilelt(0, fill), out, cur);
+    if (fill > 0) pstoreu(Traits::whilelt(0, fill), out, psplice(tail, cur, cur));
     return;
   }
   for (int off = 0; off < width; off += svl) {
@@ -260,6 +263,7 @@ static EIGEN_ALWAYS_INLINE void sve_copy_panel_range(std::complex<RealScalar>* E
     const svbool_t pg_lo0 = Traits::whilelt(0, 2 * w0), pg_hi0 = Traits::whilelt(svl, 2 * w0);
     const svbool_t pg_lo1 = Traits::whilelt(0, 2 * w1), pg_hi1 = Traits::whilelt(svl, 2 * w1);
     Vec cur = pset1<Vec>(RealScalar(0));
+    svbool_t tail = svpfalse_b();
     int fill = 0;
     RealScalar* out = rdst + k0 * step;
     for (Index k = k0; k < k1; ++k) {
@@ -269,7 +273,7 @@ static EIGEN_ALWAYS_INLINE void sve_copy_panel_range(std::complex<RealScalar>* E
       EIGEN_IF_CONSTEXPR (Conjugate) {
         im0 = pnegate(pg_w0, im0);
       }
-      sme_append_lanes(cur, fill, out, puzp1(lo0, hi0), w0, svl);
+      sme_append_lanes(cur, tail, fill, out, puzp1(lo0, hi0), w0, svl);
       if (w1 > 0) {
         const RealScalar* p1 = sme_offset(p, 2 * svl);
         const Vec lo1 = ploadu(pg_lo1, p1), hi1 = ploadu(pg_hi1, sme_offset(p1, svl));
@@ -277,14 +281,14 @@ static EIGEN_ALWAYS_INLINE void sve_copy_panel_range(std::complex<RealScalar>* E
         EIGEN_IF_CONSTEXPR (Conjugate) {
           im1 = pnegate(pg_w1, im1);
         }
-        sme_append_lanes(cur, fill, out, puzp1(lo1, hi1), w1, svl);
-        sme_append_lanes(cur, fill, out, im0, w0, svl);
-        sme_append_lanes(cur, fill, out, im1, w1, svl);
+        sme_append_lanes(cur, tail, fill, out, puzp1(lo1, hi1), w1, svl);
+        sme_append_lanes(cur, tail, fill, out, im0, w0, svl);
+        sme_append_lanes(cur, tail, fill, out, im1, w1, svl);
       } else {
-        sme_append_lanes(cur, fill, out, im0, w0, svl);
+        sme_append_lanes(cur, tail, fill, out, im0, w0, svl);
       }
     }
-    if (fill > 0) pstoreu(Traits::whilelt(0, fill), out, cur);
+    if (fill > 0) pstoreu(Traits::whilelt(0, fill), out, psplice(tail, cur, cur));
     return;
   }
   for (int off = 0; off < width; off += svl) {
