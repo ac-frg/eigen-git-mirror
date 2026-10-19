@@ -28,7 +28,8 @@ void check_barrier_value(T value) {
 
 template <typename Scalar>
 EIGEN_DONT_INLINE Scalar rounded_by_barrier(Scalar x) {
-  const Scalar bias = numext::ldexp(Scalar(1), NumTraits<Scalar>::digits() - 1);
+  // A constant bias: MSVC /fp:fast folds (x + bias) - bias only when it can see the constant.
+  constexpr Scalar bias = Scalar(1ull << (NumTraits<Scalar>::digits() - 1));
   Scalar rounded = x + bias;
   EIGEN_OPTIMIZATION_BARRIER(rounded);
   return rounded - bias;
@@ -79,7 +80,7 @@ EIGEN_DECLARE_TEST(optimization_barrier) {
   VERIFY_IS_EQUAL(static_cast<int&>(wrapped), -1234567);
 
 #if !defined(EIGEN_GPU_COMPILE_PHASE) && !defined(SYCL_DEVICE_ONLY) && \
-    (EIGEN_COMP_GNUC || (defined(__clang__) && defined(_MSC_VER)))
+    (EIGEN_COMP_GNUC || (defined(__clang__) && defined(_MSC_VER)) || (EIGEN_COMP_MSVC && defined(_M_FP_FAST)))
   VERIFY_IS_EQUAL(rounded_by_barrier(1.25f), 1.0f);
   VERIFY_IS_EQUAL(rounded_by_barrier(1.25), 1.0);
 #endif

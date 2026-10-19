@@ -1367,6 +1367,29 @@ EIGEN_ALWAYS_INLINE void nvhpc_optimization_barrier(long double& x) {
 #else
 #define EIGEN_OPTIMIZATION_BARRIER(X)
 #endif
+#elif EIGEN_COMP_MSVC && defined(_M_FP_FAST)
+// MSVC has no inline asm on x64 or Arm64, and /fp:fast folds across an empty barrier, e.g. x - q*c1 - q*c2 into
+// x - q*(c1 + c2). Reloading x from an address OR-ed with a volatile zero hides its value from the optimizer at the
+// cost of a store and a store-forwarded load.
+namespace Eigen {
+namespace internal {
+template <typename Dummy = void>
+struct msvc_optimization_barrier_zero {
+  static volatile decltype(sizeof(0)) value;
+};
+template <typename Dummy>
+volatile decltype(sizeof(0)) msvc_optimization_barrier_zero<Dummy>::value = 0;
+template <typename T>
+EIGEN_ALWAYS_INLINE void msvc_optimization_barrier(T& x) {
+  x = *reinterpret_cast<T*>(reinterpret_cast<decltype(sizeof(0))>(&x) | msvc_optimization_barrier_zero<>::value);
+}
+template <typename T, decltype(sizeof(0)) N>
+EIGEN_ALWAYS_INLINE void msvc_optimization_barrier(T (&x)[N]) {
+  for (auto& element : x) msvc_optimization_barrier(element);
+}
+}  // namespace internal
+}  // namespace Eigen
+#define EIGEN_OPTIMIZATION_BARRIER(X) Eigen::internal::msvc_optimization_barrier(X);
 #else
 // Not implemented for other compilers.
 #define EIGEN_OPTIMIZATION_BARRIER(X)
