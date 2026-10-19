@@ -33,7 +33,7 @@ namespace Eigen {
 //   lambda:       probability parameter; P(lambda) = 1 - 2*exp(-lambda^2/2).
 //                 lambda=5 gives P > 0.9999 per inner product.
 
-// Returns || |alpha|*|A|*|B| + |C0| ||_F, with C0 given coefficient-wise by c0(i, j).
+// Returns || |alpha|*|A|*|B| + |C0| ||_F, with |C0| given coefficient-wise by c0(i, j).
 //
 // The norm is accumulated in double with an explicit loop rather than formed as
 // (A.cwiseAbs() * B.cwiseAbs()).norm(): a bound built with the product implementation would inherit
