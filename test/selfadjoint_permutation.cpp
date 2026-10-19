@@ -55,8 +55,7 @@ void selfadjoint_permutation_views() {
   auto block = storage.block(1, 2, size, size);
   PermutationMatrix<Dynamic, Dynamic, std::int64_t> permutation(size);
   randomPermutationVector(permutation.indices(), size);
-  const auto mapped_permutation =
-      Map<PermutationMatrix<Dynamic, Dynamic, std::int64_t>>(permutation.indices().data(), size);
+  const Map<PermutationMatrix<Dynamic, Dynamic, std::int64_t>> mapped_permutation(permutation.indices().data(), size);
   check_selfadjoint_permutation<Lower>(block, mapped_permutation);
   check_selfadjoint_permutation<Upper>(block, permutation.indices().asPermutation());
   VERIFY_IS_EQUAL(storage, original);
