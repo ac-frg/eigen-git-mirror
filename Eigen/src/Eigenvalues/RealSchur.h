@@ -488,7 +488,16 @@ inline Index RealSchur<MatrixType>::findSmallSubdiagEntry(TMatrix& matT, Index i
 /** \internal Update T given that rows iu-1 and iu decouple from the rest. */
 template <typename MatrixType>
 template <typename TMatrix>
-inline void RealSchur<MatrixType>::splitOffTwoRows(TMatrix& matT, Index iu, bool computeU, const Scalar& exshift) {
+#if EIGEN_GNUC_STRICT_AT_LEAST(10, 0, 0) && EIGEN_GNUC_STRICT_LESS_THAN(11, 0, 0) && defined(EIGEN_VECTORIZE_AVX)
+// GCC 10 postreload GCSE can lose a zero-register definition across vzeroupper (#3196).
+// Keep this helper out of callers compiled with that optimization, including in downstream builds.
+EIGEN_DONT_INLINE
+    __attribute__((optimize("no-gcse-after-reload")))
+#else
+inline
+#endif
+    void
+    RealSchur<MatrixType>::splitOffTwoRows(TMatrix& matT, Index iu, bool computeU, const Scalar& exshift) {
   using std::abs;
   using std::sqrt;
   const Index size = matT.cols();
