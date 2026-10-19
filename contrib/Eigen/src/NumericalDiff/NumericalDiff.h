@@ -22,12 +22,11 @@ namespace Eigen {
 namespace internal {
 
 // Keeps -ffast-math from folding the rounded evaluation points back into x and h, e.g. (x + h) - x
-// into h. EIGEN_OPTIMIZATION_BARRIER is an asm operand constraint restricted to plain types (see
-// Macros.h), so class-type scalars go unguarded.
+// into h. pbarrier's fallback uses asm operand constraints restricted to plain types, so class-type scalars go
+// unguarded.
 template <typename Scalar, std::enable_if_t<std::is_floating_point<Scalar>::value, int> = 0>
 EIGEN_STRONG_INLINE void numerical_diff_barrier(Scalar& x) {
-  EIGEN_UNUSED_VARIABLE(x);
-  EIGEN_OPTIMIZATION_BARRIER(x)
+  pbarrier(x);
 }
 template <typename Scalar, std::enable_if_t<!std::is_floating_point<Scalar>::value, int> = 0>
 EIGEN_STRONG_INLINE void numerical_diff_barrier(Scalar&) {}

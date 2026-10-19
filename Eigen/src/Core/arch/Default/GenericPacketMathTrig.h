@@ -100,7 +100,7 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet psincos_float(const P
 
   // Rounding trick to find nearest integer:
   Packet y_round = padd(y, cst_rounding_magic);
-  EIGEN_OPTIMIZATION_BARRIER(y_round)
+  pbarrier(y_round);
   PacketI y_int = preinterpret<PacketI>(y_round);  // last 23 digits represent integer (if abs(x)<2^24)
   y = psub(y_round, cst_rounding_magic);           // nearest integer to x * (2/pi)
 
@@ -122,11 +122,11 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet psincos_float(const P
   // and 2 ULP up to:
   constexpr float huge_th = (Func == TrigFunction::Sin) ? 25966.f : 18838.f;
   x = pmadd(y, pset1<Packet>(-1.5703125), x);  // = 0xbfc90000
-  EIGEN_OPTIMIZATION_BARRIER(x)
+  pbarrier(x);
   x = pmadd(y, pset1<Packet>(-0.000483989715576171875), x);  // = 0xb9fdc000
-  EIGEN_OPTIMIZATION_BARRIER(x)
+  pbarrier(x);
   x = pmadd(y, pset1<Packet>(1.62865035235881805419921875e-07), x);  // = 0x342ee000
-  EIGEN_OPTIMIZATION_BARRIER(x)
+  pbarrier(x);
   x = pmadd(y, pset1<Packet>(5.5644315544167710640977020375430583953857421875e-11), x);  // = 0x2e74b9ee
 
 // For the record, the following set of coefficients maintain 2ULP up
