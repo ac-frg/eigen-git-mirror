@@ -80,7 +80,7 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet twoprod_low(const Packet& x, const 
 template <typename Scalar, std::enable_if_t<is_scalar<Scalar>::value, int> = 0>
 EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Scalar twoprod_low(const Scalar& x, const Scalar& y, const Scalar& xy) {
   // Error-free products require FMA even when EIGEN_SCALAR_MADD_USE_FMA disables fusion in scalar madd.
-  return numext::fma(x, y, Scalar(-xy));
+  return twoprod_low_fma(x, y, xy);
 }
 
 // This function implements the extended precision product of
@@ -115,7 +115,7 @@ struct has_fast_fma<long double> : std::true_type {};
 
 template <typename Scalar, std::enable_if_t<has_fast_fma<Scalar>::value, int> = 0>
 EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Scalar twoprod_low(const Scalar& x, const Scalar& y, const Scalar& xy) {
-  return numext::fma(x, y, Scalar(-xy));
+  return twoprod_low_fma(x, y, xy);
 }
 
 template <typename Scalar, bool PreventReassociation = false, std::enable_if_t<has_fast_fma<Scalar>::value, int> = 0>
@@ -143,40 +143,34 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void veltkamp_splitting(const Packet& x, P
   x_lo = psub(x, x_hi);
 }
 
-// This function implements Dekker's algorithm for products x * y.
-// Given floating point numbers {x, y} computes the pair
-// {p_hi, p_lo} such that x * y = p_hi + p_lo holds exactly and
-// p_hi = fl(x * y). PreventReassociation preserves the separately rounded non-FMA operations.
+// A version of twoprod that takes x, y, and fl(x*y) as input and returns the p_lo such that
+// x * y = xy + p_lo holds exactly. PreventReassociation preserves the separately rounded operations.
 template <typename Packet, bool PreventReassociation = false, std::enable_if_t<!has_fast_fma<Packet>::value, int> = 0>
-EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void twoprod(const Packet& x, const Packet& y, Packet& p_hi, Packet& p_lo) {
+EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet twoprod_low(const Packet& x, const Packet& y, const Packet& xy) {
   Packet x_hi, x_lo, y_hi, y_lo;
   veltkamp_splitting<Packet, PreventReassociation>(x, x_hi, x_lo);
   veltkamp_splitting<Packet, PreventReassociation>(y, y_hi, y_lo);
 
-  p_hi = pmul(x, y);
-  EIGEN_IF_CONSTEXPR (PreventReassociation) doubleword_barrier(p_hi);
-  p_lo = pmsub(x_hi, y_hi, p_hi);
-  EIGEN_IF_CONSTEXPR (PreventReassociation) doubleword_barrier(p_lo);
-  p_lo = pmadd(x_hi, y_lo, p_lo);
-  EIGEN_IF_CONSTEXPR (PreventReassociation) doubleword_barrier(p_lo);
-  p_lo = pmadd(x_lo, y_hi, p_lo);
-  EIGEN_IF_CONSTEXPR (PreventReassociation) doubleword_barrier(p_lo);
-  p_lo = pmadd(x_lo, y_lo, p_lo);
-}
-
-// A version of twoprod that takes x, y, and fl(x*y) as input and returns the p_lo such that
-// x * y = xy + p_lo holds exactly.
-template <typename Packet, std::enable_if_t<!has_fast_fma<Packet>::value, int> = 0>
-EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet twoprod_low(const Packet& x, const Packet& y, const Packet& xy) {
-  Packet x_hi, x_lo, y_hi, y_lo;
-  veltkamp_splitting(x, x_hi, x_lo);
-  veltkamp_splitting(y, y_hi, y_lo);
-
   Packet p_lo = pmsub(x_hi, y_hi, xy);
+  EIGEN_IF_CONSTEXPR (PreventReassociation) doubleword_barrier(p_lo);
   p_lo = pmadd(x_hi, y_lo, p_lo);
+  EIGEN_IF_CONSTEXPR (PreventReassociation) doubleword_barrier(p_lo);
   p_lo = pmadd(x_lo, y_hi, p_lo);
+  EIGEN_IF_CONSTEXPR (PreventReassociation) doubleword_barrier(p_lo);
   p_lo = pmadd(x_lo, y_lo, p_lo);
   return p_lo;
+}
+
+// This function implements Dekker's algorithm for products x * y.
+// Given floating point numbers {x, y}, it computes {p_hi, p_lo} such that
+// x * y = p_hi + p_lo exactly and p_hi = fl(x * y).
+template <typename Packet, bool PreventReassociation = false, std::enable_if_t<!has_fast_fma<Packet>::value, int> = 0>
+EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void twoprod(const Packet& x, const Packet& y, Packet& p_hi, Packet& p_lo) {
+  Packet hi = pmul(x, y);
+  EIGEN_IF_CONSTEXPR (PreventReassociation) doubleword_barrier(hi);
+  const Packet lo = twoprod_low<Packet, PreventReassociation>(x, y, hi);
+  p_hi = hi;
+  p_lo = lo;
 }
 
 #endif  // EIGEN_VECTORIZE_FMA
