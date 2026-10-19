@@ -1260,7 +1260,7 @@ struct gebp_rhs_cols<J, MrPackets, NrCols, true> {
 
 // Fully unrolls a loop over the accumulators (at most 3 x 8 = 24), exposing constant indices before GCC's scalar
 // replacement pass at -O2.
-#if EIGEN_ARCH_ARM64 && defined(EIGEN_VECTORIZE_NEON) && EIGEN_GNUC_STRICT_AT_LEAST(8, 0, 0)
+#if EIGEN_ARCH_ARM64 && defined(EIGEN_VECTORIZE_NEON) && EIGEN_GNUC_STRICT_AT_LEAST(9, 0, 0)
 #define EIGEN_GEBP_UNROLL_ACCUMULATORS _Pragma("GCC unroll 24")
 #else
 #define EIGEN_GEBP_UNROLL_ACCUMULATORS
@@ -1281,7 +1281,7 @@ struct gebp_micro_step {
     EIGEN_IF_CONSTEXPR (MrPackets >= 3) traits.loadLhs(&blA[(2 + MrPackets * K) * LhsProg], A[2]);
 
     gebp_rhs_cols<0, MrPackets, NrCols>::run(traits, blB, Index(NrCols * K), A, rhs_panel, T0, C);
-#if EIGEN_ARCH_ARM64 && defined(EIGEN_VECTORIZE_NEON) && EIGEN_GNUC_STRICT_AT_LEAST(8, 0, 0) && \
+#if EIGEN_ARCH_ARM64 && defined(EIGEN_VECTORIZE_NEON) && EIGEN_GNUC_STRICT_AT_LEAST(9, 0, 0) && \
     !defined(EIGEN_DONT_DISABLE_GEBP_INSN_SCHEDULING)
     using AccPacket = typename GEBPTraits::AccPacket;
     constexpr bool kRealPacket = std::is_same<AccPacket, Packet4f>::value || std::is_same<AccPacket, Packet2d>::value;
