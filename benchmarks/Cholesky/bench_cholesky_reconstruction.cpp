@@ -42,19 +42,8 @@ void BM_CholeskyReconstruction(benchmark::State& state) {
 // Indefinite=false uses LDLT; true uses BunchKaufman. Factorization is outside timing.
 #define EIGEN_BENCH_RECONSTRUCTION(Scalar, Order, UpLo)                     \
   BENCHMARK_TEMPLATE(BM_CholeskyReconstruction, Scalar, Order, UpLo, false) \
-      ->Arg(4)                                                              \
-      ->Arg(16)                                                             \
-      ->Arg(64)                                                             \
-      ->Arg(128)                                                            \
-      ->Arg(256)                                                            \
-      ->Arg(1024);                                                          \
-  BENCHMARK_TEMPLATE(BM_CholeskyReconstruction, Scalar, Order, UpLo, true)  \
-      ->Arg(4)                                                              \
-      ->Arg(16)                                                             \
-      ->Arg(64)                                                             \
-      ->Arg(128)                                                            \
-      ->Arg(256)                                                            \
-      ->Arg(1024)
+      ->ArgsProduct({{4, 16, 64, 128, 256, 1024}});                         \
+  BENCHMARK_TEMPLATE(BM_CholeskyReconstruction, Scalar, Order, UpLo, true)->ArgsProduct({{4, 16, 64, 128, 256, 1024}})
 
 EIGEN_BENCH_RECONSTRUCTION(double, ColMajor, Lower);
 EIGEN_BENCH_RECONSTRUCTION(double, RowMajor, Upper);

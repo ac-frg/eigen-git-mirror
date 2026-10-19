@@ -179,8 +179,6 @@ class SelfAdjointView : public TriangularBase<SelfAdjointView<MatrixType_, UpLo>
    */
   template <typename PermutationDerived>
   EIGEN_DEVICE_FUNC SelfAdjointView& applyPermutation(const PermutationBase<PermutationDerived>& permutation) {
-    EIGEN_STATIC_ASSERT_LVALUE(MatrixType);
-    eigen_assert(this->rows() == this->cols() && this->rows() == permutation.size());
     typename PermutationDerived::PlainPermutationType remaining(permutation);
     return applyPermutationInPlace(remaining);
   }
@@ -189,8 +187,6 @@ class SelfAdjointView : public TriangularBase<SelfAdjointView<MatrixType_, UpLo>
   template <typename PermutationDerived>
   EIGEN_DEVICE_FUNC SelfAdjointView& applyPermutation(
       const InverseImpl<PermutationDerived, PermutationStorage>& permutation) {
-    EIGEN_STATIC_ASSERT_LVALUE(MatrixType);
-    eigen_assert(this->rows() == this->cols() && this->rows() == permutation.derived().rows());
     typename PermutationDerived::PlainPermutationType remaining(permutation);
     return applyPermutationInPlace(remaining);
   }
@@ -340,6 +336,8 @@ class SelfAdjointView : public TriangularBase<SelfAdjointView<MatrixType_, UpLo>
  private:
   template <typename PermutationType>
   EIGEN_DEVICE_FUNC SelfAdjointView& applyPermutationInPlace(PermutationType& remaining) {
+    EIGEN_STATIC_ASSERT_LVALUE(MatrixType);
+    eigen_assert(this->rows() == this->cols() && this->rows() == remaining.size());
     EIGEN_IF_CONSTEXPR (UpLo == Lower) {
       internal::selfadjoint_apply_permutation_lower(m_matrix, remaining);
     } else {

@@ -40,18 +40,11 @@ template <unsigned int UpLo, typename MatrixType>
 void check_selfadjoint_transposition(MatrixType& matrix, Index i, Index j) {
   using PlainObject = typename MatrixType::PlainObject;
   const PlainObject original = matrix;
-  PlainObject expected = matrix;
-  for (Index col = 0; col < matrix.cols(); ++col) {
-    for (Index row = 0; row < matrix.rows(); ++row) {
-      if (UpLo == Lower ? row >= col : row <= col) {
-        const Index sourceRow = row == i ? j : row == j ? i : row;
-        const Index sourceCol = col == i ? j : col == j ? i : col;
-        expected(row, col) = (UpLo == Lower ? sourceRow >= sourceCol : sourceRow <= sourceCol)
-                                 ? original(sourceRow, sourceCol)
-                                 : numext::conj(original(sourceCol, sourceRow));
-      }
-    }
-  }
+  PlainObject full = original.template selfadjointView<UpLo>();
+  full.row(i).swap(full.row(j));
+  full.col(i).swap(full.col(j));
+  PlainObject expected = original;
+  expected.template triangularView<UpLo>() = full;
   auto view = matrix.template selfadjointView<UpLo>();
   internal::set_is_malloc_allowed(false);
   VERIFY(&view.applyTransposition(i, j) == &view);
