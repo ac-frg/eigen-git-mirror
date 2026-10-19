@@ -244,7 +244,7 @@ class PermutationBase : public EigenBase<Derived> {
 #ifndef EIGEN_PARSED_BY_DOXYGEN
  protected:
   template <typename OtherDerived>
-  void assignTranspose(const PermutationBase<OtherDerived>& other) {
+  EIGEN_DEVICE_FUNC void assignTranspose(const PermutationBase<OtherDerived>& other) {
     for (Index i = 0; i < rows(); ++i) indices().coeffRef(Index(other.indices().coeff(i))) = StorageIndex(i);
   }
   template <typename Lhs, typename Rhs>
@@ -405,7 +405,7 @@ class PermutationMatrix
 
 #ifndef EIGEN_PARSED_BY_DOXYGEN
   template <typename Other>
-  PermutationMatrix(const InverseImpl<Other, PermutationStorage>& other)
+  EIGEN_DEVICE_FUNC PermutationMatrix(const InverseImpl<Other, PermutationStorage>& other)
       : m_indices(other.derived().nestedExpression().size()) {
     internal::convert_index<StorageIndex>(m_indices.size());  // asserts that size fits StorageIndex
     Base::assignTranspose(other.derived().nestedExpression());

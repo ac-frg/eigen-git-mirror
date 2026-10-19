@@ -11,12 +11,19 @@ namespace {
 using namespace Eigen;
 
 template <bool InPlace, unsigned int UpLo, typename MatrixType, typename PermutationType>
-void permute(MatrixType& matrix, const PermutationType& permutation) {
+void permute(MatrixType& matrix, const PermutationType& permutation, bool inverse) {
   EIGEN_IF_CONSTEXPR (InPlace) {
-    matrix.template selfadjointView<UpLo>().applyPermutation(permutation);
+    if (inverse)
+      matrix.template selfadjointView<UpLo>().applyPermutation(permutation.inverse());
+    else
+      matrix.template selfadjointView<UpLo>().applyPermutation(permutation);
   } else {
-    matrix.template selfadjointView<UpLo>() =
-        (permutation * matrix.template selfadjointView<UpLo>() * permutation.transpose()).eval();
+    if (inverse)
+      matrix.template selfadjointView<UpLo>() =
+          (permutation.inverse() * matrix.template selfadjointView<UpLo>() * permutation).eval();
+    else
+      matrix.template selfadjointView<UpLo>() =
+          (permutation * matrix.template selfadjointView<UpLo>() * permutation.transpose()).eval();
   }
 }
 
@@ -36,27 +43,32 @@ void BM_SelfAdjointPermutation(benchmark::State& state) {
     permutation.indices().reverseInPlace();
   }
   const MatrixType full = matrix.template selfadjointView<UpLo>();
-  const MatrixType reference = permutation * full * permutation.transpose();
+  const bool inverse = state.range(2) != 0;
+  MatrixType reference(size, size);
+  if (inverse)
+    reference = permutation.inverse() * full * permutation;
+  else
+    reference = permutation * full * permutation.transpose();
   MatrixType expected = matrix;
   expected.template triangularView<UpLo>() = reference;
-  permute<InPlace, UpLo>(matrix, permutation);
+  permute<InPlace, UpLo>(matrix, permutation, inverse);
   if (matrix != expected) {
     state.SkipWithError("Incorrect self-adjoint permutation or modified opposite triangle");
     return;
   }
   for (auto _ : state) {
-    permute<InPlace, UpLo>(matrix, permutation);
+    permute<InPlace, UpLo>(matrix, permutation, inverse);
     benchmark::DoNotOptimize(matrix.data());
     benchmark::ClobberMemory();
   }
 }
 
-// Permutation kind: 0 = shuffled (seed 42), 1 = reversal.
+// Permutation kind: 0 = shuffled (seed 42), 1 = reversal. Last argument selects the inverse.
 #define EIGEN_BENCH_SELFADJOINT_PERMUTATION(Scalar, Order, UpLo)            \
   BENCHMARK_TEMPLATE(BM_SelfAdjointPermutation, Scalar, Order, UpLo, false) \
-      ->ArgsProduct({{4, 16, 64, 256, 1024}, {0, 1}});                      \
+      ->ArgsProduct({{4, 16, 64, 256, 1024}, {0, 1}, {0, 1}});              \
   BENCHMARK_TEMPLATE(BM_SelfAdjointPermutation, Scalar, Order, UpLo, true)  \
-      ->ArgsProduct({{4, 16, 64, 256, 1024}, {0, 1}})
+      ->ArgsProduct({{4, 16, 64, 256, 1024}, {0, 1}, {0, 1}})
 
 EIGEN_BENCH_SELFADJOINT_PERMUTATION(float, ColMajor, Lower);
 EIGEN_BENCH_SELFADJOINT_PERMUTATION(float, RowMajor, Upper);

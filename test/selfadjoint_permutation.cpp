@@ -1,14 +1,19 @@
 // SPDX-FileCopyrightText: The Eigen Authors
 // SPDX-License-Identifier: MPL-2.0
 
+#define TEST_ENABLE_TEMPORARY_TRACKING
 #define EIGEN_RUNTIME_NO_MALLOC
 #include "main.h"
 #include <Eigen/Core>
 #include <algorithm>
 #include <cstdint>
 
-template <unsigned int UpLo, typename MatrixType, typename PermutationDerived>
-void check_selfadjoint_permutation(MatrixType& matrix, const PermutationBase<PermutationDerived>& permutation) {
+template <unsigned int UpLo, typename MatrixType, typename Transformation>
+void check_selfadjoint_permutation(MatrixType& matrix, const Transformation& transformation) {
+  using IndicesType = typename Transformation::IndicesType;
+  const PermutationMatrix<IndicesType::SizeAtCompileTime, IndicesType::MaxSizeAtCompileTime,
+                          typename IndicesType::Scalar>
+      permutation(transformation);
   using PlainObject = typename MatrixType::PlainObject;
   const PlainObject original = matrix;
   const Index size = matrix.rows();
@@ -22,12 +27,37 @@ void check_selfadjoint_permutation(MatrixType& matrix, const PermutationBase<Per
   PlainObject expected = original;
   expected.template triangularView<UpLo>() = full;
   auto view = matrix.template selfadjointView<UpLo>();
-  VERIFY(&view.applyPermutation(permutation) == &view);
+  VERIFY(&view.applyPermutation(transformation) == &view);
   VERIFY_IS_EQUAL(matrix, expected);
   VERIFY_IS_EQUAL(view.toDenseMatrix(), full);
-  view.applyPermutation(permutation.inverse());
+  view.applyPermutation(transformation.inverse());
   VERIFY_IS_EQUAL(matrix, original);
-  view.applyPermutation(permutation.transpose()).applyPermutation(permutation);
+  view.applyPermutation(transformation.transpose()).applyPermutation(transformation);
+  VERIFY_IS_EQUAL(matrix, original);
+}
+
+template <unsigned int UpLo, typename MatrixType>
+void check_selfadjoint_transposition(MatrixType& matrix, Index i, Index j) {
+  using PlainObject = typename MatrixType::PlainObject;
+  const PlainObject original = matrix;
+  PlainObject expected = matrix;
+  for (Index col = 0; col < matrix.cols(); ++col) {
+    for (Index row = 0; row < matrix.rows(); ++row) {
+      if (UpLo == Lower ? row >= col : row <= col) {
+        const Index sourceRow = row == i ? j : row == j ? i : row;
+        const Index sourceCol = col == i ? j : col == j ? i : col;
+        expected(row, col) = (UpLo == Lower ? sourceRow >= sourceCol : sourceRow <= sourceCol)
+                                 ? original(sourceRow, sourceCol)
+                                 : numext::conj(original(sourceCol, sourceRow));
+      }
+    }
+  }
+  auto view = matrix.template selfadjointView<UpLo>();
+  internal::set_is_malloc_allowed(false);
+  VERIFY(&view.applyTransposition(i, j) == &view);
+  internal::set_is_malloc_allowed(true);
+  VERIFY_IS_EQUAL(matrix, expected);
+  view.applyTransposition(j, i);
   VERIFY_IS_EQUAL(matrix, original);
 }
 
@@ -43,6 +73,12 @@ void selfadjoint_permutation_cycles() {
       check_selfadjoint_permutation<Lower>(matrix, permutation);
       check_selfadjoint_permutation<Upper>(matrix, permutation);
     } while (size > 1 && std::next_permutation(permutation.indices().data(), permutation.indices().data() + size));
+    for (Index i = 0; i < size; ++i) {
+      for (Index j = 0; j < size; ++j) {
+        check_selfadjoint_transposition<Lower>(matrix, i, j);
+        check_selfadjoint_transposition<Upper>(matrix, i, j);
+      }
+    }
   }
 }
 
@@ -64,6 +100,10 @@ void selfadjoint_permutation_views() {
                                                                Stride<Dynamic, Dynamic>(2 * storage.outerStride(), 2));
   check_selfadjoint_permutation<Lower>(strided, permutation);
   check_selfadjoint_permutation<Upper>(strided, permutation);
+  for (Index i = 0; i < size; ++i) {
+    check_selfadjoint_transposition<Lower>(block, i, size - 1 - i);
+    check_selfadjoint_transposition<Upper>(strided, i, size - 1 - i);
+  }
   VERIFY_IS_EQUAL(storage, original);
 }
 
@@ -75,6 +115,10 @@ void selfadjoint_permutation_fixed() {
   internal::set_is_malloc_allowed(false);
   check_selfadjoint_permutation<Lower>(matrix, permutation);
   check_selfadjoint_permutation<Upper>(matrix, permutation);
+  Transpositions<Size> transpositions;
+  for (Index i = 0; i < Size; ++i) transpositions.indices()[i] = int(Size - 1 - i);
+  check_selfadjoint_permutation<Lower>(matrix, transpositions);
+  check_selfadjoint_permutation<Upper>(matrix, transpositions);
   internal::set_is_malloc_allowed(true);
 }
 
@@ -84,9 +128,18 @@ void selfadjoint_permutation_preconditions() {
   permutation.setIdentity();
   VERIFY_RAISES_ASSERT(matrix.selfadjointView<Lower>().applyPermutation(permutation));
   VERIFY_RAISES_ASSERT(matrix.selfadjointView<Upper>().applyPermutation(permutation.inverse()));
+  VERIFY_RAISES_ASSERT(matrix.selfadjointView<Lower>().applyTransposition(-1, 0));
+  VERIFY_RAISES_ASSERT(matrix.selfadjointView<Upper>().applyTransposition(0, 3));
+  Transpositions<Dynamic> transpositions(2);
+  transpositions.setIdentity();
+  VERIFY_RAISES_ASSERT(matrix.selfadjointView<Lower>().applyPermutation(transpositions));
+  VERIFY_RAISES_ASSERT(matrix.selfadjointView<Upper>().applyPermutation(transpositions.inverse()));
   matrix.resize(2, 3);
   VERIFY_RAISES_ASSERT(matrix.selfadjointView<Lower>().applyPermutation(permutation));
   VERIFY_RAISES_ASSERT(matrix.selfadjointView<Upper>().applyPermutation(permutation));
+  VERIFY_RAISES_ASSERT(matrix.selfadjointView<Lower>().applyTransposition(0, 1));
+  VERIFY_RAISES_ASSERT(matrix.selfadjointView<Upper>().applyPermutation(transpositions));
+  VERIFY_RAISES_ASSERT(matrix.selfadjointView<Lower>().applyPermutation(transpositions.transpose()));
 }
 
 void selfadjoint_permutation_aliased_indices() {
@@ -97,6 +150,65 @@ void selfadjoint_permutation_aliased_indices() {
   expected.selfadjointView<Upper>().applyPermutation(permutation);
   matrix.selfadjointView<Upper>().applyPermutation(matrix.row(0).transpose().asPermutation());
   VERIFY_IS_EQUAL(matrix, expected);
+  matrix << 1, 2, 0, 4, 5, 6, 7, 8, 9;
+  expected = matrix;
+  expected.selfadjointView<Upper>().applyPermutation(permutation.inverse());
+  matrix.selfadjointView<Upper>().applyPermutation(matrix.row(0).transpose().asPermutation().inverse());
+  VERIFY_IS_EQUAL(matrix, expected);
+
+  for (bool inverse : {false, true}) {
+    matrix << 1, 2, 0, 4, 5, 6, 7, 8, 9;
+    auto indices = matrix.row(0).transpose();
+    TranspositionsWrapper<decltype(indices)> wrapped(indices);
+    const Transpositions<3> transpositions(wrapped);
+    expected = matrix;
+    if (inverse) {
+      expected.selfadjointView<Upper>().applyPermutation(transpositions.inverse());
+      matrix.selfadjointView<Upper>().applyPermutation(wrapped.inverse());
+    } else {
+      expected.selfadjointView<Upper>().applyPermutation(transpositions);
+      matrix.selfadjointView<Upper>().applyPermutation(wrapped);
+    }
+    VERIFY_IS_EQUAL(matrix, expected);
+  }
+}
+
+template <typename Scalar, int Order>
+void selfadjoint_transpositions() {
+  using MatrixType = Matrix<Scalar, Dynamic, Dynamic, Order>;
+  for (Index size = 0; size <= 4; ++size) {
+    MatrixType matrix = MatrixType::Random(size, size);
+    matrix.diagonal() = matrix.diagonal().real().template cast<Scalar>();
+    Transpositions<Dynamic, Dynamic, std::int64_t> transpositions(size);
+    transpositions.indices().setZero();
+    // All n^n sequences, including swaps with earlier indices and repeated targets.
+    bool finished = false;
+    do {
+      check_selfadjoint_permutation<Lower>(matrix, transpositions);
+      check_selfadjoint_permutation<Upper>(matrix, transpositions);
+      Index i = 0;
+      while (i < size && ++transpositions.indices()[i] == size) transpositions.indices()[i++] = 0;
+      finished = i == size;
+    } while (!finished);
+    transpositions.setIdentity();
+    const Map<Transpositions<Dynamic, Dynamic, std::int64_t>> mapped(transpositions.indices().data(), size);
+    check_selfadjoint_permutation<Lower>(matrix, mapped);
+    check_selfadjoint_permutation<Upper>(matrix, mapped);
+  }
+}
+
+void selfadjoint_permutation_temporary_count() {
+  MatrixXd matrix = MatrixXd::Random(8, 8);
+  PermutationMatrix<Dynamic> permutation(8);
+  randomPermutationVector(permutation.indices(), 8);
+  VERIFY_EVALUATION_COUNT(matrix.selfadjointView<Lower>().applyPermutation(permutation), 1);
+  VERIFY_EVALUATION_COUNT(matrix.selfadjointView<Upper>().applyPermutation(permutation.inverse()), 1);
+  VERIFY_EVALUATION_COUNT(matrix.selfadjointView<Lower>().applyPermutation(permutation.transpose()), 1);
+  Transpositions<Dynamic> transpositions(8);
+  transpositions.setIdentity();
+  VERIFY_EVALUATION_COUNT(matrix.selfadjointView<Lower>().applyPermutation(transpositions), 1);
+  VERIFY_EVALUATION_COUNT(matrix.selfadjointView<Upper>().applyPermutation(transpositions.transpose()), 1);
+  VERIFY_EVALUATION_COUNT(matrix.selfadjointView<Lower>().applyTransposition(1, 7), 0);
 }
 
 EIGEN_DECLARE_TEST(selfadjoint_permutation) {
@@ -122,6 +234,12 @@ EIGEN_DECLARE_TEST(selfadjoint_permutation) {
     CALL_SUBTEST_2((selfadjoint_permutation_fixed<double, 4>()));
     CALL_SUBTEST_3((selfadjoint_permutation_fixed<std::complex<float>, 5>()));
   }
+  CALL_SUBTEST_6((selfadjoint_transpositions<double, ColMajor>()));
+  CALL_SUBTEST_6((selfadjoint_transpositions<double, RowMajor>()));
+  CALL_SUBTEST_6((selfadjoint_transpositions<std::complex<double>, ColMajor>()));
+  CALL_SUBTEST_6((selfadjoint_transpositions<std::complex<double>, RowMajor>()));
+  CALL_SUBTEST_6((selfadjoint_transpositions<int, RowMajor>()));
+  CALL_SUBTEST_6(selfadjoint_permutation_temporary_count());
   CALL_SUBTEST_1(selfadjoint_permutation_preconditions());
   CALL_SUBTEST_5(selfadjoint_permutation_aliased_indices());
 }
