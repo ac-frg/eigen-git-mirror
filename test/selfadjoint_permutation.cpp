@@ -11,9 +11,10 @@
 template <unsigned int UpLo, typename MatrixType, typename Transformation>
 void check_selfadjoint_permutation(MatrixType& matrix, const Transformation& transformation) {
   using IndicesType = typename Transformation::IndicesType;
-  const PermutationMatrix<IndicesType::SizeAtCompileTime, IndicesType::MaxSizeAtCompileTime,
-                          typename IndicesType::Scalar>
-      permutation(transformation);
+  using Permutation = PermutationMatrix<IndicesType::SizeAtCompileTime, IndicesType::MaxSizeAtCompileTime,
+                                        typename IndicesType::Scalar>;
+  // NOLINTNEXTLINE(performance-unnecessary-copy-initialization): Transpositions inputs need this conversion.
+  const Permutation permutation(transformation);
   using PlainObject = typename MatrixType::PlainObject;
   const PlainObject original = matrix;
   const Index size = matrix.rows();
