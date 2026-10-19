@@ -321,7 +321,7 @@ struct pcast_generic<SrcPacket, TgtPacket, false, true> {
   }
 };
 
-// Preserve separately rounded operations where EIGEN_OPTIMIZATION_BARRIER is supported.
+// Make x opaque to the compiler without changing its value, where supported.
 template <typename Packet>
 EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void pbarrier(Packet& x) {
   EIGEN_UNUSED_VARIABLE(x);
