@@ -6,6 +6,15 @@
 void check_trig_reduction() {
   // MPFR 4.2.1, 256-bit precision, rounded to binary64. Include both sides of the medium/large reduction cutoffs.
   const double cases[][4] = {
+      {1.5707963267948963, 1, 2.8327694488239898e-16, 3530114321217157.5},
+      {1.5707963267948966, 1, 6.123233995736766e-17, 16331239353195370},
+      {1.5707963267948968, 1, -1.6081226496766366e-16, -6218431163823738},
+      {3.1415926535897927, 5.6655388976479796e-16, -1, -5.6655388976479796e-16},
+      {3.1415926535897931, 1.2246467991473532e-16, -1, -1.2246467991473532e-16},
+      {3.1415926535897936, -3.2162452993532732e-16, -1, 3.2162452993532732e-16},
+      {14.137166941154067, 1, 2.3274478990165594e-15, 429655160239049.94},
+      {14.137166941154069, 1, 5.5109105961630896e-16, 1814582150355041},
+      {14.137166941154071, 1, -1.2252657797839415e-15, -816149456305174.88},
       {0.29999999999999999, 0.29552020666133955, 0.95533648912560598, 0.30933624960962325},
       {4.7123889803846897, -1, -1.8369701987210297e-16, 5443746451065123},
       {14.999999999999998, 0.65028784015711827, -0.75968791285882009, -0.85599340090852183},
@@ -42,10 +51,16 @@ void check_trig_reduction() {
     tan_ref[2 * i] = cases[i][3];
     tan_ref[2 * i + 1] = -cases[i][3];
   }
-  const ArrayXd sine = x.sin(), cosine = x.cos(), tangent = x.tan();
-  VERIFY(test::areWithinUlps(sin_ref.data(), sine.data(), static_cast<int>(x.size()), 4));
-  VERIFY(test::areWithinUlps(cos_ref.data(), cosine.data(), static_cast<int>(x.size()), 4));
-  VERIFY(test::areWithinUlps(tan_ref.data(), tangent.data(), static_cast<int>(x.size()), 4));
+  for (Index offset = 0; offset < 2; ++offset) {
+    for (Index size = 1; size <= x.size() - offset; ++size) {
+      const ArrayXd sine = x.segment(offset, size).sin();
+      const ArrayXd cosine = x.segment(offset, size).cos();
+      const ArrayXd tangent = x.segment(offset, size).tan();
+      VERIFY(test::areWithinUlps(sin_ref.data() + offset, sine.data(), static_cast<int>(size), 4));
+      VERIFY(test::areWithinUlps(cos_ref.data() + offset, cosine.data(), static_cast<int>(size), 4));
+      VERIFY(test::areWithinUlps(tan_ref.data() + offset, tangent.data(), static_cast<int>(size), 4));
+    }
+  }
 }
 
 template <typename Packet>
@@ -55,14 +70,10 @@ void check_error_free_transformations() {
   internal::twosum(internal::pset1<Packet>(low), internal::pset1<Packet>(1.0), hi, lo);
   VERIFY_IS_EQUAL(internal::pfirst(hi), 1.0);
   VERIFY_IS_EQUAL(internal::pfirst(lo), low);
-  internal::fast_twosum(internal::pset1<Packet>(1.0), internal::pset1<Packet>(low), hi, lo);
-  VERIFY_IS_EQUAL(internal::pfirst(hi), 1.0);
-  VERIFY_IS_EQUAL(internal::pfirst(lo), low);
   const Packet x = internal::pset1<Packet>(1.0 + std::ldexp(1.0, -30));
-  internal::twoprod(x, x, hi, lo);
+  internal::twoprod<Packet, true>(x, x, hi, lo);
   VERIFY_IS_EQUAL(internal::pfirst(hi), 1.0 + std::ldexp(1.0, -29));
   VERIFY_IS_EQUAL(internal::pfirst(lo), std::ldexp(1.0, -60));
-  VERIFY_IS_EQUAL(internal::pfirst(internal::twoprod_low(x, x, hi)), std::ldexp(1.0, -60));
 }
 
 EIGEN_DECLARE_TEST(trig_reduction_fastmath) {

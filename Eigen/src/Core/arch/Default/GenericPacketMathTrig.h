@@ -263,7 +263,7 @@ Packet trig_reduce_small_double(const Packet& x, const Packet& q) {
 
   // Compute q * pio2_1 exactly as a double-word using Dekker's algorithm.
   Packet qp_hi, qp_lo;
-  twoprod(cst_pio2_1<Packet>(), q, qp_hi, qp_lo);
+  twoprod<Packet, true>(cst_pio2_1<Packet>(), q, qp_hi, qp_lo);
 
   // Error-free addition of x and qp_hi using Knuth's 2sum.
   // Returns t_hi + t_lo = x + qp_hi exactly, with t_hi = fl(x + qp_hi).
@@ -273,7 +273,7 @@ Packet trig_reduce_small_double(const Packet& x, const Packet& q) {
   // Near a multiple of pi/2, t_hi + qp_lo cancels against q * pio2_2 too, so that product is formed exactly as well
   // and the two large terms are added by 2sum: only terms of order u * |q * pio2_2| are rounded.
   Packet qp2_hi, qp2_lo;
-  twoprod(cst_pio2_2<Packet>(), q, qp2_hi, qp2_lo);
+  twoprod<Packet, true>(cst_pio2_2<Packet>(), q, qp2_hi, qp2_lo);
   Packet a_hi, a_lo, b_lo;
   twosum(t_hi, qp_lo, a_hi, a_lo);
   twosum(a_hi, qp2_hi, t_hi, b_lo);
@@ -316,7 +316,7 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet psincos_double(const 
   if (EIGEN_PREDICT_FALSE(predux_any(pcmp_le(pset1<Packet>(small_th), x_abs)))) {
     // Medium path: use double-word product x * (2/pi) for precise quadrant computation.
     Packet prod_hi, prod_lo;
-    twoprod(x_abs, cst_2oPI_hi, prod_hi, prod_lo);
+    twoprod<Packet, true>(x_abs, cst_2oPI_hi, prod_hi, prod_lo);
     // Correction for 2/pi truncation: add x * lo(2/pi)
     prod_lo = pmadd(x_abs, cst_2oPI_lo, prod_lo);
 
@@ -333,9 +333,26 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet psincos_double(const 
   } else {
     // Small path: simple reduction with triple-double pi/2 split.
     Packet qval_noround = pmul(x_abs, cst_2oPI_hi);
+#ifdef EIGEN_HAS_SINGLE_INSTRUCTION_MADD
     q_int = pcast<Packet, PacketI>(padd(qval_noround, pset1<Packet>(0.5)));
     Packet q = pcast<PacketI, Packet>(q_int);
     s = trig_reduce_small_double(x_abs, q);
+#else
+    // Only q_int & 3 is consumed below. In round-to-nearest mode, the bias leaves q in its low bits.
+    const Packet bias = pset1<Packet>(6755399441055744.0);  // 1.5 * 2^52.
+    Packet biased_q = padd(qval_noround, bias);
+    doubleword_barrier(biased_q);
+    q_int = preinterpret<PacketI>(biased_q);
+    const Packet q = psub(biased_q, bias);
+    // |x| < 15 implies q <= 10. The first two 49-bit parts give exact q*c products;
+    // the third leaves < 2^-155 error in pi/2. Generated with MPFR at 256 bits:
+    // c1 = trunc49(pi/2), c2 = trunc49(pi/2-c1), c3 = RN53(pi/2-c1-c2).
+    s = pmadd(q, pset1<Packet>(-1.5707963267948948), x_abs);
+    doubleword_barrier(s);
+    s = pmadd(q, pset1<Packet>(-1.837589179357618e-15), s);
+    doubleword_barrier(s);
+    s = pmadd(q, pset1<Packet>(-8.4784276603688996e-32), s);
+#endif
   }
 
   Packet ss = pmul(s, s);

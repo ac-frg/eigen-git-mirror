@@ -25,20 +25,39 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void absolute_split(const Packet& x, Packe
   r = psub(x, n);
 }
 
+// Separately rounded operations are needed when a caller opts out of reassociation.
+// Native x86 double packets must stay in registers: clang chooses memory for "+g,x".
+template <typename Packet>
+EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void doubleword_barrier(Packet& x) {
+  EIGEN_UNUSED_VARIABLE(x);
+  EIGEN_OPTIMIZATION_BARRIER(x)
+}
+#if !defined(EIGEN_GPU_COMPILE_PHASE) && !defined(SYCL_DEVICE_ONLY) && !defined(EIGEN_VECTORIZE_GENERIC) && \
+    (EIGEN_COMP_GNUC || (defined(__clang__) && defined(_MSC_VER)))
+#ifdef EIGEN_VECTORIZE_SSE2
+EIGEN_STRONG_INLINE void doubleword_barrier(Packet2d& x) { __asm__("" : "+x"(x)); }
+#endif
+#ifdef EIGEN_VECTORIZE_AVX
+EIGEN_STRONG_INLINE void doubleword_barrier(Packet4d& x) { __asm__("" : "+x"(x)); }
+#endif
+#ifdef EIGEN_VECTORIZE_AVX512
+EIGEN_STRONG_INLINE void doubleword_barrier(Packet8d& x) { __asm__("" : "+x"(x)); }
+#endif
+#endif
+
 // Knuth two-sum: x + y = s_hi + s_lo exactly, with no magnitude ordering required.
-// The barriers preserve the separately rounded subtractions under reassociation.
 template <typename Packet>
 EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void twosum(const Packet& x, const Packet& y, Packet& s_hi, Packet& s_lo) {
   s_hi = padd(x, y);
-  EIGEN_OPTIMIZATION_BARRIER(s_hi)
+  doubleword_barrier(s_hi);
   Packet y_part = psub(s_hi, x);
-  EIGEN_OPTIMIZATION_BARRIER(y_part)
+  doubleword_barrier(y_part);
   Packet x_part = psub(s_hi, y_part);
-  EIGEN_OPTIMIZATION_BARRIER(x_part)
+  doubleword_barrier(x_part);
   Packet x_err = psub(x, x_part);
-  EIGEN_OPTIMIZATION_BARRIER(x_err)
+  doubleword_barrier(x_err);
   Packet y_err = psub(y, y_part);
-  EIGEN_OPTIMIZATION_BARRIER(y_err)
+  doubleword_barrier(y_err);
   s_lo = padd(x_err, y_err);
 }
 
@@ -47,9 +66,7 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void twosum(const Packet& x, const Packet&
 template <typename Packet>
 EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void fast_twosum(const Packet& x, const Packet& y, Packet& s_hi, Packet& s_lo) {
   s_hi = padd(x, y);
-  EIGEN_OPTIMIZATION_BARRIER(s_hi)
-  Packet t = psub(s_hi, x);
-  EIGEN_OPTIMIZATION_BARRIER(t)
+  const Packet t = psub(s_hi, x);
   s_lo = psub(y, t);
 }
 
@@ -69,8 +86,8 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Scalar twoprod_low(const Scalar& x, const 
 // This function implements the extended precision product of
 // a pair of floating point numbers. Given {x, y}, it computes the pair
 // {p_hi, p_lo} such that x * y = p_hi + p_lo holds exactly and
-// p_hi = fl(x * y).
-template <typename Packet>
+// p_hi = fl(x * y). PreventReassociation preserves the separately rounded non-FMA operations.
+template <typename Packet, bool PreventReassociation = false>
 EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void twoprod(const Packet& x, const Packet& y, Packet& p_hi, Packet& p_lo) {
   p_hi = pmul(x, y);
   p_lo = twoprod_low(x, y, p_hi);
@@ -101,7 +118,7 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Scalar twoprod_low(const Scalar& x, const 
   return numext::fma(x, y, Scalar(-xy));
 }
 
-template <typename Scalar, std::enable_if_t<has_fast_fma<Scalar>::value, int> = 0>
+template <typename Scalar, bool PreventReassociation = false, std::enable_if_t<has_fast_fma<Scalar>::value, int> = 0>
 EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void twoprod(const Scalar& x, const Scalar& y, Scalar& p_hi, Scalar& p_lo) {
   p_hi = x * y;
   p_lo = twoprod_low(x, y, p_hi);
@@ -112,38 +129,38 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void twoprod(const Scalar& x, const Scalar
 // exactly and that half of the significand of x fits in x_hi.
 // This is Algorithm 3 from Jean-Michel Muller, "Elementary Functions",
 // 3rd edition, Birkh\"auser, 2016.
-template <typename Packet>
+template <typename Packet, bool PreventReassociation = false>
 EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void veltkamp_splitting(const Packet& x, Packet& x_hi, Packet& x_lo) {
   using Scalar = typename unpacket_traits<Packet>::type;
   constexpr int shift = (NumTraits<Scalar>::digits() + 1) / 2;
   const Scalar shift_scale = Scalar(uint64_t(1) << shift);  // Scalar constructor not necessarily constexpr.
   Packet gamma = pmul(pset1<Packet>(shift_scale + Scalar(1)), x);
-  EIGEN_OPTIMIZATION_BARRIER(gamma)
+  EIGEN_IF_CONSTEXPR (PreventReassociation) doubleword_barrier(gamma);
   Packet rho = psub(x, gamma);
-  EIGEN_OPTIMIZATION_BARRIER(rho)
+  EIGEN_IF_CONSTEXPR (PreventReassociation) doubleword_barrier(rho);
   x_hi = padd(rho, gamma);
-  EIGEN_OPTIMIZATION_BARRIER(x_hi)
+  EIGEN_IF_CONSTEXPR (PreventReassociation) doubleword_barrier(x_hi);
   x_lo = psub(x, x_hi);
 }
 
 // This function implements Dekker's algorithm for products x * y.
 // Given floating point numbers {x, y} computes the pair
 // {p_hi, p_lo} such that x * y = p_hi + p_lo holds exactly and
-// p_hi = fl(x * y).
-template <typename Packet, std::enable_if_t<!has_fast_fma<Packet>::value, int> = 0>
+// p_hi = fl(x * y). PreventReassociation preserves the separately rounded non-FMA operations.
+template <typename Packet, bool PreventReassociation = false, std::enable_if_t<!has_fast_fma<Packet>::value, int> = 0>
 EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void twoprod(const Packet& x, const Packet& y, Packet& p_hi, Packet& p_lo) {
   Packet x_hi, x_lo, y_hi, y_lo;
-  veltkamp_splitting(x, x_hi, x_lo);
-  veltkamp_splitting(y, y_hi, y_lo);
+  veltkamp_splitting<Packet, PreventReassociation>(x, x_hi, x_lo);
+  veltkamp_splitting<Packet, PreventReassociation>(y, y_hi, y_lo);
 
   p_hi = pmul(x, y);
-  EIGEN_OPTIMIZATION_BARRIER(p_hi)
+  EIGEN_IF_CONSTEXPR (PreventReassociation) doubleword_barrier(p_hi);
   p_lo = pmsub(x_hi, y_hi, p_hi);
-  EIGEN_OPTIMIZATION_BARRIER(p_lo)
+  EIGEN_IF_CONSTEXPR (PreventReassociation) doubleword_barrier(p_lo);
   p_lo = pmadd(x_hi, y_lo, p_lo);
-  EIGEN_OPTIMIZATION_BARRIER(p_lo)
+  EIGEN_IF_CONSTEXPR (PreventReassociation) doubleword_barrier(p_lo);
   p_lo = pmadd(x_lo, y_hi, p_lo);
-  EIGEN_OPTIMIZATION_BARRIER(p_lo)
+  EIGEN_IF_CONSTEXPR (PreventReassociation) doubleword_barrier(p_lo);
   p_lo = pmadd(x_lo, y_lo, p_lo);
 }
 
@@ -156,11 +173,8 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet twoprod_low(const Packet& x, const 
   veltkamp_splitting(y, y_hi, y_lo);
 
   Packet p_lo = pmsub(x_hi, y_hi, xy);
-  EIGEN_OPTIMIZATION_BARRIER(p_lo)
   p_lo = pmadd(x_hi, y_lo, p_lo);
-  EIGEN_OPTIMIZATION_BARRIER(p_lo)
   p_lo = pmadd(x_lo, y_hi, p_lo);
-  EIGEN_OPTIMIZATION_BARRIER(p_lo)
   p_lo = pmadd(x_lo, y_lo, p_lo);
   return p_lo;
 }
@@ -178,8 +192,9 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet twoprod_low(const Packet& x, const 
 template <typename Packet>
 EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void twosum(const Packet& x_hi, const Packet& x_lo, const Packet& y_hi,
                                                   const Packet& y_lo, Packet& s_hi, Packet& s_lo) {
-  Packet s, err;
-  twosum(x_hi, y_hi, s, err);
+  Packet s = padd(x_hi, y_hi);
+  Packet y_part = psub(s, x_hi);
+  Packet err = padd(psub(x_hi, psub(s, y_part)), psub(y_hi, y_part));
   fast_twosum(s, padd(err, padd(x_lo, y_lo)), s_hi, s_lo);
 }
 
@@ -188,8 +203,9 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void twosum(const Packet& x_hi, const Pack
 template <typename Packet>
 EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void twodiff(const Packet& x_hi, const Packet& x_lo, const Packet& y_hi,
                                                    const Packet& y_lo, Packet& s_hi, Packet& s_lo) {
-  Packet s, err;
-  twosum(x_hi, pnegate(y_hi), s, err);
+  Packet s = psub(x_hi, y_hi);
+  Packet y_part = psub(x_hi, s);
+  Packet err = psub(psub(x_hi, padd(s, y_part)), psub(y_hi, y_part));
   fast_twosum(s, padd(err, psub(x_lo, y_lo)), s_hi, s_lo);
 }
 
