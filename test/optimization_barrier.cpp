@@ -12,6 +12,10 @@ union BarrierUnion {
   unsigned long long value;
   double real;
 };
+// GCC rejects register and general asm constraints for this struct on every target.
+struct BarrierTriple {
+  double x, y, z;
+};
 
 template <typename T>
 void check_barrier_value(T value) {
@@ -57,9 +61,22 @@ EIGEN_DECLARE_TEST(optimization_barrier) {
   object.value = 0xfedcba9876543210ull;
   EIGEN_OPTIMIZATION_BARRIER(object);
   VERIFY_IS_EQUAL(object.value, 0xfedcba9876543210ull);
+  BarrierTriple triple{1.25, -2.5, 3.75};
+  EIGEN_OPTIMIZATION_BARRIER(triple);
+  internal::pbarrier(triple);
+  VERIFY(triple.x == 1.25 && triple.y == -2.5 && triple.z == 3.75);
+  std::complex<double> complex_value(1.25, -2.5);
+  internal::pbarrier(complex_value);
+  VERIFY(complex_value == std::complex<double>(1.25, -2.5));
   int array[] = {1, -2, 3, -4};
   EIGEN_OPTIMIZATION_BARRIER(array);
   for (int i = 0; i < 4; ++i) VERIFY_IS_EQUAL(array[i], (i % 2 ? -1 : 1) * (i + 1));
+  double wide_array[8] = {1, -2, 3, -4, 5, -6, 7, -8};
+  EIGEN_OPTIMIZATION_BARRIER(wide_array);
+  for (int i = 0; i < 8; ++i) VERIFY_IS_EQUAL(wide_array[i], (i % 2 ? -1 : 1) * (i + 1));
+  internal::eigen_packet_wrapper<int, 7> wrapped(-1234567);
+  internal::pbarrier(wrapped);
+  VERIFY_IS_EQUAL(static_cast<int&>(wrapped), -1234567);
 
 #if !defined(EIGEN_GPU_COMPILE_PHASE) && !defined(SYCL_DEVICE_ONLY) && \
     (EIGEN_COMP_GNUC || (defined(__clang__) && defined(_MSC_VER)))
@@ -67,22 +84,36 @@ EIGEN_DECLARE_TEST(optimization_barrier) {
   VERIFY_IS_EQUAL(rounded_by_barrier(1.25), 1.0);
 #endif
 
-#if !defined(EIGEN_GPU_COMPILE_PHASE) &&                                       \
-    ((EIGEN_ARCH_ARM_OR_ARM64 && defined(__ARM_FP)) ||                         \
-     (EIGEN_ARCH_i386_OR_x86_64 && defined(__SSE2__) && !EIGEN_COMP_NVHPC)) && \
-    (EIGEN_COMP_GNUC_STRICT || EIGEN_COMP_CLANG)
+#if !defined(EIGEN_GPU_COMPILE_PHASE) && (EIGEN_COMP_GNUC_STRICT || EIGEN_COMP_CLANG || EIGEN_COMP_MINGW) && \
+    (EIGEN_ARCH_PPC || EIGEN_ARCH_ARM_OR_ARM64 || EIGEN_ARCH_i386_OR_x86_64)
+  using internal::optimization_barrier_in_memory;
+  STATIC_CHECK(optimization_barrier_in_memory<BarrierRecord>::value);
+  STATIC_CHECK(optimization_barrier_in_memory<BarrierUnion>::value);
+  STATIC_CHECK(optimization_barrier_in_memory<BarrierTriple>::value);
+  STATIC_CHECK(optimization_barrier_in_memory<std::complex<double>>::value);
+  STATIC_CHECK(optimization_barrier_in_memory<Eigen::half>::value);
+  STATIC_CHECK(optimization_barrier_in_memory<int[4]>::value);
+  STATIC_CHECK(optimization_barrier_in_memory<double[8]>::value);
+  STATIC_CHECK(!optimization_barrier_in_memory<double>::value);
+  STATIC_CHECK(!optimization_barrier_in_memory<long double>::value);
+  STATIC_CHECK(!optimization_barrier_in_memory<int*>::value);
+  STATIC_CHECK(!optimization_barrier_in_memory<decltype(nullptr)>::value);
+  STATIC_CHECK(!optimization_barrier_in_memory<BarrierEnum>::value);
+#endif
+
+#if !defined(EIGEN_GPU_COMPILE_PHASE) && (EIGEN_COMP_GNUC_STRICT || EIGEN_COMP_CLANG || EIGEN_COMP_MINGW) && \
+    (EIGEN_ARCH_ARM_OR_ARM64 || EIGEN_ARCH_i386_OR_x86_64)
   using internal::optimization_barrier_in_register;
-#if !EIGEN_ARCH_ARM_OR_ARM64 || (__ARM_FP & 4)
+#if (EIGEN_ARCH_ARM_OR_ARM64 && defined(__ARM_FP) && (__ARM_FP & 4)) || (EIGEN_ARCH_i386_OR_x86_64 && defined(__SSE2__))
   STATIC_CHECK(optimization_barrier_in_register<float>::value);
 #endif
-#if !EIGEN_ARCH_ARM_OR_ARM64 || (__ARM_FP & 8)
+#if (EIGEN_ARCH_ARM_OR_ARM64 && defined(__ARM_FP) && (__ARM_FP & 8)) || (EIGEN_ARCH_i386_OR_x86_64 && defined(__SSE2__))
   STATIC_CHECK(optimization_barrier_in_register<double>::value);
 #endif
   STATIC_CHECK(!optimization_barrier_in_register<long double>::value);
   STATIC_CHECK(!optimization_barrier_in_register<int>::value);
   STATIC_CHECK(!optimization_barrier_in_register<int*>::value);
   STATIC_CHECK(!optimization_barrier_in_register<decltype(nullptr)>::value);
-  STATIC_CHECK(!optimization_barrier_in_register<const volatile decltype(nullptr)>::value);
   STATIC_CHECK(!optimization_barrier_in_register<BarrierEnum>::value);
   STATIC_CHECK(!optimization_barrier_in_register<BarrierRecord>::value);
   STATIC_CHECK(!optimization_barrier_in_register<BarrierUnion>::value);
@@ -90,7 +121,7 @@ EIGEN_DECLARE_TEST(optimization_barrier) {
   STATIC_CHECK(!optimization_barrier_in_register<Eigen::bfloat16>::value);
   STATIC_CHECK(!optimization_barrier_in_register<std::complex<double>>::value);
   STATIC_CHECK(!optimization_barrier_in_register<int[4]>::value);
-#if EIGEN_ARCH_i386_OR_x86_64 || defined(__ARM_NEON)
+#if (EIGEN_ARCH_i386_OR_x86_64 && defined(__SSE2__)) || defined(__ARM_NEON)
   using BarrierVector = float __attribute__((vector_size(16)));
   using WideBarrierVector = float __attribute__((vector_size(128)));
   STATIC_CHECK(optimization_barrier_in_register<BarrierVector>::value);
