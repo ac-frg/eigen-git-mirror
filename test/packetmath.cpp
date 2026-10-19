@@ -758,7 +758,8 @@ struct eigen_optimization_barrier_test<
     EIGEN_OPTIMIZATION_BARRIER(barrier);
     internal::pstoreu(output, barrier);
     for (int i = 0; i < PacketSize; ++i) VERIFY_IS_EQUAL(input[i], output[i]);
-    internal::pbarrier<Packet>(barrier);
+    // Deduced, as in the kernels, so wrapped packets take the unwrapping overload.
+    internal::pbarrier(barrier);
     internal::pstoreu(output, barrier);
     for (int i = 0; i < PacketSize; ++i) VERIFY_IS_EQUAL(input[i], output[i]);
   }
