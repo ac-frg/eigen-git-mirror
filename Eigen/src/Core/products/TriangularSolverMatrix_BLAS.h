@@ -60,7 +60,7 @@ namespace internal {
       char side = 'L', uplo, diag = 'N', transa;                                                                    \
       /* Set alpha_ */                                                                                              \
       EIGTYPE alpha(1);                                                                                             \
-      ldb = convert_index<BlasIndex>(otherStride);                                                                  \
+      ldb = blas_leading_dim<ColMajor>(size, otherSize, otherStride);                                               \
                                                                                                                     \
       const EIGTYPE* a;                                                                                             \
       /* Set trans */                                                                                               \
@@ -81,7 +81,7 @@ namespace internal {
         lda = convert_index<BlasIndex>(a_tmp.outerStride());                                                        \
       } else {                                                                                                      \
         a = _tri;                                                                                                   \
-        lda = convert_index<BlasIndex>(triStride);                                                                  \
+        lda = blas_leading_dim<TriStorageOrder>(size, size, triStride);                                             \
       }                                                                                                             \
       EIGEN_IF_CONSTEXPR (IsUnitDiag) {                                                                             \
         diag = 'U';                                                                                                 \
@@ -123,7 +123,7 @@ EIGEN_BLAS_TRSM_L(scomplex, float, EIGEN_BLAS_SYM(ctrsm))
       char side = 'R', uplo, diag = 'N', transa;                                                                    \
       /* Set alpha_ */                                                                                              \
       EIGTYPE alpha(1);                                                                                             \
-      ldb = convert_index<BlasIndex>(otherStride);                                                                  \
+      ldb = blas_leading_dim<ColMajor>(otherSize, size, otherStride);                                               \
                                                                                                                     \
       const EIGTYPE* a;                                                                                             \
       /* Set trans */                                                                                               \
@@ -144,7 +144,7 @@ EIGEN_BLAS_TRSM_L(scomplex, float, EIGEN_BLAS_SYM(ctrsm))
         lda = convert_index<BlasIndex>(a_tmp.outerStride());                                                        \
       } else {                                                                                                      \
         a = _tri;                                                                                                   \
-        lda = convert_index<BlasIndex>(triStride);                                                                  \
+        lda = blas_leading_dim<TriStorageOrder>(size, size, triStride);                                             \
       }                                                                                                             \
       EIGEN_IF_CONSTEXPR (IsUnitDiag) {                                                                             \
         diag = 'U';                                                                                                 \

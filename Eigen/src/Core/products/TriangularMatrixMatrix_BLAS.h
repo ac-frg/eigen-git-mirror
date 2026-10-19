@@ -173,7 +173,7 @@ EIGEN_BLAS_TRMM_SPECIALIZE(scomplex, false)
         lda = convert_index<BlasIndex>(a_tmp.outerStride());                                                           \
       } else {                                                                                                         \
         a = _lhs;                                                                                                      \
-        lda = convert_index<BlasIndex>(lhsStride);                                                                     \
+        lda = blas_leading_dim<LhsStorageOrder>(rows, depth, lhsStride);                                               \
       }                                                                                                                \
       /*std::cout << "TRMM_L: A is square! Go to BLAS TRMM implementation! \n";*/                                      \
       /* call ?trmm*/                                                                                                  \
@@ -299,7 +299,7 @@ EIGEN_BLAS_TRMM_L(scomplex, float, cf, EIGEN_BLAS_SYM(ctrmm))
         lda = convert_index<BlasIndex>(a_tmp.outerStride());                                                           \
       } else {                                                                                                         \
         a = _rhs;                                                                                                      \
-        lda = convert_index<BlasIndex>(rhsStride);                                                                     \
+        lda = blas_leading_dim<RhsStorageOrder>(depth, cols, rhsStride);                                               \
       }                                                                                                                \
       /*std::cout << "TRMM_R: A is square! Go to BLAS TRMM implementation! \n";*/                                      \
       /* call ?trmm*/                                                                                                  \

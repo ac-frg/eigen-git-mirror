@@ -58,7 +58,7 @@ namespace internal {
                                                                                                                     \
     static void run(Index rows, Index cols, Index depth, const EIGTYPE* lhs_, Index lhsStride, const EIGTYPE* rhs_, \
                     Index rhsStride, EIGTYPE* res, Index resIncr, Index resStride, EIGTYPE alpha,                   \
-                    level3_blocking<EIGTYPE, EIGTYPE>& /*blocking*/, GemmParallelInfo<Index>* /*info = 0*/) {       \
+                    level3_blocking<EIGTYPE, EIGTYPE>& /*blocking*/, GemmParallelInfo<Index>* /*info*/) {           \
       using std::conj;                                                                                              \
       if (rows == 0 || cols == 0 || depth == 0) return;                                                             \
       EIGEN_ONLY_USED_FOR_DEBUG(resIncr);                                                                           \
@@ -79,9 +79,9 @@ namespace internal {
       k = convert_index<BlasIndex>(depth);                                                                          \
                                                                                                                     \
       /* Set lda, ldb, ldc */                                                                                       \
-      lda = convert_index<BlasIndex>(lhsStride);                                                                    \
-      ldb = convert_index<BlasIndex>(rhsStride);                                                                    \
-      ldc = convert_index<BlasIndex>(resStride);                                                                    \
+      lda = blas_leading_dim<LhsStorageOrder>(rows, depth, lhsStride);                                              \
+      ldb = blas_leading_dim<RhsStorageOrder>(depth, cols, rhsStride);                                              \
+      ldc = blas_leading_dim<ColMajor>(rows, cols, resStride);                                                      \
                                                                                                                     \
       /* Set a, b, c */                                                                                             \
       EIGEN_IF_CONSTEXPR ((LhsStorageOrder == ColMajor) && (ConjugateLhs)) {                                        \
@@ -137,7 +137,7 @@ struct general_matrix_matrix_product<Index, Eigen::bfloat16, LhsStorageOrder, Co
   static void run(Index rows, Index cols, Index depth, const Eigen::bfloat16* lhs_, Index lhsStride,
                   const Eigen::bfloat16* rhs_, Index rhsStride, Eigen::bfloat16* res, Index resIncr, Index resStride,
                   Eigen::bfloat16 alpha, level3_blocking<Eigen::bfloat16, Eigen::bfloat16>& /*blocking*/,
-                  GemmParallelInfo<Index>* /*info = 0*/) {
+                  GemmParallelInfo<Index>* /*info*/) {
     using std::conj;
     if (rows == 0 || cols == 0 || depth == 0) return;
     EIGEN_ONLY_USED_FOR_DEBUG(resIncr);
@@ -163,8 +163,8 @@ struct general_matrix_matrix_product<Index, Eigen::bfloat16, LhsStorageOrder, Co
     k = convert_index<BlasIndex>(depth);
 
     /* Set lda, ldb, ldc */
-    lda = convert_index<BlasIndex>(lhsStride);
-    ldb = convert_index<BlasIndex>(rhsStride);
+    lda = blas_leading_dim<LhsStorageOrder>(rows, depth, lhsStride);
+    ldb = blas_leading_dim<RhsStorageOrder>(depth, cols, rhsStride);
     ldc = convert_index<BlasIndex>(m);
 
     /* Set a, b, c */

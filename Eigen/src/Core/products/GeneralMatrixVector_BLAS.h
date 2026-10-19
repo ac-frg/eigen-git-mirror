@@ -97,9 +97,7 @@ EIGEN_BLAS_GEMV_SPECIALIZE(scomplex)
     static void run(Index rows, Index cols, const EIGTYPE* lhs, Index lhsStride, const EIGTYPE* rhs, Index rhsIncr, \
                     EIGTYPE* res, Index resIncr, EIGTYPE alpha) {                                                   \
       if (rows == 0 || cols == 0) return;                                                                           \
-      BlasIndex m = convert_index<BlasIndex>(rows), n = convert_index<BlasIndex>(cols),                             \
-                lda = convert_index<BlasIndex>(lhsStride), incx = convert_index<BlasIndex>(rhsIncr),                \
-                incy = convert_index<BlasIndex>(resIncr);                                                           \
+      BlasIndex m = convert_index<BlasIndex>(rows), n = convert_index<BlasIndex>(cols);                             \
       const EIGTYPE beta(1);                                                                                        \
       const EIGTYPE* x_ptr;                                                                                         \
       char trans = (LhsStorageOrder == ColMajor) ? 'N' : (ConjugateLhs) ? 'C' : 'T';                                \
@@ -107,9 +105,12 @@ EIGEN_BLAS_GEMV_SPECIALIZE(scomplex)
         m = convert_index<BlasIndex>(cols);                                                                         \
         n = convert_index<BlasIndex>(rows);                                                                         \
       }                                                                                                             \
+      const BlasIndex lda = blas_leading_dim<LhsStorageOrder>(rows, cols, lhsStride);                               \
+      BlasIndex incx = blas_vector_increment(cols, rhsIncr);                                                        \
+      const BlasIndex incy = blas_vector_increment(rows, resIncr);                                                  \
       GEMVVector x_tmp;                                                                                             \
       EIGEN_IF_CONSTEXPR (ConjugateRhs) {                                                                           \
-        Map<const GEMVVector, 0, InnerStride<> > map_x(rhs, cols, 1, InnerStride<>(incx));                          \
+        Map<const GEMVVector, 0, InnerStride<>> map_x(rhs, cols, 1, InnerStride<>(incx));                           \
         x_tmp = map_x.conjugate();                                                                                  \
         x_ptr = x_tmp.data();                                                                                       \
         incx = 1;                                                                                                   \

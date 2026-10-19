@@ -119,9 +119,9 @@ EIGEN_BLAS_TRMV_SPECIALIZE(scomplex)
                                                                                                                    \
       /* Set m, n */                                                                                               \
       n = convert_index<BlasIndex>(size);                                                                          \
-      lda = convert_index<BlasIndex>(lhsStride);                                                                   \
+      lda = blas_leading_dim<ColMajor>(rows, cols, lhsStride);                                                     \
       incx = 1;                                                                                                    \
-      incy = convert_index<BlasIndex>(resIncr);                                                                    \
+      incy = blas_vector_increment(rows, resIncr);                                                                 \
                                                                                                                    \
       /* Set uplo, trans and diag*/                                                                                \
       trans = 'N';                                                                                                 \
@@ -220,9 +220,9 @@ EIGEN_BLAS_TRMV_CM(scomplex, float, cf, c, EIGEN_BLAS_POSTFIX)
                                                                                                                    \
       /* Set m, n */                                                                                               \
       n = convert_index<BlasIndex>(size);                                                                          \
-      lda = convert_index<BlasIndex>(lhsStride);                                                                   \
+      lda = blas_leading_dim<RowMajor>(rows, cols, lhsStride);                                                     \
       incx = 1;                                                                                                    \
-      incy = convert_index<BlasIndex>(resIncr);                                                                    \
+      incy = blas_vector_increment(rows, resIncr);                                                                 \
                                                                                                                    \
       /* Set uplo, trans and diag*/                                                                                \
       trans = ConjLhs ? 'C' : 'T';                                                                                 \

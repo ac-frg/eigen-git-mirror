@@ -90,8 +90,9 @@ EIGEN_BLAS_RANKUPDATE_SPECIALIZE(float)
                                         const EIGTYPE* /*rhs*/, Index /*rhsStride*/, EIGTYPE* res, Index resStride, \
                                         EIGTYPE alpha, level3_blocking<EIGTYPE, EIGTYPE>& /*blocking*/) {           \
       if (size == 0 || depth == 0) return;                                                                          \
-      BlasIndex lda = convert_index<BlasIndex>(lhsStride), ldc = convert_index<BlasIndex>(resStride),               \
-                n = convert_index<BlasIndex>(size), k = convert_index<BlasIndex>(depth);                            \
+      BlasIndex lda = blas_leading_dim<AStorageOrder>(size, depth, lhsStride),                                      \
+                ldc = blas_leading_dim<ColMajor>(size, size, resStride), n = convert_index<BlasIndex>(size),        \
+                k = convert_index<BlasIndex>(depth);                                                                \
       char uplo = ((IsLower) ? 'L' : 'U'), trans = ((AStorageOrder == RowMajor) ? 'T' : 'N');                       \
       EIGTYPE beta(1);                                                                                              \
       BLASFUNC(&uplo, &trans, &n, &k, (const BLASTYPE*)&numext::real_ref(alpha), lhs, &lda,                         \

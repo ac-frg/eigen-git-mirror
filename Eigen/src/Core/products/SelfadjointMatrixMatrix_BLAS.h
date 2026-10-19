@@ -65,9 +65,9 @@ namespace internal {
       n = convert_index<BlasIndex>(cols);                                                                        \
                                                                                                                  \
       /* Set lda, ldb, ldc */                                                                                    \
-      lda = convert_index<BlasIndex>(lhsStride);                                                                 \
-      ldb = convert_index<BlasIndex>(rhsStride);                                                                 \
-      ldc = convert_index<BlasIndex>(resStride);                                                                 \
+      lda = blas_leading_dim<LhsStorageOrder>(rows, rows, lhsStride);                                            \
+      ldb = blas_leading_dim<RhsStorageOrder>(rows, cols, rhsStride);                                            \
+      ldc = blas_leading_dim<ColMajor>(rows, cols, resStride);                                                   \
                                                                                                                  \
       /* Set a, b, c */                                                                                          \
       EIGEN_IF_CONSTEXPR (LhsStorageOrder == RowMajor) {                                                         \
@@ -111,9 +111,9 @@ namespace internal {
       n = convert_index<BlasIndex>(cols);                                                                        \
                                                                                                                  \
       /* Set lda, ldb, ldc */                                                                                    \
-      lda = convert_index<BlasIndex>(lhsStride);                                                                 \
-      ldb = convert_index<BlasIndex>(rhsStride);                                                                 \
-      ldc = convert_index<BlasIndex>(resStride);                                                                 \
+      lda = blas_leading_dim<LhsStorageOrder>(rows, rows, lhsStride);                                            \
+      ldb = blas_leading_dim<RhsStorageOrder>(rows, cols, rhsStride);                                            \
+      ldc = blas_leading_dim<ColMajor>(rows, cols, resStride);                                                   \
                                                                                                                  \
       /* Set a, b, c */                                                                                          \
       EIGEN_IF_CONSTEXPR (((LhsStorageOrder == ColMajor) && ConjugateLhs) ||                                     \
@@ -186,9 +186,9 @@ EIGEN_BLAS_HEMM_L(scomplex, float, cf, EIGEN_BLAS_SYM(chemm))
       n = convert_index<BlasIndex>(cols);                                                                        \
                                                                                                                  \
       /* Set lda, ldb, ldc */                                                                                    \
-      lda = convert_index<BlasIndex>(rhsStride);                                                                 \
-      ldb = convert_index<BlasIndex>(lhsStride);                                                                 \
-      ldc = convert_index<BlasIndex>(resStride);                                                                 \
+      lda = blas_leading_dim<RhsStorageOrder>(cols, cols, rhsStride);                                            \
+      ldb = blas_leading_dim<LhsStorageOrder>(rows, cols, lhsStride);                                            \
+      ldc = blas_leading_dim<ColMajor>(rows, cols, resStride);                                                   \
                                                                                                                  \
       /* Set a, b, c */                                                                                          \
       EIGEN_IF_CONSTEXPR (RhsStorageOrder == RowMajor) {                                                         \
@@ -231,9 +231,9 @@ EIGEN_BLAS_HEMM_L(scomplex, float, cf, EIGEN_BLAS_SYM(chemm))
       n = convert_index<BlasIndex>(cols);                                                                        \
                                                                                                                  \
       /* Set lda, ldb, ldc */                                                                                    \
-      lda = convert_index<BlasIndex>(rhsStride);                                                                 \
-      ldb = convert_index<BlasIndex>(lhsStride);                                                                 \
-      ldc = convert_index<BlasIndex>(resStride);                                                                 \
+      lda = blas_leading_dim<RhsStorageOrder>(cols, cols, rhsStride);                                            \
+      ldb = blas_leading_dim<LhsStorageOrder>(rows, cols, lhsStride);                                            \
+      ldc = blas_leading_dim<ColMajor>(rows, cols, resStride);                                                   \
                                                                                                                  \
       /* Set a, b, c */                                                                                          \
       EIGEN_IF_CONSTEXPR (((RhsStorageOrder == ColMajor) && ConjugateRhs) ||                                     \
