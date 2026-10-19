@@ -7,14 +7,17 @@
 enum class BarrierEnum : unsigned long long { Value = 0xfedcba9876543210ull };
 struct BarrierRecord {
   unsigned long long value;
+  bool operator==(const BarrierRecord& other) const { return value == other.value; }
 };
 union BarrierUnion {
   unsigned long long value;
   double real;
+  bool operator==(const BarrierUnion& other) const { return value == other.value; }
 };
 // GCC rejects register and general asm constraints for this struct on every target.
 struct BarrierTriple {
   double x, y, z;
+  bool operator==(const BarrierTriple& other) const { return x == other.x && y == other.y && z == other.z; }
 };
 
 template <typename T>
@@ -55,20 +58,10 @@ EIGEN_DECLARE_TEST(optimization_barrier) {
   EIGEN_OPTIMIZATION_BARRIER(real_value);
   VERIFY(real_value == 1.25);
 
-  BarrierRecord record{0xfedcba9876543210ull};
-  EIGEN_OPTIMIZATION_BARRIER(record);
-  VERIFY_IS_EQUAL(record.value, 0xfedcba9876543210ull);
-  BarrierUnion object;
-  object.value = 0xfedcba9876543210ull;
-  EIGEN_OPTIMIZATION_BARRIER(object);
-  VERIFY_IS_EQUAL(object.value, 0xfedcba9876543210ull);
-  BarrierTriple triple{1.25, -2.5, 3.75};
-  EIGEN_OPTIMIZATION_BARRIER(triple);
-  internal::pbarrier(triple);
-  VERIFY(triple.x == 1.25 && triple.y == -2.5 && triple.z == 3.75);
-  std::complex<double> complex_value(1.25, -2.5);
-  internal::pbarrier(complex_value);
-  VERIFY(complex_value == std::complex<double>(1.25, -2.5));
+  check_barrier_value(BarrierRecord{0xfedcba9876543210ull});
+  check_barrier_value(BarrierUnion{0xfedcba9876543210ull});
+  check_barrier_value(BarrierTriple{1.25, -2.5, 3.75});
+  check_barrier_value(std::complex<double>(1.25, -2.5));
   int array[] = {1, -2, 3, -4};
   EIGEN_OPTIMIZATION_BARRIER(array);
   for (int i = 0; i < 4; ++i) VERIFY_IS_EQUAL(array[i], (i % 2 ? -1 : 1) * (i + 1));
