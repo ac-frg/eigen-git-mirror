@@ -3,6 +3,9 @@
 
 #include "main.h"
 #include <Eigen/Core>
+#ifdef __ARM_FEATURE_SVE
+#include <arm_sve.h>
+#endif
 
 enum class BarrierEnum : unsigned long long { Value = 0xfedcba9876543210ull };
 struct BarrierRecord {
@@ -71,6 +74,14 @@ EIGEN_DECLARE_TEST(optimization_barrier) {
   internal::eigen_packet_wrapper<int, 7> wrapped(-1234567);
   internal::pbarrier(wrapped);
   VERIFY_IS_EQUAL(static_cast<int&>(wrapped), -1234567);
+#ifdef __ARM_FEATURE_SVE
+  // Sizeless: sizeof(svfloat64_t) is ill-formed, and there is no operator== for check_barrier_value.
+  svfloat64_t sizeless = svdup_n_f64(1.25);
+  EIGEN_OPTIMIZATION_BARRIER(sizeless);
+  VERIFY(!svptest_any(svptrue_b64(), svcmpne_n_f64(svptrue_b64(), sizeless, 1.25)));
+  internal::pbarrier(sizeless);
+  VERIFY(!svptest_any(svptrue_b64(), svcmpne_n_f64(svptrue_b64(), sizeless, 1.25)));
+#endif
 
 #if !defined(EIGEN_GPU_COMPILE_PHASE) && !defined(SYCL_DEVICE_ONLY) && \
     (EIGEN_COMP_GNUC || (defined(__clang__) && defined(_MSC_VER)) || (EIGEN_COMP_MSVC && defined(_M_FP_FAST)))
@@ -115,6 +126,9 @@ EIGEN_DECLARE_TEST(optimization_barrier) {
   STATIC_CHECK(!optimization_barrier_in_register<Eigen::bfloat16>::value);
   STATIC_CHECK(!optimization_barrier_in_register<std::complex<double>>::value);
   STATIC_CHECK(!optimization_barrier_in_register<int[4]>::value);
+#ifdef __ARM_FEATURE_SVE
+  STATIC_CHECK(!optimization_barrier_in_register<svfloat64_t>::value);
+#endif
 #if (EIGEN_ARCH_i386_OR_x86_64 && defined(__SSE2__)) || defined(__ARM_NEON)
   using BarrierVector = float __attribute__((vector_size(16)));
   using WideBarrierVector = float __attribute__((vector_size(128)));

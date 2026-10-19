@@ -1276,9 +1276,13 @@ EIGEN_ALWAYS_INLINE void ppc_optimization_barrier(T& x) {
 namespace Eigen {
 namespace internal {
 // GCC before 14 classifies builtin vectors as -1; newer GCC and Clang use 19. nullptr_t also has category -1 and is
-// excluded below. Scalars have other categories.
-template <typename T>
+// excluded below. Scalars have other categories. Sizeless SVE types have no sizeof and keep the general constraint.
+template <typename T, typename = void>
 struct optimization_barrier_in_register {
+  static constexpr bool value = false;
+};
+template <typename T>
+struct optimization_barrier_in_register<T, decltype(void(sizeof(T)))> {
   static constexpr int kTypeClass = __builtin_classify_type(*static_cast<T*>(nullptr));
   static constexpr bool value = (kTypeClass == -1 || kTypeClass == 19) && sizeof(T) <= EIGEN_BARRIER_VECTOR_BYTES;
 };
