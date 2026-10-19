@@ -341,16 +341,16 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet psincos_double(const 
     // Only q_int & 3 is consumed below. In round-to-nearest mode, the bias leaves q in its low bits.
     const Packet bias = pset1<Packet>(6755399441055744.0);  // 1.5 * 2^52.
     Packet biased_q = padd(qval_noround, bias);
-    doubleword_barrier(biased_q);
+    pbarrier(biased_q);
     q_int = preinterpret<PacketI>(biased_q);
     const Packet q = psub(biased_q, bias);
     // |x| < 15 implies q <= 10. The first two 49-bit parts give exact q*c products;
     // the third leaves < 2^-155 error in pi/2. Generated with MPFR at 256 bits:
     // c1 = trunc49(pi/2), c2 = trunc49(pi/2-c1), c3 = RN53(pi/2-c1-c2).
     s = pmadd(q, pset1<Packet>(-1.5707963267948948), x_abs);
-    doubleword_barrier(s);
+    pbarrier(s);
     s = pmadd(q, pset1<Packet>(-1.837589179357618e-15), s);
-    doubleword_barrier(s);
+    pbarrier(s);
     s = pmadd(q, pset1<Packet>(-8.4784276603688996e-32), s);
 #endif
   }

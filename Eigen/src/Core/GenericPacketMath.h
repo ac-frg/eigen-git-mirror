@@ -321,6 +321,13 @@ struct pcast_generic<SrcPacket, TgtPacket, false, true> {
   }
 };
 
+// Preserve separately rounded operations where EIGEN_OPTIMIZATION_BARRIER is supported.
+template <typename Packet>
+EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void pbarrier(Packet& x) {
+  EIGEN_UNUSED_VARIABLE(x);
+  EIGEN_OPTIMIZATION_BARRIER(x)
+}
+
 /** \internal \returns a + b (coeff-wise) */
 template <typename Packet>
 EIGEN_DEVICE_FUNC inline Packet padd(const Packet& a, const Packet& b) {
