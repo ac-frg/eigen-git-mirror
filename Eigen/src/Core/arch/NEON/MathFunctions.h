@@ -67,7 +67,7 @@ EIGEN_STRONG_INLINE Packet4bf psqrt<Packet4bf>(const Packet4bf& a) {
   y = pmul(y, vrsqrtsq_f32(y, r));
   Packet4bf ybf = vshrn_n_u32(vaddq_u32(vreinterpretq_u32_f32(y), vdupq_n_u32(0x8000)), 16);
 #if EIGEN_ARCH_ARM64
-  uint16x4_t zero = vceq_u16(vshl_n_u16(a, 1), vdup_n_u16(0));
+  uint16x4_t zero = vceqz_u16(vshl_n_u16(a, 1));
 #else
   // ARMv7 NEON flushes subnormals, so the estimate of one is inf. Keep them as the input, which
   // is what the float compare in psqrt_float_common did for them.
