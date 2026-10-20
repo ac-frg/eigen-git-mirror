@@ -57,15 +57,15 @@ template <>
 EIGEN_STRONG_INLINE Packet4bf psqrt<Packet4bf>(const Packet4bf& a) {
   // y = x r with r = FRSQRTE(x), then one FRSQRTS step y <- y (3 - y r) / 2. FRSQRTE is specified
   // bit for bit, and rounding y to bfloat16 equals bfloat16(sqrtf(x)) for all 65536 inputs
-  // (checked exhaustively); the raw estimate alone misrounds 7366 of them. The narrowing adds half
-  // a bfloat16 ulp and truncates. That is round half up, which differs from F32ToBf16 only on an
+  // (checked exhaustively); the raw estimate alone misrounds 7366 of them. RSHRN adds half a
+  // bfloat16 ulp and truncates. That is round half up, which differs from F32ToBf16 only on an
   // exact float midpoint, and no input produces one; NaNs stay NaN since their low half is zero.
   // The estimate route gives NaN for 0 and inf, so those lanes keep the input.
   Packet4f x = Bf16ToF32(a);
   Packet4f r = vrsqrteq_f32(x);
   Packet4f y = pmul(x, r);
   y = pmul(y, vrsqrtsq_f32(y, r));
-  Packet4bf ybf = vshrn_n_u32(vaddq_u32(vreinterpretq_u32_f32(y), vdupq_n_u32(0x8000)), 16);
+  Packet4bf ybf = vrshrn_n_u32(vreinterpretq_u32_f32(y), 16);
 #if EIGEN_ARCH_ARM64
   uint16x4_t zero = vceqz_u16(vshl_n_u16(a, 1));
 #else
@@ -79,7 +79,7 @@ EIGEN_STRONG_INLINE Packet4bf psqrt<Packet4bf>(const Packet4bf& a) {
 
 template <>
 EIGEN_STRONG_INLINE Packet4bf prsqrt<Packet4bf>(const Packet4bf& a) {
-  // r = FRSQRTE(x) refined by one FRSQRTS step, r1 = r (3 - x r r) / 2, then the same half-ulp
+  // r = FRSQRTE(x) refined by one FRSQRTS step, r1 = r (3 - x r r) / 2, then the same RSHRN
   // narrowing as psqrt. r1 rounds to the correctly rounded bfloat16 rsqrt for all 65536 inputs
   // (checked exhaustively). FRSQRTE has 8 fraction bits, so the raw estimate always lands on a
   // bfloat16 value or midpoint and misrounds 1270 of them. For 0, inf, negative and NaN inputs
@@ -89,7 +89,7 @@ EIGEN_STRONG_INLINE Packet4bf prsqrt<Packet4bf>(const Packet4bf& a) {
   Packet4f x = Bf16ToF32(a);
   Packet4f r = vrsqrteq_f32(x);
   Packet4f r1 = pmul(r, vrsqrtsq_f32(pmul(x, r), r));
-  Packet4bf refined = vshrn_n_u32(vaddq_u32(vreinterpretq_u32_f32(r1), vdupq_n_u32(0x8000)), 16);
+  Packet4bf refined = vrshrn_n_u32(vreinterpretq_u32_f32(r1), 16);
   Packet4bf raw = vshrn_n_u32(vreinterpretq_u32_f32(r), 16);
 #if EIGEN_ARCH_ARM64
   uint16x4_t special = vcge_u16(vsub_u16(a, vdup_n_u16(1)), vdup_n_u16(0x7f7f));
