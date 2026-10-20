@@ -118,15 +118,15 @@ EIGEN_STRONG_INLINE float predux_min(const Packet16f& a) {
 
 template <>
 EIGEN_STRONG_INLINE float predux_min<PropagateNumbers>(const Packet16f& a) {
-  Packet8f lane0 = _mm512_extractf32x8_ps(a, 0);
-  Packet8f lane1 = _mm512_extractf32x8_ps(a, 1);
+  Packet8f lane0 = extract256<0>(a);
+  Packet8f lane1 = extract256<1>(a);
   return predux_min<PropagateNumbers>(pmin<PropagateNumbers>(lane0, lane1));
 }
 
 template <>
 EIGEN_STRONG_INLINE float predux_min<PropagateNaN>(const Packet16f& a) {
-  Packet8f lane0 = _mm512_extractf32x8_ps(a, 0);
-  Packet8f lane1 = _mm512_extractf32x8_ps(a, 1);
+  Packet8f lane0 = extract256<0>(a);
+  Packet8f lane1 = extract256<1>(a);
   return predux_min<PropagateNaN>(pmin<PropagateNaN>(lane0, lane1));
 }
 
@@ -137,15 +137,15 @@ EIGEN_STRONG_INLINE float predux_max(const Packet16f& a) {
 
 template <>
 EIGEN_STRONG_INLINE float predux_max<PropagateNumbers>(const Packet16f& a) {
-  Packet8f lane0 = _mm512_extractf32x8_ps(a, 0);
-  Packet8f lane1 = _mm512_extractf32x8_ps(a, 1);
+  Packet8f lane0 = extract256<0>(a);
+  Packet8f lane1 = extract256<1>(a);
   return predux_max<PropagateNumbers>(pmax<PropagateNumbers>(lane0, lane1));
 }
 
 template <>
 EIGEN_STRONG_INLINE float predux_max<PropagateNaN>(const Packet16f& a) {
-  Packet8f lane0 = _mm512_extractf32x8_ps(a, 0);
-  Packet8f lane1 = _mm512_extractf32x8_ps(a, 1);
+  Packet8f lane0 = extract256<0>(a);
+  Packet8f lane1 = extract256<1>(a);
   return predux_max<PropagateNaN>(pmax<PropagateNaN>(lane0, lane1));
 }
 
@@ -232,7 +232,8 @@ EIGEN_STRONG_INLINE Index predux_count(const Packet8d& a) {
 // Count 16-bit floating-point lanes through integer bits so fast-math cannot treat NaN masks as zero.
 EIGEN_STRONG_INLINE Index predux_count_16bit(const __m256i& a) {
 #if defined(EIGEN_VECTORIZE_AVX512VL) && defined(__AVX512BW__)
-  const unsigned int nonzero_lanes = _cvtmask16_u32(_mm256_test_epi16_mask(a, _mm256_set1_epi16(0x7fff)));
+  // A cast rather than _cvtmask16_u32, whose nvc++ definition calls a __builtin_ia32_kmovw that nvc++ cannot link.
+  const unsigned int nonzero_lanes = static_cast<unsigned int>(_mm256_test_epi16_mask(a, _mm256_set1_epi16(0x7fff)));
   return Index(popcount(nonzero_lanes));
 #else
   const __m256i magnitude = _mm256_and_si256(a, _mm256_set1_epi16(0x7fff));

@@ -90,7 +90,12 @@ EIGEN_DONT_INLINE void product_triangular_matrix_matrix<
   ei_declare_aligned_stack_constructed_variable(Scalar, blockA, sizeA, blocking.blockA());
   ei_declare_aligned_stack_constructed_variable(Scalar, blockB, sizeB, blocking.blockB());
 
-  Matrix<Scalar, SmallPanelWidth, SmallPanelWidth, LhsStorageOrder> triangularBuffer;
+  static constexpr int PanelCapacity =
+      (EIGEN_STACK_ALLOCATION_LIMIT == 0 ||
+       SmallPanelWidth * SmallPanelWidth * sizeof(Scalar) <= EIGEN_STACK_ALLOCATION_LIMIT)
+          ? int(SmallPanelWidth)
+          : Dynamic;
+  Matrix<Scalar, PanelCapacity, PanelCapacity, LhsStorageOrder> triangularBuffer(SmallPanelWidth, SmallPanelWidth);
   triangularBuffer.setZero();
   EIGEN_IF_CONSTEXPR ((Mode & ZeroDiag) == ZeroDiag)
     triangularBuffer.diagonal().setZero();
@@ -218,7 +223,12 @@ EIGEN_DONT_INLINE void product_triangular_matrix_matrix<
   ei_declare_aligned_stack_constructed_variable(Scalar, blockA, sizeA, blocking.blockA());
   ei_declare_aligned_stack_constructed_variable(Scalar, blockB, sizeB, blocking.blockB());
 
-  Matrix<Scalar, SmallPanelWidth, SmallPanelWidth, RhsStorageOrder> triangularBuffer;
+  static constexpr int PanelCapacity =
+      (EIGEN_STACK_ALLOCATION_LIMIT == 0 ||
+       SmallPanelWidth * SmallPanelWidth * sizeof(Scalar) <= EIGEN_STACK_ALLOCATION_LIMIT)
+          ? int(SmallPanelWidth)
+          : Dynamic;
+  Matrix<Scalar, PanelCapacity, PanelCapacity, RhsStorageOrder> triangularBuffer(SmallPanelWidth, SmallPanelWidth);
   triangularBuffer.setZero();
   EIGEN_IF_CONSTEXPR ((Mode & ZeroDiag) == ZeroDiag)
     triangularBuffer.diagonal().setZero();
@@ -357,17 +367,18 @@ struct triangular_product_impl<Mode, LhsIsTriangular, Lhs, false, Rhs, false> {
                                              &dst.coeffRef(0, 0), dst.innerStride(), dst.outerStride(),  // result info
                                              actualAlpha, blocking);
 
-    // Apply correction if the diagonal is unit and a scalar factor was nested:
+    // A factor s nested in a unit triangle reached the kernel through actualAlpha, so the unit diagonal
+    // contributed alpha * s * other instead of alpha * other: subtract alpha * (s - 1) * other.
     EIGEN_IF_CONSTEXPR ((Mode & UnitDiag) == UnitDiag) {
       EIGEN_IF_CONSTEXPR (LhsIsTriangular) {
         if (!numext::is_exactly_one(lhs_alpha)) {
           Index diagSize = (std::min)(lhs.rows(), lhs.cols());
-          dst.topRows(diagSize) -= ((lhs_alpha - LhsScalar(1)) * a_rhs).topRows(diagSize);
+          dst.topRows(diagSize) -= ((alpha * (lhs_alpha - LhsScalar(1))) * a_rhs).topRows(diagSize);
         }
       } else {
         if (!numext::is_exactly_one(rhs_alpha)) {
           Index diagSize = (std::min)(rhs.rows(), rhs.cols());
-          dst.leftCols(diagSize) -= (rhs_alpha - RhsScalar(1)) * a_lhs.leftCols(diagSize);
+          dst.leftCols(diagSize) -= (alpha * (rhs_alpha - RhsScalar(1))) * a_lhs.leftCols(diagSize);
         }
       }
     }

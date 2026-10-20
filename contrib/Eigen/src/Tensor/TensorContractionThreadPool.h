@@ -83,6 +83,8 @@ struct TensorEvaluator<const TensorContractionOp<Indices, LeftArgType, RightArgT
     evalProductImpl<EvalToCallback, Alignment>(buffer, std::move(done));
   }
 
+  using Base::dispatchContraction;
+
   template <typename DoneCallback, int Alignment>
   void evalProductImpl(Scalar* buffer, DoneCallback done) const {
     // This function computes a lot of heuristics in multiple steps, and it
@@ -110,7 +112,7 @@ struct TensorEvaluator<const TensorContractionOp<Indices, LeftArgType, RightArgT
       return;
     }
     if (k == 0) {
-      internal::tensor_contraction_dispatch(
+      dispatchContraction(
           [&](auto lhs_c, auto rhs_c, auto rhs_r) {
             this->template evalProductSequential<lhs_c(), rhs_c(), rhs_r(), Unaligned>(buffer);
           },
@@ -189,7 +191,7 @@ struct TensorEvaluator<const TensorContractionOp<Indices, LeftArgType, RightArgT
     if (n == 1) num_threads = 1;
 
     if (num_threads == 1) {
-      internal::tensor_contraction_dispatch(
+      dispatchContraction(
           [&](auto lhs_c, auto rhs_c, auto rhs_r) {
             this->template evalProductSequential<lhs_c(), rhs_c(), rhs_r(), Unaligned>(buffer);
           },
@@ -275,15 +277,15 @@ struct TensorEvaluator<const TensorContractionOp<Indices, LeftArgType, RightArgT
     // optimization.
     if (parallelize_by_sharding_dim_only) parallel_pack = false;
 
-    internal::tensor_contraction_dispatch(
+    dispatchContraction(
         [&](auto lhs_c, auto rhs_c, auto rhs_r) {
           EIGEN_IF_CONSTEXPR (IsEvalInSyncMode) {
-            EvalParallelContext<NoCallback, lhs_c(), rhs_c(), rhs_r(), Alignment> ctx(
+            EvalParallelContext<NoCallback, lhs_c(), rhs_c(), rhs_r()> ctx(
                 this, num_threads, buffer, m, n, k, bm, bn, bk, nm, nn, nk, gm, gn, nm0, nn0, shard_by_col,
                 parallel_pack, parallelize_by_sharding_dim_only, NoCallback());
             ctx.run();
           } else {
-            auto* ctx = new EvalParallelContext<DoneCallback, lhs_c(), rhs_c(), rhs_r(), Alignment>(
+            auto* ctx = new EvalParallelContext<DoneCallback, lhs_c(), rhs_c(), rhs_r()>(
                 this, num_threads, buffer, m, n, k, bm, bn, bk, nm, nn, nk, gm, gn, nm0, nn0, shard_by_col,
                 parallel_pack, parallelize_by_sharding_dim_only, std::move(done));
             ctx->run();
@@ -348,7 +350,7 @@ struct TensorEvaluator<const TensorContractionOp<Indices, LeftArgType, RightArgT
   // accessible by block packing and kernel tasks.
 
   template <typename DoneCallback, bool lhs_inner_dim_contiguous, bool rhs_inner_dim_contiguous,
-            bool rhs_inner_dim_reordered, int Alignment>
+            bool rhs_inner_dim_reordered>
   class EvalParallelContext {
    public:
     using LhsMapper =
@@ -1154,7 +1156,7 @@ struct TensorEvaluator<const TensorContractionOp<Indices, LeftArgType, RightArgT
     void processBlock(Index block_idx, Index begin, Index end) {
       Scalar* buf = block_buffers[block_idx];
 
-      internal::tensor_contraction_dispatch(
+      dispatchContraction(
           [&](auto lhs_c, auto rhs_c, auto rhs_r) {
             evaluator->template evalGemmPartialWithoutOutputKernel<lhs_c(), rhs_c(), rhs_r(), Alignment>(
                 buf, begin, end, /*num_threads=*/internal::convert_index<int>(num_blocks));
@@ -1450,7 +1452,7 @@ struct TensorEvaluator<const TensorContractionOp<Indices, LeftArgType, RightArgT
     const int packed_size = std::min<int>(PacketType<LhsScalar, Device>::size, PacketType<RhsScalar, Device>::size);
     const int output_packet_size = internal::unpacket_traits<PacketReturnType>::size;
     const double kd = static_cast<double>(bk);
-    double compute_bandwidth = computeBandwidth(false, bm, bn, bk);
+    double compute_bandwidth = computeBandwidth(bm, bn, bk);
     // Computations.
     TensorOpCost cost = TensorOpCost(0, 0, kd * compute_bandwidth, true, packed_size);
     // Output stores.
@@ -1499,7 +1501,7 @@ struct TensorEvaluator<const TensorContractionOp<Indices, LeftArgType, RightArgT
   TensorOpCost contractionCostPerInnerDim(Index m, Index n, Index k) const {
     // Compute cost.
     const int output_packet_size = internal::unpacket_traits<PacketReturnType>::size;
-    TensorOpCost cost(0, 0, (computeBandwidth(true, m, n, k) * m) * n, true, output_packet_size);
+    TensorOpCost cost(0, 0, (computeBandwidth(m, n, k) * m) * n, true, output_packet_size);
     // Output stores.
     cost += TensorOpCost(0, sizeof(CoeffReturnType), 0, true, output_packet_size);
     TensorOpCost lhsCost = this->m_leftImpl.costPerCoeff(true) * m;
@@ -1520,8 +1522,8 @@ struct TensorEvaluator<const TensorContractionOp<Indices, LeftArgType, RightArgT
         TensorCostModel<ThreadPoolDevice>::totalCost(m * n, TensorOpCost(2, 1, 1, true, output_packet_size));
     int num_threads = 1;
     double min_cost = total_parallel_cost;
-    double kPerThreadOverHead = 3000;
-    double kFixedOverHead = 20000;
+    double kPerThreadOverHead = TensorCostModel<ThreadPoolDevice>::kPerThreadCycles;
+    double kFixedOverHead = TensorCostModel<ThreadPoolDevice>::kStartupCycles;
     for (int nt = 2; nt <= this->m_device.numThreads(); nt += 2) {
       double sequential_cost = kFixedOverHead + nt * (reduction_cost + kPerThreadOverHead);
       double parallel_cost = total_parallel_cost / nt + sequential_cost;
@@ -1533,13 +1535,11 @@ struct TensorEvaluator<const TensorContractionOp<Indices, LeftArgType, RightArgT
     return num_threads;
   }
 
-  double computeBandwidth(bool shard_by_col, Index bm, Index bn, Index bk) const {
+  double computeBandwidth(Index bm, Index bn, Index bk) const {
     // Peak VFMA bandwidth is 0.5. However if we have not enough data for
     // vectorization bandwidth drops. The 4.0 and 2.0 bandwidth is determined
     // experimentally.
-    double computeBandwidth = bk == 1                                                                          ? 4.0
-                              : (shard_by_col ? bn : bm) < Traits::nr || (shard_by_col ? bm : bn) < Traits::mr ? 2.0
-                                                                                                               : 0.5;
+    double computeBandwidth = bk == 1 ? 4.0 : (bn < Traits::nr || bm < Traits::mr) ? 2.0 : 0.5;
 #ifndef EIGEN_VECTORIZE_FMA
     // Bandwidth of all of VFMA/MULPS/ADDPS is 0.5 on latest Intel processors.
     // However for MULPS/ADDPS we have dependent sequence of 2 such

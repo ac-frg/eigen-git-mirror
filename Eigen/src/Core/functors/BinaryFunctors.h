@@ -262,11 +262,11 @@ template <typename LhsScalar, typename RhsScalar, bool UseTypedComparators>
 struct scalar_cmp_op<LhsScalar, RhsScalar, cmp_EQ, UseTypedComparators> : binary_op_base<LhsScalar, RhsScalar> {
   using result_type = std::conditional_t<UseTypedComparators, LhsScalar, bool>;
   EIGEN_DEVICE_FUNC constexpr EIGEN_STRONG_INLINE result_type operator()(const LhsScalar& a, const RhsScalar& b) const {
-    return a == b ? result_type(1) : result_type(0);
+    return result_type(a == b);
   }
   template <typename Packet>
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet packetOp(const Packet& a, const Packet& b) const {
-    const Packet cst_one = pset1<Packet>(result_type(1));
+    const Packet cst_one = pset1<Packet>(result_type(true));
     return pand(pcmp_eq(a, b), cst_one);
   }
 };
@@ -275,11 +275,11 @@ template <typename LhsScalar, typename RhsScalar, bool UseTypedComparators>
 struct scalar_cmp_op<LhsScalar, RhsScalar, cmp_LT, UseTypedComparators> : binary_op_base<LhsScalar, RhsScalar> {
   using result_type = std::conditional_t<UseTypedComparators, LhsScalar, bool>;
   EIGEN_DEVICE_FUNC constexpr EIGEN_STRONG_INLINE result_type operator()(const LhsScalar& a, const RhsScalar& b) const {
-    return a < b ? result_type(1) : result_type(0);
+    return result_type(a < b);
   }
   template <typename Packet>
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet packetOp(const Packet& a, const Packet& b) const {
-    const Packet cst_one = pset1<Packet>(result_type(1));
+    const Packet cst_one = pset1<Packet>(result_type(true));
     return pand(pcmp_lt(a, b), cst_one);
   }
 };
@@ -288,11 +288,11 @@ template <typename LhsScalar, typename RhsScalar, bool UseTypedComparators>
 struct scalar_cmp_op<LhsScalar, RhsScalar, cmp_LE, UseTypedComparators> : binary_op_base<LhsScalar, RhsScalar> {
   using result_type = std::conditional_t<UseTypedComparators, LhsScalar, bool>;
   EIGEN_DEVICE_FUNC constexpr EIGEN_STRONG_INLINE result_type operator()(const LhsScalar& a, const RhsScalar& b) const {
-    return a <= b ? result_type(1) : result_type(0);
+    return result_type(a <= b);
   }
   template <typename Packet>
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet packetOp(const Packet& a, const Packet& b) const {
-    const Packet cst_one = pset1<Packet>(result_type(1));
+    const Packet cst_one = pset1<Packet>(result_type(true));
     return pand(cst_one, pcmp_le(a, b));
   }
 };
@@ -301,11 +301,11 @@ template <typename LhsScalar, typename RhsScalar, bool UseTypedComparators>
 struct scalar_cmp_op<LhsScalar, RhsScalar, cmp_GT, UseTypedComparators> : binary_op_base<LhsScalar, RhsScalar> {
   using result_type = std::conditional_t<UseTypedComparators, LhsScalar, bool>;
   EIGEN_DEVICE_FUNC constexpr EIGEN_STRONG_INLINE result_type operator()(const LhsScalar& a, const RhsScalar& b) const {
-    return a > b ? result_type(1) : result_type(0);
+    return result_type(a > b);
   }
   template <typename Packet>
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet packetOp(const Packet& a, const Packet& b) const {
-    const Packet cst_one = pset1<Packet>(result_type(1));
+    const Packet cst_one = pset1<Packet>(result_type(true));
     return pand(cst_one, pcmp_lt(b, a));
   }
 };
@@ -314,11 +314,11 @@ template <typename LhsScalar, typename RhsScalar, bool UseTypedComparators>
 struct scalar_cmp_op<LhsScalar, RhsScalar, cmp_GE, UseTypedComparators> : binary_op_base<LhsScalar, RhsScalar> {
   using result_type = std::conditional_t<UseTypedComparators, LhsScalar, bool>;
   EIGEN_DEVICE_FUNC constexpr EIGEN_STRONG_INLINE result_type operator()(const LhsScalar& a, const RhsScalar& b) const {
-    return a >= b ? result_type(1) : result_type(0);
+    return result_type(a >= b);
   }
   template <typename Packet>
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet packetOp(const Packet& a, const Packet& b) const {
-    const Packet cst_one = pset1<Packet>(result_type(1));
+    const Packet cst_one = pset1<Packet>(result_type(true));
     return pand(cst_one, pcmp_le(b, a));
   }
 };
@@ -327,11 +327,11 @@ template <typename LhsScalar, typename RhsScalar, bool UseTypedComparators>
 struct scalar_cmp_op<LhsScalar, RhsScalar, cmp_UNORD, UseTypedComparators> : binary_op_base<LhsScalar, RhsScalar> {
   using result_type = std::conditional_t<UseTypedComparators, LhsScalar, bool>;
   EIGEN_DEVICE_FUNC constexpr EIGEN_STRONG_INLINE result_type operator()(const LhsScalar& a, const RhsScalar& b) const {
-    return !(a <= b || b <= a) ? result_type(1) : result_type(0);
+    return result_type(!(a <= b || b <= a));
   }
   template <typename Packet>
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet packetOp(const Packet& a, const Packet& b) const {
-    const Packet cst_one = pset1<Packet>(result_type(1));
+    const Packet cst_one = pset1<Packet>(result_type(true));
     return pandnot(cst_one, por(pcmp_le(a, b), pcmp_le(b, a)));
   }
 };
@@ -340,11 +340,11 @@ template <typename LhsScalar, typename RhsScalar, bool UseTypedComparators>
 struct scalar_cmp_op<LhsScalar, RhsScalar, cmp_NEQ, UseTypedComparators> : binary_op_base<LhsScalar, RhsScalar> {
   using result_type = std::conditional_t<UseTypedComparators, LhsScalar, bool>;
   EIGEN_DEVICE_FUNC constexpr EIGEN_STRONG_INLINE result_type operator()(const LhsScalar& a, const RhsScalar& b) const {
-    return a != b ? result_type(1) : result_type(0);
+    return result_type(a != b);
   }
   template <typename Packet>
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet packetOp(const Packet& a, const Packet& b) const {
-    const Packet cst_one = pset1<Packet>(result_type(1));
+    const Packet cst_one = pset1<Packet>(result_type(true));
     return pandnot(cst_one, pcmp_eq(a, b));
   }
 };
@@ -494,6 +494,31 @@ struct functor_traits<scalar_quotient_op<LhsScalar, RhsScalar>> {
 // rely on this invariant.
 
 /** \internal
+ * \brief Template functor to compute the modulus of two integer scalars
+ *
+ * \sa class CwiseBinaryOp, ArrayBase::operator%()
+ */
+template <typename LhsScalar, typename RhsScalar>
+struct scalar_modulus_op : binary_op_base<LhsScalar, RhsScalar> {
+  using result_type = typename ScalarBinaryOpTraits<LhsScalar, RhsScalar, scalar_modulus_op>::ReturnType;
+  static constexpr bool Enable = std::is_same<LhsScalar, RhsScalar>::value && NumTraits<LhsScalar>::IsInteger;
+  EIGEN_STATIC_ASSERT(Enable, "LhsScalar and RhsScalar must be the same integer type")
+#ifdef EIGEN_SCALAR_BINARY_OP_PLUGIN
+  scalar_modulus_op(){EIGEN_SCALAR_BINARY_OP_PLUGIN}
+#endif
+  EIGEN_DEVICE_FUNC constexpr EIGEN_STRONG_INLINE result_type
+  operator()(const LhsScalar& a, const RhsScalar& b) const {
+    return a % b;
+  }
+};
+template <typename LhsScalar, typename RhsScalar>
+struct functor_traits<scalar_modulus_op<LhsScalar, RhsScalar>> {
+  using result_type = typename scalar_modulus_op<LhsScalar, RhsScalar>::result_type;
+  static constexpr bool PacketAccess = false;
+  static constexpr int Cost = scalar_div_cost<result_type, false>::value;
+};
+
+/** \internal
  * \brief Template functor to compute the and of two scalars as if they were booleans
  *
  * \sa class CwiseBinaryOp, ArrayBase::operator&&
@@ -504,14 +529,14 @@ struct scalar_boolean_and_op {
   // `false` any value `a` that satisfies `a == Scalar(0)`
   // `true` is the complement of `false`
   EIGEN_DEVICE_FUNC constexpr EIGEN_STRONG_INLINE Scalar operator()(const Scalar& a, const Scalar& b) const {
-    return (a != Scalar(0)) && (b != Scalar(0)) ? Scalar(1) : Scalar(0);
+    return Scalar((a != Scalar(0)) && (b != Scalar(0)));
   }
   template <typename Packet>
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet packetOp(const Packet& a, const Packet& b) const {
     EIGEN_IF_CONSTEXPR ((std::is_same<Scalar, bool>::value)) {
       return pand(a, b);
     } else {
-      const Packet cst_one = pset1<Packet>(Scalar(1));
+      const Packet cst_one = pset1<Packet>(Scalar(true));
       // and(a,b) == !or(!a,!b)
       Packet not_a = pcmp_eq(a, pzero(a));
       Packet not_b = pcmp_eq(b, pzero(b));
@@ -542,14 +567,14 @@ struct scalar_boolean_or_op {
   // `false` any value `a` that satisfies `a == Scalar(0)`
   // `true` is the complement of `false`
   EIGEN_DEVICE_FUNC constexpr EIGEN_STRONG_INLINE Scalar operator()(const Scalar& a, const Scalar& b) const {
-    return (a != Scalar(0)) || (b != Scalar(0)) ? Scalar(1) : Scalar(0);
+    return Scalar((a != Scalar(0)) || (b != Scalar(0)));
   }
   template <typename Packet>
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet packetOp(const Packet& a, const Packet& b) const {
     EIGEN_IF_CONSTEXPR ((std::is_same<Scalar, bool>::value)) {
       return por(a, b);
     } else {
-      const Packet cst_one = pset1<Packet>(Scalar(1));
+      const Packet cst_one = pset1<Packet>(Scalar(true));
       // if or(a,b) == 0, then a == 0 and b == 0
       // or(a,b) == !nor(a,b)
       Packet a_nor_b = pcmp_eq(por(a, b), pzero(a));
@@ -578,14 +603,14 @@ struct scalar_boolean_xor_op {
   // `false` any value `a` that satisfies `a == Scalar(0)`
   // `true` is the complement of `false`
   EIGEN_DEVICE_FUNC constexpr EIGEN_STRONG_INLINE Scalar operator()(const Scalar& a, const Scalar& b) const {
-    return (a != Scalar(0)) != (b != Scalar(0)) ? Scalar(1) : Scalar(0);
+    return Scalar((a != Scalar(0)) != (b != Scalar(0)));
   }
   template <typename Packet>
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet packetOp(const Packet& a, const Packet& b) const {
     EIGEN_IF_CONSTEXPR ((std::is_same<Scalar, bool>::value)) {
       return pxor(a, b);
     } else {
-      const Packet cst_one = pset1<Packet>(Scalar(1));
+      const Packet cst_one = pset1<Packet>(Scalar(true));
       // xor(a,b) == xor(!a,!b)
       Packet not_a = pcmp_eq(a, pzero(a));
       Packet not_b = pcmp_eq(b, pzero(b));

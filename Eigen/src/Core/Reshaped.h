@@ -30,6 +30,9 @@ namespace Eigen {
  * This class represents an expression of either a fixed-size or dynamic-size reshape.
  * It is the return type of DenseBase::reshaped(NRowsType,NColsType) and
  * most of the time this is the only way it is used.
+ * The source and reshape must have the same coefficient count. Incompatible
+ * fixed counts are rejected at compile time, or by a debug assertion when
+ * EIGEN_NO_STATIC_ASSERT is defined. Dynamic counts are checked in debug builds.
  *
  * If you want to directly manipulate reshaped expressions,
  * for instance if you want to write a function returning such an expression,
@@ -115,13 +118,15 @@ class Reshaped : public ReshapedImpl<XprType, Rows, Cols, Order, typename intern
   EIGEN_DEVICE_FUNC constexpr inline Reshaped(XprType& xpr) : Impl(xpr) {
     EIGEN_STATIC_ASSERT(RowsAtCompileTime != Dynamic && ColsAtCompileTime != Dynamic,
                         THIS_METHOD_IS_ONLY_FOR_FIXED_SIZE)
-    eigen_assert(Rows * Cols == xpr.rows() * xpr.cols());
+    EIGEN_INTERNAL_ASSERT_RESHAPE_SIZE(xpr, Rows, Cols);
   }
 
   /** Dynamic-size constructor
    */
   EIGEN_DEVICE_FUNC constexpr inline Reshaped(XprType& xpr, Index reshapeRows, Index reshapeCols)
       : Impl(xpr, reshapeRows, reshapeCols) {
+    EIGEN_STATIC_ASSERT((internal::reshape_dimensions<XprType, Rows, Cols>::Compatible),
+                        YOU_MIXED_MATRICES_OF_DIFFERENT_SIZES)
     eigen_assert((RowsAtCompileTime == Dynamic || RowsAtCompileTime == reshapeRows) &&
                  (ColsAtCompileTime == Dynamic || ColsAtCompileTime == reshapeCols));
     eigen_assert(reshapeRows * reshapeCols == xpr.rows() * xpr.cols());
@@ -160,8 +165,6 @@ class ReshapedImpl_dense<XprType, Rows, Cols, Order, false>
 
   using MatrixTypeNested = typename internal::ref_selector<XprType>::non_const_type;
   using NestedExpression = internal::remove_all_t<XprType>;
-
-  class InnerIterator;
 
   /** Fixed-size constructor
    */
@@ -307,7 +310,9 @@ struct reshaped_evaluator<ArgType, Rows, Cols, Order, /* HasDirectAccess */ fals
   };
 
   EIGEN_DEVICE_FUNC constexpr explicit reshaped_evaluator(const XprType& xpr)
-      : m_argImpl(xpr.nestedExpression()), m_xpr(xpr) {
+      : m_argImpl(xpr.nestedExpression()),
+        m_innerSize(Order == ColMajor ? xpr.rows() : xpr.cols()),
+        m_nestedInnerSize(Order == ColMajor ? xpr.nestedExpression().rows() : xpr.nestedExpression().cols()) {
     EIGEN_INTERNAL_CHECK_COST_VALUE(CoeffReadCost);
   }
 
@@ -320,18 +325,18 @@ struct reshaped_evaluator<ArgType, Rows, Cols, Order, /* HasDirectAccess */ fals
   // the nested evaluator's linear index of that element.
   EIGEN_DEVICE_FUNC constexpr EIGEN_STRONG_INLINE Index linear_index(Index rowId, Index colId) const {
     EIGEN_IF_CONSTEXPR (Order == ColMajor) {
-      return colId * m_xpr.rows() + rowId;
+      return colId * m_innerSize.value() + rowId;
     } else {
-      return colId + rowId * m_xpr.cols();
+      return colId + rowId * m_innerSize.value();
     }
   }
 
   EIGEN_DEVICE_FUNC constexpr inline RowCol index_remap(Index rowId, Index colId) const {
     const Index nth_elem_idx = linear_index(rowId, colId);
     EIGEN_IF_CONSTEXPR (Order == ColMajor) {
-      return RowCol(nth_elem_idx % m_xpr.nestedExpression().rows(), nth_elem_idx / m_xpr.nestedExpression().rows());
+      return RowCol(nth_elem_idx % m_nestedInnerSize.value(), nth_elem_idx / m_nestedInnerSize.value());
     } else {
-      return RowCol(nth_elem_idx / m_xpr.nestedExpression().cols(), nth_elem_idx % m_xpr.nestedExpression().cols());
+      return RowCol(nth_elem_idx / m_nestedInnerSize.value(), nth_elem_idx % m_nestedInnerSize.value());
     }
   }
 
@@ -476,7 +481,11 @@ struct reshaped_evaluator<ArgType, Rows, Cols, Order, /* HasDirectAccess */ fals
   }
 
   evaluator<ArgType> m_argImpl;
-  const XprType& m_xpr;
+  // Sizes are copied rather than read through the expression: select() evaluates a rewritten temporary expression
+  // that does not outlive this evaluator.
+  const variable_if_dynamic<Index, Order == ColMajor ? Rows : Cols> m_innerSize;
+  const variable_if_dynamic<Index, Order == ColMajor ? ArgType::RowsAtCompileTime : ArgType::ColsAtCompileTime>
+      m_nestedInnerSize;
 };
 
 template <typename ArgType, int Rows, int Cols, int Order>

@@ -102,8 +102,9 @@ class DeviceScalar {
   void finishWrite(Context& ctx);
 
   // The arithmetic below keeps results on device via the NPP helpers in
-  // DeviceScalarOps.h, and covers real types only; complex division falls back
-  // to the implicit conversion and its host sync.
+  // DeviceScalarOps.h, which cover real types only: dividing or negating a
+  // complex DeviceScalar does not compile, so convert it to Scalar (a host sync)
+  // first.
 
   friend DeviceScalar operator/(const DeviceScalar& a, const DeviceScalar& b) {
     const internal::StreamHandle& s = a.home();

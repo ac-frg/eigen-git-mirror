@@ -80,6 +80,14 @@ void test_multiple_solves(Index n) {
   }
 }
 
+// An empty factorization solves a 0 x nrhs right-hand side.
+void test_empty_solve() {
+  const MatrixXd B(0, 3);
+  gpu::LU<double> solver{MatrixXd(0, 0)};
+  VERIFY_IS_EQUAL(solver.solve(B).cols(), 3);
+  VERIFY_IS_EQUAL(solver.solve(gpu::DeviceMatrix<double>::fromHost(B)).cols(), 3);
+}
+
 // ---- Singular matrix detection ----------------------------------------------
 
 void test_singular() {
@@ -117,6 +125,17 @@ void test_device_matrix_move_compute(Index n) {
 
   MatrixType X = lu.solve(B);
   RealScalar residual = (A * X - B).norm() / (A.norm() * X.norm());
+  VERIFY(residual < RealScalar(10) * RealScalar(n) * NumTraits<Scalar>::epsilon());
+
+  // Context-bound rvalue constructor adopts as well.
+  gpu::Context ctx;
+  auto d_A_ctx = gpu::DeviceMatrix<Scalar>::fromHost(ctx, A);
+  gpu::LU<Scalar> lu_ctx(ctx, std::move(d_A_ctx));
+  VERIFY(d_A_ctx.empty());
+  VERIFY_IS_EQUAL(lu_ctx.info(), Success);
+  VERIFY(lu_ctx.stream() == ctx.stream());
+  MatrixType X_ctx = lu_ctx.solve(B);
+  residual = (A * X_ctx - B).norm() / (A.norm() * X_ctx.norm());
   VERIFY(residual < RealScalar(10) * RealScalar(n) * NumTraits<Scalar>::epsilon());
 }
 
@@ -233,5 +252,6 @@ EIGEN_DECLARE_TEST(gpu_cusolver_lu) {
   CALL_SUBTEST_3(test_scalar<std::complex<float>>());
   CALL_SUBTEST_4(test_scalar<std::complex<double>>());
   CALL_SUBTEST_5(test_singular());
+  CALL_SUBTEST_5(test_empty_solve());
   CALL_SUBTEST_5(test_singular_device_solve_asserts());
 }

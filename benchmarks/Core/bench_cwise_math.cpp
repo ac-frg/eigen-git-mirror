@@ -6,6 +6,8 @@
 // SPDX-License-Identifier: MPL-2.0
 
 #include <benchmark/benchmark.h>
+#include <cstdint>
+#include <random>
 #include <Eigen/Core>
 #include <contrib/Eigen/SpecialFunctions>
 
@@ -41,6 +43,39 @@ BENCH_CWISE_UNARY(Log2, a.log2(), 0.01, 100)
 BENCH_CWISE_UNARY(Exp2, a.exp2(), -10, 10)
 BENCH_CWISE_UNARY(Expm1, a.expm1(), -2, 2)
 BENCH_CWISE_UNARY(Cbrt, a.cbrt(), -100, 100)
+
+// mode: 0 = ordinary inputs, 1 = subnormal inputs, 2 = one subnormal per 64 coefficients.
+template <typename Scalar>
+static void BM_Sign(benchmark::State& state) {
+  using Binary = internal::binary_floating_point_traits<Scalar>;
+  using Bits = typename Binary::Bits;
+  const Index n = state.range(0);
+  const int mode = int(state.range(1));
+  Array<Scalar, Dynamic, 1> a(n), b(n);
+  for (Index i = 0; i < n; ++i) {
+    a(i) = Scalar(i % 257 - 128) / Scalar(32);
+    if (mode == 1 || (mode == 2 && i % 64 == 0)) {
+      const Bits magnitude = Bits(1) + Bits(i * 37) % (Binary::kExponentUnit - 1);
+      a(i) = numext::bit_cast<Scalar>(magnitude | (i % 2 ? Binary::kSignBit : Bits(0)));
+    }
+  }
+  for (auto _ : state) {
+    benchmark::DoNotOptimize(a.data());
+    b = a.sign();
+    benchmark::DoNotOptimize(b.data());
+    benchmark::ClobberMemory();
+  }
+  for (Index i = 0; i < n; ++i) {
+    const Bits bits = numext::bit_cast<Bits>(a(i));
+    const Bits expected =
+        (bits & ~Binary::kSignBit) == 0 ? Bits(0) : (bits & Binary::kSignBit) | Binary::bits(Scalar(1));
+    if (numext::bit_cast<Bits>(b(i)) != expected) {
+      state.SkipWithError("sign output does not match the bitwise reference");
+      break;
+    }
+  }
+  state.SetBytesProcessed(state.iterations() * n * sizeof(Scalar) * 2);
+}
 
 // Trigonometric functions
 BENCH_CWISE_UNARY(Sin, a.sin(), -3.14, 3.14)
@@ -78,6 +113,116 @@ static void BM_Erf(benchmark::State& state) {
   for (auto _ : state) {
     benchmark::DoNotOptimize(a.data());
     b = Eigen::erf(a);
+    benchmark::DoNotOptimize(b.data());
+    benchmark::ClobberMemory();
+  }
+  state.SetBytesProcessed(state.iterations() * n * sizeof(Scalar) * 2);
+}
+
+// log, log1p and complex exp handle special inputs only in packets that hold one. mode: 0 = ordinary inputs, 1 = one
+// special input per 64 coefficients, 2 = special inputs only. The special inputs are 0 and a subnormal for log, -1
+// and inf for log1p, and real parts -inf and (max_exponent - 1/2) ln(2), past the overflow guard, for complex exp.
+static bool IsSpecialInput(Index i, int mode) { return mode == 2 || (mode == 1 && i % 64 == 0); }
+
+template <typename Scalar>
+static void BM_LogSpecialInputs(benchmark::State& state) {
+  const Index n = state.range(0);
+  const int mode = int(state.range(1));
+  Array<Scalar, Dynamic, 1> a(n), b(n);
+  for (Index i = 0; i < n; ++i) {
+    a(i) = Scalar(0.01 + double(i % 1000) / 10.0);
+    if (IsSpecialInput(i, mode)) a(i) = i % 2 ? Scalar(0) : std::numeric_limits<Scalar>::denorm_min() * Scalar(3);
+  }
+  for (auto _ : state) {
+    benchmark::DoNotOptimize(a.data());
+    b = a.log();
+    benchmark::DoNotOptimize(b.data());
+    benchmark::ClobberMemory();
+  }
+  state.SetBytesProcessed(state.iterations() * n * sizeof(Scalar) * 2);
+}
+
+template <typename Scalar>
+static void BM_Log1pSpecialInputs(benchmark::State& state) {
+  const Index n = state.range(0);
+  const int mode = int(state.range(1));
+  Array<Scalar, Dynamic, 1> a(n), b(n);
+  for (Index i = 0; i < n; ++i) {
+    a(i) = Scalar(-0.5 + double(i % 1000) / 10.0);
+    if (IsSpecialInput(i, mode)) a(i) = i % 2 ? Scalar(-1) : std::numeric_limits<Scalar>::infinity();
+  }
+  for (auto _ : state) {
+    benchmark::DoNotOptimize(a.data());
+    b = a.log1p();
+    benchmark::DoNotOptimize(b.data());
+    benchmark::ClobberMemory();
+  }
+  state.SetBytesProcessed(state.iterations() * n * sizeof(Scalar) * 2);
+}
+
+template <typename RealScalar>
+static void BM_ExpComplexSpecialInputs(benchmark::State& state) {
+  using Scalar = std::complex<RealScalar>;
+  const Index n = state.range(0);
+  const int mode = int(state.range(1));
+  const RealScalar large =
+      (RealScalar(std::numeric_limits<RealScalar>::max_exponent) - RealScalar(0.5)) * RealScalar(0.6931471805599453);
+  Array<Scalar, Dynamic, 1> a(n), b(n);
+  for (Index i = 0; i < n; ++i) {
+    RealScalar re = RealScalar(-10.0 + double(i % 1000) / 50.0);
+    if (IsSpecialInput(i, mode)) re = i % 2 ? large : -std::numeric_limits<RealScalar>::infinity();
+    a(i) = Scalar(re, RealScalar(-3.0 + double(i % 997) / 166.0));
+  }
+  for (auto _ : state) {
+    benchmark::DoNotOptimize(a.data());
+    b = a.exp();
+    benchmark::DoNotOptimize(b.data());
+    benchmark::ClobberMemory();
+  }
+  state.SetBytesProcessed(state.iterations() * n * Index(sizeof(Scalar)) * 2);
+}
+
+// The SSE and AVX float rsqrt estimates flush subnormal inputs, so packets holding one take a 1 / sqrt fallback, while
+// zeros stay on the fast path. mode: 0 = inputs in [0.01, 100), 1 = one zero per 8 coefficients, 2 = one subnormal
+// per 64 coefficients, 3 = subnormal inputs only. Zeros and subnormals sit at pseudo-random positions, so a branch on
+// them is unpredictable.
+template <typename Scalar>
+static void BM_RsqrtSpecialInputs(benchmark::State& state) {
+  const Index n = state.range(0);
+  const int mode = int(state.range(1));
+  const Scalar subnormal = (std::numeric_limits<Scalar>::min)() / Scalar(3);
+  std::mt19937 gen(42);
+  Array<Scalar, Dynamic, 1> a(n), b(n);
+  for (Index i = 0; i < n; ++i) {
+    const std::uint32_t r = gen();
+    a(i) = Scalar(0.01 + double(i % 1000) / 10.0);
+    if (mode == 1 && r % 8 == 0) a(i) = Scalar(0);
+    if ((mode == 2 && r % 64 == 0) || mode == 3) a(i) = subnormal;
+  }
+  for (auto _ : state) {
+    benchmark::DoNotOptimize(a.data());
+    b = a.rsqrt();
+    benchmark::DoNotOptimize(b.data());
+    benchmark::ClobberMemory();
+  }
+  state.SetBytesProcessed(state.iterations() * n * sizeof(Scalar) * 2);
+}
+
+// mode: 0 = inputs in [0.5, 2), 1 = subnormal inputs, 2 = one subnormal per 64 coefficients. The subnormal is
+// min / 3, whose reciprocal is finite. The SSE and AVX rcp estimates flush it, so packets holding one take the
+// division fallback of preciprocal; the AVX-512 rcp14 estimate does not.
+template <typename Scalar>
+static void BM_Inverse(benchmark::State& state) {
+  const Index n = state.range(0);
+  const int mode = int(state.range(1));
+  Array<Scalar, Dynamic, 1> a(n), b(n);
+  for (Index i = 0; i < n; ++i) {
+    a(i) = Scalar(0.5 + double(i % 256) / 171.0);
+    if (mode == 1 || (mode == 2 && i % 64 == 0)) a(i) = (std::numeric_limits<Scalar>::min)() / Scalar(3);
+  }
+  for (auto _ : state) {
+    benchmark::DoNotOptimize(a.data());
+    b = a.inverse();
     benchmark::DoNotOptimize(b.data());
     benchmark::ClobberMemory();
   }
@@ -172,6 +317,7 @@ static void BM_Pow(benchmark::State& state) {
 
 // Complex unary (SIMD implementations in GenericPacketMathFunctions.h)
 BENCH_CWISE_UNARY_COMPLEX(Exp, a.exp(), -5, 5)
+BENCH_CWISE_UNARY_COMPLEX(Exp2, a.exp2(), -5, 5)
 BENCH_CWISE_UNARY_COMPLEX(Log, a.log(), 0.01, 100)
 BENCH_CWISE_UNARY_COMPLEX(Sqrt, a.sqrt(), -100, 100)
 BENCH_CWISE_UNARY_COMPLEX(Square, a.square(), -10, 10)
@@ -210,6 +356,16 @@ BENCHMARK(BM_Erf<float>)->ArgsProduct({{1024, 4096, 16384, 65536, 262144, 104857
     ->ArgNames({"size", "mode"})->Name("Erf_float");
 BENCHMARK(BM_Erf<bfloat16>)->ArgsProduct({{1024, 4096, 16384, 65536, 262144, 1048576}, {0, 1, 2}})
     ->ArgNames({"size", "mode"})->Name("Erf_bfloat16");
+BENCHMARK(BM_LogSpecialInputs<float>)->ArgsProduct({{4096, 65536}, {0, 1, 2}})
+    ->ArgNames({"size", "mode"})->Name("LogSpecialInputs_float");
+BENCHMARK(BM_Log1pSpecialInputs<float>)->ArgsProduct({{4096, 65536}, {0, 1, 2}})
+    ->ArgNames({"size", "mode"})->Name("Log1pSpecialInputs_float");
+BENCHMARK(BM_RsqrtSpecialInputs<float>)->ArgsProduct({{4096, 65536}, {0, 1, 2, 3}})
+    ->ArgNames({"size", "mode"})->Name("RsqrtSpecialInputs_float");
+BENCHMARK(BM_Inverse<float>)->ArgsProduct({{1024, 4096, 16384, 65536, 262144, 1048576}, {0, 1, 2}})
+    ->ArgNames({"size", "mode"})->Name("Inverse_float");
+BENCHMARK_TEMPLATE(BM_Sign, float)->ArgsProduct({{1024, 16384, 262144}, {0, 1, 2}})->ArgNames({"size", "mode"})->Name("Sign_float");
+BENCHMARK_TEMPLATE(BM_Sign, double)->ArgsProduct({{1024, 16384, 262144}, {0, 1, 2}})->ArgNames({"size", "mode"})->Name("Sign_double");
 BENCHMARK(BM_Abs<float>) CWISE_SIZES ->Name("Abs_float");
 BENCHMARK(BM_Square<float>) CWISE_SIZES ->Name("Square_float");
 BENCHMARK(BM_Cube<float>) CWISE_SIZES ->Name("Cube_float");
@@ -248,6 +404,12 @@ BENCHMARK(BM_Atanh<double>) CWISE_SIZES ->Name("Atanh_double");
 BENCHMARK(BM_Log10<double>) CWISE_SIZES ->Name("Log10_double");
 BENCHMARK(BM_Erf<double>)->ArgsProduct({{1024, 4096, 16384, 65536, 262144, 1048576}, {0, 1, 2}})
     ->ArgNames({"size", "mode"})->Name("Erf_double");
+BENCHMARK(BM_Inverse<double>)->ArgsProduct({{1024, 4096, 16384, 65536, 262144, 1048576}, {0, 1, 2}})
+    ->ArgNames({"size", "mode"})->Name("Inverse_double");
+BENCHMARK(BM_LogSpecialInputs<double>)->ArgsProduct({{4096, 65536}, {0, 1, 2}})
+    ->ArgNames({"size", "mode"})->Name("LogSpecialInputs_double");
+BENCHMARK(BM_Log1pSpecialInputs<double>)->ArgsProduct({{4096, 65536}, {0, 1, 2}})
+    ->ArgNames({"size", "mode"})->Name("Log1pSpecialInputs_double");
 BENCHMARK(BM_Abs<double>) CWISE_SIZES ->Name("Abs_double");
 BENCHMARK(BM_Square<double>) CWISE_SIZES ->Name("Square_double");
 BENCHMARK(BM_Cube<double>) CWISE_SIZES ->Name("Cube_double");
@@ -263,6 +425,9 @@ BENCHMARK(BM_Max<double>) CWISE_SIZES ->Name("Max_double");
 
 // --- Register complex<float> ---
 BENCHMARK(BM_Exp_complex<float>) CWISE_SIZES ->Name("Exp_complexf");
+BENCHMARK(BM_ExpComplexSpecialInputs<float>)->ArgsProduct({{4096, 65536}, {0, 1, 2}})
+    ->ArgNames({"size", "mode"})->Name("ExpSpecialInputs_complexf");
+BENCHMARK(BM_Exp2_complex<float>) CWISE_SIZES ->Name("Exp2_complexf");
 BENCHMARK(BM_Log_complex<float>) CWISE_SIZES ->Name("Log_complexf");
 BENCHMARK(BM_Sqrt_complex<float>) CWISE_SIZES ->Name("Sqrt_complexf");
 BENCHMARK(BM_Square_complex<float>) CWISE_SIZES ->Name("Square_complexf");
@@ -271,6 +436,9 @@ BENCHMARK(BM_Div_complex<float>) CWISE_SIZES ->Name("Div_complexf");
 
 // --- Register complex<double> ---
 BENCHMARK(BM_Exp_complex<double>) CWISE_SIZES ->Name("Exp_complexd");
+BENCHMARK(BM_ExpComplexSpecialInputs<double>)->ArgsProduct({{4096, 65536}, {0, 1, 2}})
+    ->ArgNames({"size", "mode"})->Name("ExpSpecialInputs_complexd");
+BENCHMARK(BM_Exp2_complex<double>) CWISE_SIZES ->Name("Exp2_complexd");
 BENCHMARK(BM_Log_complex<double>) CWISE_SIZES ->Name("Log_complexd");
 BENCHMARK(BM_Sqrt_complex<double>) CWISE_SIZES ->Name("Sqrt_complexd");
 BENCHMARK(BM_Square_complex<double>) CWISE_SIZES ->Name("Square_complexd");

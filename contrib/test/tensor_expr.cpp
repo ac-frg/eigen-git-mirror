@@ -278,6 +278,18 @@ static void test_type_casting() {
   }
 }
 
+// An explicit instantiation instantiates every non-template member, so the condPacket() paths that a bool condition
+// over these branch types cannot take must be member templates.
+template struct Eigen::TensorEvaluator<
+    const Eigen::TensorSelectOp<const Tensor<bool, 1>, const Tensor<float, 1>, const Tensor<float, 1>>,
+    Eigen::DefaultDevice>;
+template struct Eigen::TensorEvaluator<
+    const Eigen::TensorSelectOp<const Tensor<bool, 1>, const Tensor<double, 1>, const Tensor<double, 1>>,
+    Eigen::DefaultDevice>;
+template struct Eigen::TensorEvaluator<
+    const Eigen::TensorSelectOp<const Tensor<bool, 1>, const Tensor<int, 1>, const Tensor<int, 1>>,
+    Eigen::DefaultDevice>;
+
 static void test_select() {
   using TypedGTOp = internal::scalar_cmp_op<float, float, internal::cmp_GT, true>;
 
@@ -309,6 +321,47 @@ static void test_select() {
       for (int k = 0; k < 7; ++k) {
         VERIFY_IS_APPROX(result(i, j, k), (selector(i, j, k) > 0.5f) ? mat1(i, j, k) : mat2(i, j, k));
       }
+    }
+  }
+
+  // Test select with a materialized Tensor<bool> condition (including const TensorMap) across types and boundary sizes.
+  for (int n : {0, 1, 7, 8, 15, 16, 17, 31, 32, 33}) {
+    Tensor<bool, 1> cond(n);
+    for (int i = 0; i < n; ++i) cond(i) = (i % 3) == 0;
+    TensorMap<Tensor<const bool, 1>> const_cond_map(cond.data(), n);
+    auto check_materialized_select = [&](auto dummy) {
+      using T = decltype(dummy);
+      Tensor<T, 1> a(n), b(n), out(n), out_const(n);
+      a.setRandom();
+      b.setRandom();
+      TensorMap<Tensor<const T, 1>> const_a_map(a.data(), n);
+      TensorMap<Tensor<const T, 1>> const_b_map(b.data(), n);
+      out = cond.select(a, b);
+      out_const = const_cond_map.select(const_a_map, const_b_map);
+      for (int i = 0; i < n; ++i) {
+        VERIFY_IS_EQUAL(out(i), cond(i) ? a(i) : b(i));
+        VERIFY_IS_EQUAL(out_const(i), cond(i) ? a(i) : b(i));
+      }
+    };
+    check_materialized_select(float(0));
+    check_materialized_select(int(0));
+    check_materialized_select(Eigen::half(0));
+    check_materialized_select(Eigen::bfloat16(0));
+    check_materialized_select(double(0));
+  }
+
+  // Test select with a non-bool condition whose scalar type differs from the branch type.
+  {
+    Tensor<float, 1> fcond(17);
+    Tensor<int, 1> ia(17), ib(17), iout(17);
+    for (int i = 0; i < 17; ++i) {
+      fcond(i) = (i % 2 == 0) ? 0.5f : 0.0f;
+      ia(i) = i + 10;
+      ib(i) = -(i + 10);
+    }
+    iout = fcond.select(ia, ib);
+    for (int i = 0; i < 17; ++i) {
+      VERIFY_IS_EQUAL(iout(i), fcond(i) ? ia(i) : ib(i));
     }
   }
 }

@@ -75,6 +75,10 @@ struct evaluator_traits<Toeplitz<Scalar_, Rows_, Cols_>> {
  * \tparam Rows_ the number of rows at compile time, or \c Dynamic (the default).
  * \tparam Cols_ the number of columns at compile time, or \c Dynamic (the default).
  *
+ * \par Examples
+ * \ref StructuredExampleLoveEquation "Love's integral equation and a preconditioned Toeplitz system",
+ * \ref StructuredExampleDeconvolution "deconvolution by Toeplitz least squares".
+ *
  * \sa class Circulant, makeToeplitz()
  */
 template <typename Scalar_, int Rows_, int Cols_>
@@ -112,12 +116,12 @@ class Toeplitz : public EigenBase<Toeplitz<Scalar_, Rows_, Cols_>> {
   Toeplitz(const MatrixBase<ColDerived>& col, const MatrixBase<RowDerived>& row) : m_col(col), m_row(row) {
     EIGEN_STATIC_ASSERT_VECTOR_ONLY(ColDerived)
     EIGEN_STATIC_ASSERT_VECTOR_ONLY(RowDerived)
-    eigen_assert(m_col.size() > 0 && m_row.size() > 0 && "Toeplitz generators must be non-empty");
+    EIGEN_INTERNAL_ASSERT_NONEMPTY_MSG(m_col, "Toeplitz generators must be non-empty");
+    EIGEN_INTERNAL_ASSERT_NONEMPTY_MSG(m_row, "Toeplitz generators must be non-empty");
     // Below the threshold every product takes the direct path and the symbol has
     // no consumer, so skip the embedding altogether.
     if (rows() > internal::structured_direct_threshold() || cols() > internal::structured_direct_threshold())
       m_symbol = computeSymbol();
-    m_fftUsable = computeFftUsable();
   }
 
   EIGEN_DEVICE_FUNC Index rows() const { return m_col.size(); }
@@ -240,35 +244,21 @@ class Toeplitz : public EigenBase<Toeplitz<Scalar_, Rows_, Cols_>> {
    * \c .noalias() skips it. */
   template <typename Rhs>
   Product<Toeplitz, Rhs> operator*(const MatrixBase<Rhs>& x) const {
-    EIGEN_STATIC_ASSERT(ColsAtCompileTime == Dynamic || Rhs::RowsAtCompileTime == Dynamic ||
-                            int(ColsAtCompileTime) == int(Rhs::RowsAtCompileTime),
-                        INVALID_MATRIX_PRODUCT)
-    eigen_assert(x.rows() == cols() && "invalid product: dimensions do not match");
     return Product<Toeplitz, Rhs>(*this, x.derived());
   }
 
   /** \internal Computes \c dst += alpha * (*this) * rhs. \c ProductScalar is the
    * promoted scalar of the product (complex when a real operator is applied to a
-   * complex right-hand side); the accumulation runs in the promoted type.
-   *
-   * Non-finite data takes the direct O(mn) kernel: the transforms would smear a
-   * single Inf/NaN into NaNs across the whole output, where the dense product
-   * only propagates it through the dot products that touch it. Non-finite
-   * generators or a non-finite cached embedding symbol (which can overflow even
-   * for finite generators) route the whole product; a non-finite right-hand-side
-   * column is detected inside the FFT loop -- in the same pass that derives its
-   * scaling exponent, so finite data pays no extra scan -- and falls back per
-   * column. */
+   * complex right-hand side); the accumulation runs in the promoted type. */
   template <typename Dest, typename Rhs, typename ProductScalar>
   void addProduct(Dest& dst, const Rhs& rhs, const ProductScalar& alpha) const {
     const Index m = rows(), n = cols();
-    eigen_assert(rhs.rows() == n && "invalid product: dimensions do not match");
+    EIGEN_INTERNAL_ASSERT_PRODUCT_SHAPE_MSG(*this, rhs, "invalid product: dimensions do not match");
     const bool small = m <= internal::structured_direct_threshold() && n <= internal::structured_direct_threshold();
-    if (small || !m_fftUsable)
+    if (small)
       directProduct(dst, rhs, alpha);
     else
-      internal::structured_fft_apply(dst, m_symbol, m, rhs, alpha,
-                                     [&](Index k) { directProductColumn(dst, rhs, k, alpha); });
+      internal::structured_fft_apply(dst, m_symbol, m, rhs, alpha);
   }
 
  private:
@@ -282,23 +272,11 @@ class Toeplitz : public EigenBase<Toeplitz<Scalar_, Rows_, Cols_>> {
    * by transpose(), conjugate() and adjoint(), whose symbols are cheap
    * transformations of the existing one. */
   Toeplitz(const ColGeneratorType& col, const RowGeneratorType& row, const ComplexVector& symbol)
-      : m_col(col), m_row(row), m_symbol(symbol) {
-    m_fftUsable = computeFftUsable();
-  }
-
-  /** \internal Whether products may take the FFT path: the generators and the
-   * cached embedding symbol must be finite. The symbol accumulates up to p
-   * addends, so it can overflow to Inf even for finite generators; such operators
-   * fall back to the direct kernel, which stays exact. */
-  bool computeFftUsable() const {
-    return m_col.allFinite() && m_row.allFinite() && (m_symbol.size() == 0 || m_symbol.allFinite());
-  }
+      : m_col(col), m_row(row), m_symbol(symbol) {}
 
   /** \internal Direct O(mn) kernel for column \a k of the right-hand side:
-   * computes \c dst.col(k) += alpha * (*this) * rhs.col(k) without transforms.
-   * Serves operators below the FFT threshold and any column involving
-   * non-finite data, whose entrywise IEEE semantics the transforms cannot
-   * preserve. */
+   * computes \c dst.col(k) += alpha * (*this) * rhs.col(k) without transforms,
+   * for operators below the FFT threshold. */
   template <typename Dest, typename Rhs, typename ProductScalar>
   void directProductColumn(Dest& dst, const Rhs& rhs, Index k, const ProductScalar& alpha) const {
     const Index m = rows(), n = cols();
@@ -350,7 +328,6 @@ class Toeplitz : public EigenBase<Toeplitz<Scalar_, Rows_, Cols_>> {
   ColGeneratorType m_col;
   RowGeneratorType m_row;
   ComplexVector m_symbol;
-  bool m_fftUsable;
 };
 
 /** \ingroup StructuredMatrices_Module
@@ -369,6 +346,23 @@ struct generic_product_impl<Toeplitz<Scalar_, Rows_, Cols_>, Rhs, StructuredShap
     : structured_product_impl<Toeplitz<Scalar_, Rows_, Cols_>, Rhs> {};
 
 }  // namespace internal
+
+#if EIGEN_COMP_CXXVER < 17
+template <typename Scalar_, int Rows_, int Cols_>
+constexpr int Toeplitz<Scalar_, Rows_, Cols_>::RowsAtCompileTime;
+template <typename Scalar_, int Rows_, int Cols_>
+constexpr int Toeplitz<Scalar_, Rows_, Cols_>::ColsAtCompileTime;
+template <typename Scalar_, int Rows_, int Cols_>
+constexpr int Toeplitz<Scalar_, Rows_, Cols_>::MaxRowsAtCompileTime;
+template <typename Scalar_, int Rows_, int Cols_>
+constexpr int Toeplitz<Scalar_, Rows_, Cols_>::MaxColsAtCompileTime;
+template <typename Scalar_, int Rows_, int Cols_>
+constexpr int Toeplitz<Scalar_, Rows_, Cols_>::SizeAtCompileTime;
+template <typename Scalar_, int Rows_, int Cols_>
+constexpr int Toeplitz<Scalar_, Rows_, Cols_>::MaxSizeAtCompileTime;
+template <typename Scalar_, int Rows_, int Cols_>
+constexpr bool Toeplitz<Scalar_, Rows_, Cols_>::IsRowMajor;
+#endif
 
 }  // namespace Eigen
 

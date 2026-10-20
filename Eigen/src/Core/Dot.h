@@ -87,7 +87,8 @@ struct stable_normalization_dispatch {
   using HasWritableRealView = bool_constant<!NumTraits<Scalar>::IsComplex || complex_array_access<Scalar>::value>;
 
   EIGEN_DEVICE_FUNC static EIGEN_STRONG_INLINE Accumulator max_abs(const VectorType& vec) {
-    return vec.realView().template cast<Accumulator>().cwiseAbs().template maxCoeff<PropagateNaN>();
+    return redux_with_identity(vec.realView().template cast<Accumulator>().cwiseAbs(),
+                               scalar_max_op<Accumulator, Accumulator, PropagateNaN>(), 0);
   }
 
   EIGEN_DEVICE_FUNC static EIGEN_STRONG_INLINE Accumulator scaled_squared_norm(const VectorType& vec,
@@ -502,9 +503,8 @@ template <typename Derived>
 struct lpNorm_selector<Derived, Infinity> {
   using RealScalar = typename NumTraits<typename traits<Derived>::Scalar>::Real;
   EIGEN_DEVICE_FUNC static inline RealScalar run(const MatrixBase<Derived>& m) {
-    if (Derived::SizeAtCompileTime == 0 || (Derived::SizeAtCompileTime == Dynamic && m.size() == 0))
-      return RealScalar(0);
-    return m.cwiseAbs().maxCoeff();
+    // Like the other norms, NaN in, NaN out; PropagateFast may return an arbitrary coefficient.
+    return redux_with_identity(m.cwiseAbs(), scalar_max_op<RealScalar, RealScalar, PropagateNaN>(), 0);
   }
 };
 
@@ -535,21 +535,18 @@ MatrixBase<Derived>::lpNorm() const {
   return internal::lpNorm_selector<Derived, p>::run(*this);
 }
 
-//---------- implementation of isOrthogonal / isUnitary ----------
-
-/** \returns true if *this is approximately orthogonal to \a other,
- *          within the precision given by \a prec.
+/** \returns the coefficient-wise \f$ \ell^p \f$ norm of an array expression, as MatrixBase::lpNorm() does for
+ * matrices; this also serves VectorwiseOp::lpNorm() on arrays.
  *
- * Example: \include MatrixBase_isOrthogonal.cpp
- * Output: \verbinclude MatrixBase_isOrthogonal.out
+ * \sa MatrixBase::lpNorm()
  */
 template <typename Derived>
-template <typename OtherDerived>
-bool MatrixBase<Derived>::isOrthogonal(const MatrixBase<OtherDerived>& other, const RealScalar& prec) const {
-  typename internal::nested_eval<Derived, 2>::type nested(derived());
-  typename internal::nested_eval<OtherDerived, 2>::type otherNested(other.derived());
-  return numext::abs2(nested.dot(otherNested)) <= prec * prec * nested.squaredNorm() * otherNested.squaredNorm();
+template <int p>
+EIGEN_DEVICE_FUNC inline typename DenseBase<Derived>::RealScalar DenseBase<Derived>::lpNorm() const {
+  return derived().matrix().template lpNorm<p>();
 }
+
+//---------- implementation of isUnitary ----------
 
 /** \returns true if *this is approximately an unitary matrix,
  *          within the precision given by \a prec. In the case where the \a Scalar

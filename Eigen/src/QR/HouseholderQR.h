@@ -338,7 +338,7 @@ struct householder_determinant<HCoeffs, Scalar, false> {
 template <typename MatrixType>
 typename MatrixType::Scalar HouseholderQR<MatrixType>::determinant() const {
   eigen_assert(m_isInitialized && "HouseholderQR is not initialized.");
-  eigen_assert(m_qr.rows() == m_qr.cols() && "You can't take the determinant of a non-square matrix!");
+  EIGEN_INTERNAL_ASSERT_SQUARE_MSG(m_qr, "You can't take the determinant of a non-square matrix!");
   Scalar detQ;
   internal::householder_determinant<HCoeffsType, Scalar, NumTraits<Scalar>::IsComplex>::run(m_hCoeffs, detQ);
   return m_qr.diagonal().prod() * detQ;
@@ -348,21 +348,21 @@ template <typename MatrixType>
 typename MatrixType::RealScalar HouseholderQR<MatrixType>::absDeterminant() const {
   using std::abs;
   eigen_assert(m_isInitialized && "HouseholderQR is not initialized.");
-  eigen_assert(m_qr.rows() == m_qr.cols() && "You can't take the determinant of a non-square matrix!");
+  EIGEN_INTERNAL_ASSERT_SQUARE_MSG(m_qr, "You can't take the determinant of a non-square matrix!");
   return abs(m_qr.diagonal().prod());
 }
 
 template <typename MatrixType>
 typename MatrixType::RealScalar HouseholderQR<MatrixType>::logAbsDeterminant() const {
   eigen_assert(m_isInitialized && "HouseholderQR is not initialized.");
-  eigen_assert(m_qr.rows() == m_qr.cols() && "You can't take the determinant of a non-square matrix!");
+  EIGEN_INTERNAL_ASSERT_SQUARE_MSG(m_qr, "You can't take the determinant of a non-square matrix!");
   return m_qr.diagonal().cwiseAbs().array().log().sum();
 }
 
 template <typename MatrixType>
 typename MatrixType::Scalar HouseholderQR<MatrixType>::signDeterminant() const {
   eigen_assert(m_isInitialized && "HouseholderQR is not initialized.");
-  eigen_assert(m_qr.rows() == m_qr.cols() && "You can't take the determinant of a non-square matrix!");
+  EIGEN_INTERNAL_ASSERT_SQUARE_MSG(m_qr, "You can't take the determinant of a non-square matrix!");
   Scalar detQ;
   internal::householder_determinant<HCoeffsType, Scalar, NumTraits<Scalar>::IsComplex>::run(m_hCoeffs, detQ);
   return detQ * m_qr.diagonal().array().sign().prod();
@@ -424,8 +424,8 @@ void householder_qr_inplace_update(MatrixQR& mat, HCoeffs& hCoeffs, const Vector
 
   eigen_assert(k < mat.cols());
   eigen_assert(k < rows);
-  eigen_assert(hCoeffs.size() == mat.cols());
-  eigen_assert(newColumn.size() == rows);
+  EIGEN_INTERNAL_ASSERT_SIZE_MATCHES_COLS(hCoeffs, mat);
+  EIGEN_INTERNAL_ASSERT_SIZE_MATCHES_ROWS(newColumn, mat);
   eigen_assert(tempData);
 
   // Store new column in mat at column k
@@ -492,6 +492,40 @@ struct householder_qr_inplace_blocked {
   }
 };
 
+/** \internal
+ * Panel width b for householder_qr_inplace_blocked on a rows x cols matrix, with s = min(rows, cols).
+ * Factoring a panel streams it O(b) times at level 2 and each trailing update streams the trailing block O(1) times,
+ * so the factorization moves
+ *   ~ c_p * b * P + c_t * Q / b,   P = sum_{k<s} (rows - k),   Q = sum_{k<s} (rows - k) * (cols - k)
+ * coefficients (P and Q to leading order below), least at b = sqrt(kappa * Q / P); peak flop rate cancels, and
+ * kappa = 3 fits the measured optimum on AVX-512, NEON and SME. The cost is flat in log(b) near the minimum, so b is
+ * the nearest of 8, 16, 24, 32, 48 that is a whole number of packets, or one packet if none is: b is the row count of
+ * the product V^* * C, which slows sharply on a partial packet. Panels wider than 48 measured no faster. Up to
+ * rows * cols * s = 64^3 the per-panel overhead (forming T, product setup) outweighs the traffic saved, and a single
+ * panel of width s is returned.
+ */
+template <typename Scalar>
+Index householder_qr_panel_width(Index rows, Index cols) {
+  const Index size = numext::mini(rows, cols);
+  const double m = double(rows), n = double(cols), s = double(size);
+  if (m * n * s <= 64.0 * 64.0 * 64.0) return size;
+  const double P = m * s - s * s / 2;
+  const double Q = m * n * s - (m + n) * s * s / 2 + s * s * s / 3;
+  const double target = numext::sqrt(3 * Q / P);
+  constexpr Index kPacketSize = packet_traits<Scalar>::size;
+  const Index kWidths[] = {8, 16, 24, 32, 48};
+  Index width = kPacketSize;
+  double distance = NumTraits<double>::highest();
+  for (Index w : kWidths) {
+    const double d = numext::maxi(double(w) / target, target / double(w));
+    if (w % kPacketSize == 0 && d < distance) {
+      width = w;
+      distance = d;
+    }
+  }
+  return width;
+}
+
 }  // end namespace internal
 
 #ifndef EIGEN_PARSED_BY_DOXYGEN
@@ -546,7 +580,8 @@ void HouseholderQR<MatrixType>::computeInPlace() {
 
   m_temp.resize(cols);
 
-  internal::householder_qr_inplace_blocked<MatrixType, HCoeffsType>::run(m_qr, m_hCoeffs, 48, m_temp.data());
+  const Index maxBlockSize = internal::householder_qr_panel_width<Scalar>(rows, cols);
+  internal::householder_qr_inplace_blocked<MatrixType, HCoeffsType>::run(m_qr, m_hCoeffs, maxBlockSize, m_temp.data());
 
   m_isInitialized = true;
 }

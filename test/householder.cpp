@@ -474,6 +474,7 @@ void verify_complex_nan_head() {
   VERIFY((numext::isnan)(beta));
 }
 
+template <typename = void>
 void verify_custom_complex_small_tail() {
   typedef reordered_complex::Complex<float> Scalar;
   const float coefficient = 2e-16f;
@@ -492,6 +493,7 @@ void verify_custom_complex_small_tail() {
   VERIFY_IS_EQUAL(numext::imag(essential[0]), 0.0f);
 }
 
+template <typename = void>
 EIGEN_DONT_INLINE void verify_householder_flushed_tail() {
   volatile float normal_min_input = (std::numeric_limits<float>::min)();
   const float normal_min = normal_min_input;
@@ -510,6 +512,7 @@ EIGEN_DONT_INLINE void verify_householder_flushed_tail() {
   verify_real_householder_result(vector, essential, tau, beta);
 }
 
+template <typename = void>
 EIGEN_DONT_INLINE void verify_householder_dimension_scaled_tail() {
   // The dominant square is just above the length-independent threshold, while the many minor squares are normal
   // inputs whose individually subnormal products become significant in aggregate.
@@ -533,6 +536,7 @@ EIGEN_DONT_INLINE void verify_householder_dimension_scaled_tail() {
   VERIFY(std::abs(double(beta) + expected_norm) <= 8 * epsilon * expected_norm);
 }
 
+template <typename = void>
 void householder_small_tail_layouts() {
   const float coefficient = 1e-20f;
   Vector4f column;
@@ -574,6 +578,7 @@ void householder_small_tail_layouts() {
   VERIFY_IS_EQUAL(essential_storage[5], 23.0f);
 }
 
+template <typename = void>
 void householder_small_tail() {
   {
     const float coefficient = 1e-20f;
@@ -680,7 +685,7 @@ void householder_small_tail() {
   verify_low_precision_complex_zero_tail<bfloat16>();
   verify_complex_nan_head<float>();
   verify_complex_nan_head<double>();
-  verify_custom_complex_small_tail();
+  verify_custom_complex_small_tail<>();
 
   {
     const float coefficient = 1e-20f;
@@ -694,17 +699,17 @@ void householder_small_tail() {
     VERIFY(relative_residual <= 16 * double(NumTraits<float>::epsilon()));
   }
 
-  verify_householder_flushed_tail();
-  verify_householder_dimension_scaled_tail();
+  verify_householder_flushed_tail<>();
+  verify_householder_dimension_scaled_tail<>();
   {
     Eigen::ScopedFlushToZero flush_to_zero;
     if (flush_to_zero.isSupported()) {
-      verify_householder_flushed_tail();
-      verify_householder_dimension_scaled_tail();
+      verify_householder_flushed_tail<>();
+      verify_householder_dimension_scaled_tail<>();
     }
   }
 
-  householder_small_tail_layouts();
+  householder_small_tail_layouts<>();
 
   constexpr Index size = 65;
   const float coefficient = 1e-22f;
@@ -734,6 +739,7 @@ void verify_large_householder_result(const VectorType& vector, const EssentialTy
   verify_real_householder_result((vector / scale).eval(), essential, tau, RealScalar(beta / scale));
 }
 
+template <typename = void>
 void householder_large_components() {
   {
     // The head coefficient squares out of the float range; the tail coefficient does not. The direct
@@ -1025,6 +1031,85 @@ void householder_noncommutative_scalar() {
   VERIFY(a == expected);
 }
 
+// Whether applyHouseholderOnTheRight on Derived with this essential type selects the fused row loop.
+template <typename Derived, typename EssentialPart>
+constexpr bool householder_right_fused() {
+  return std::is_same<internal::householder_apply_right_impl<Derived, EssentialPart>,
+                      internal::householder_apply_right_impl<Derived, EssentialPart, true>>::value;
+}
+
+// a H = a - (a v) tau v^* with v = [1; essential], formed explicitly.
+template <typename MatrixType, typename EssentialType>
+MatrixType householder_right_reference(const MatrixType& a, const EssentialType& essential,
+                                       const typename MatrixType::Scalar& tau) {
+  using Scalar = typename MatrixType::Scalar;
+  Matrix<Scalar, Dynamic, 1> v(essential.size() + 1);
+  v << Scalar(1), essential;
+  return a - (a * v) * tau * v.adjoint();
+}
+
+// Applies [1; essential] and tau to columns j..j+K of a, through a fixed-width and a runtime-width block, with
+// essential and tau either separate or stored in the block being updated.
+template <int K, typename MatrixType>
+void verify_householder_right_columns(const MatrixType& input, Index j) {
+  using Scalar = typename MatrixType::Scalar;
+  using RealScalar = typename NumTraits<Scalar>::Real;
+  using EssentialType = Matrix<Scalar, K, 1>;
+  using FixedBlock = Block<MatrixType, Dynamic, K + 1>;
+  using RuntimeBlock = Block<MatrixType, Dynamic, Dynamic>;
+  constexpr bool kFused = !MatrixType::IsRowMajor && internal::packet_traits<Scalar>::Vectorizable;
+  STATIC_CHECK((householder_right_fused<FixedBlock, EssentialType>() == kFused));
+  STATIC_CHECK((householder_right_fused<RuntimeBlock, EssentialType>() == kFused));
+  const Index rows = input.rows();
+  Matrix<Scalar, Dynamic, 1> workspace(rows);
+
+  const auto check = [&](const MatrixType& result, const EssentialType& essential, const Scalar& tau) {
+    MatrixType expected = input;
+    expected.middleCols(j, K + 1) = householder_right_reference(input.middleCols(j, K + 1).eval(), essential, tau);
+    // Each entry is a (K + 2)-term expression in a, essential and tau; the other columns must not change.
+    const RealScalar scale = RealScalar(1) + numext::abs(tau) * (RealScalar(1) + essential.squaredNorm());
+    const RealScalar bound = RealScalar(16 * (K + 2)) * NumTraits<RealScalar>::epsilon() * scale * input.norm();
+    VERIFY((result - expected).norm() <= bound);
+  };
+
+  Matrix<Scalar, K + 1, 1> x = Matrix<Scalar, K + 1, 1>::Random();
+  EssentialType essential;
+  Scalar tau;
+  RealScalar beta;
+  x.makeHouseholder(essential, tau, beta);
+  MatrixType a = input;
+  a.template middleCols<K + 1>(j).applyHouseholderOnTheRight(essential, tau, workspace.data());
+  check(a, essential, tau);
+  a = input;
+  a.middleCols(j, K + 1).applyHouseholderOnTheRight(essential, tau, workspace.data());
+  check(a, essential, tau);
+
+  // The fused loop copies essential and tau before its first store; here they are coefficients of row r of the
+  // block, so the reference uses the values read before the update.
+  if (kFused) {
+    const Index r = internal::random<Index>(0, rows - 1);
+    const EssentialType aliasedEssential = input.row(r).segment(j + 1, K).transpose();
+    const Scalar aliasedTau = input(r, j);
+    a = input;
+    a.template middleCols<K + 1>(j).applyHouseholderOnTheRight(a.row(r).template segment<K>(j + 1).transpose(), a(r, j),
+                                                               workspace.data());
+    check(a, aliasedEssential, aliasedTau);
+  }
+}
+
+// The two- and three-column right updates of the Francis QR step, over row counts that cover the packet loop and
+// the scalar tail, with spare columns on both sides of the updated block.
+template <typename Scalar, int StorageOrder>
+void householder_right_fixed_columns() {
+  using Mat = Matrix<Scalar, Dynamic, Dynamic, StorageOrder>;
+  const Index maxRows = 4 * internal::packet_traits<Scalar>::size + 3;
+  for (Index rows = 1; rows <= maxRows; ++rows) {
+    const Mat input = Mat::Random(rows, 5);
+    verify_householder_right_columns<1>(input, internal::random<Index>(0, 3));
+    verify_householder_right_columns<2>(input, internal::random<Index>(0, 2));
+  }
+}
+
 // Q times a diagonal, triangular, self-adjoint or permutation matrix, both orders, against the products with the
 // dense Q.
 template <typename Scalar>
@@ -1104,6 +1189,7 @@ void householder_structured_products(Index size) {
 
 // D * H scales the rows of H from the left, D(i,i) * H(i,j), which only a noncommutative scalar tells apart from
 // scaling them on the right. Integer components keep every operation exact.
+template <typename = void>
 void householder_structured_products_noncommutative() {
   using Scalar = noncommutative_scalar::Quaternion;
   using Mat = Matrix<Scalar, Dynamic, Dynamic>;
@@ -1158,14 +1244,16 @@ EIGEN_DECLARE_TEST(householder) {
 
     CALL_SUBTEST_9(householder_update(Matrix<double, 3, 5>()));
     CALL_SUBTEST_9(householder_update(Matrix<float, 4, 2>()));
-    CALL_SUBTEST_9(householder_update(
-        MatrixXcf(internal::random<Index>(1, EIGEN_TEST_MAX_SIZE), internal::random<Index>(1, EIGEN_TEST_MAX_SIZE))));
+    // householder_update() costs O(rows * min(rows, cols)^3); at EIGEN_TEST_MAX_SIZE it exceeds CI's 3000 s
+    // per-test timeout under QEMU's SME emulation.
+    CALL_SUBTEST_9(householder_update(MatrixXcf(internal::random<Index>(1, EIGEN_TEST_MAX_SIZE / 2),
+                                                internal::random<Index>(1, EIGEN_TEST_MAX_SIZE / 2))));
   }
 
   CALL_SUBTEST_10(householder_blocked_right_regression<double>());
   CALL_SUBTEST_11(householder_blocked_right_regression<std::complex<double>>());
-  CALL_SUBTEST_12(householder_small_tail());
-  CALL_SUBTEST_13(householder_large_components());
+  CALL_SUBTEST_12(householder_small_tail<>());
+  CALL_SUBTEST_13(householder_large_components<>());
   CALL_SUBTEST_14((householder_short_strided<float, 2, ColMajor>()));
   CALL_SUBTEST_14((householder_short_strided<float, 3, ColMajor>()));
   CALL_SUBTEST_15((householder_short_strided<double, 2, ColMajor>()));
@@ -1188,7 +1276,13 @@ EIGEN_DECLARE_TEST(householder) {
     CALL_SUBTEST_23(householder_structured_products<double>(internal::random<int>(1, EIGEN_TEST_MAX_SIZE)));
     CALL_SUBTEST_23(
         householder_structured_products<std::complex<double>>(internal::random<int>(1, EIGEN_TEST_MAX_SIZE / 2)));
-    CALL_SUBTEST_23(householder_structured_products_noncommutative());
+    CALL_SUBTEST_23(householder_structured_products_noncommutative<>());
+    CALL_SUBTEST_24((householder_right_fixed_columns<float, ColMajor>()));
+    CALL_SUBTEST_24((householder_right_fixed_columns<double, ColMajor>()));
+    CALL_SUBTEST_24((householder_right_fixed_columns<double, RowMajor>()));
+    CALL_SUBTEST_25((householder_right_fixed_columns<std::complex<float>, ColMajor>()));
+    CALL_SUBTEST_25((householder_right_fixed_columns<std::complex<double>, ColMajor>()));
+    CALL_SUBTEST_25((householder_right_fixed_columns<std::complex<double>, RowMajor>()));
   }
   CALL_SUBTEST_23(householder_structured_products<double>(1));
 }

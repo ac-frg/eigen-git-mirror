@@ -23,8 +23,7 @@
 //      (fraction, exponent) pair to avoid spurious overflow/underflow.
 //  [5] P. H. Sterbenz, "Floating-Point Computation", Prentice-Hall, 1974.
 //      Scaling by a power of two is exact, the property the balanced
-//      accumulation, the rescaled rank threshold and the scaled FFT products
-//      rely on.
+//      accumulation relies on.
 
 #ifndef EIGEN_STRUCTURED_CIRCULANT_H
 #define EIGEN_STRUCTURED_CIRCULANT_H
@@ -69,10 +68,10 @@ struct evaluator_traits<Circulant<Scalar_, Size_>> {
  * \brief An \c n x \c n circulant matrix represented by its first column.
  *
  * For first column \f$c\f$ and unitary DFT matrix \f$F\f$,
- * \f[ C_{ij}=c_{(i-j)\bmod n}, \qquad C=F^*\operatorname{diag}(Fc)F. \f]
- * Thus its eigenvalues -- the operator's \em symbol -- are \f$Fc\f$, computed
- * once at construction and reused by every product. This yields an O(n log n)
- * matrix-vector product (\c operator*), an
+ * \f[ C_{ij}=c_{(i-j)\bmod n}, \qquad C=F^*\operatorname{diag}(\sqrt{n}\,Fc)F. \f]
+ * Thus its eigenvalues -- the operator's \em symbol -- are \f$\sqrt{n}\,Fc\f$,
+ * the DFT of \f$c\f$, computed once at construction and reused by every
+ * product. This yields an O(n log n) matrix-vector product (\c operator*), an
  * O(n log n) direct (pseudo-inverse) solve (\ref solve), and closed-form
  * factorizations: the eigendecomposition (\ref eigenvalues, \ref eigenvectors)
  * and the SVD (\ref singularValues, \ref matrixU, \ref matrixV) in the Fourier
@@ -92,6 +91,11 @@ struct evaluator_traits<Circulant<Scalar_, Size_>> {
  *
  * \tparam Scalar_ the scalar type, real or complex.
  * \tparam Size_ the dimension at compile time, or \c Dynamic (the default).
+ *
+ * \par Examples
+ * \ref StructuredExampleLoveEquation "Love's integral equation and a preconditioned Toeplitz system",
+ * \ref StructuredExampleTorusHelmholtz "the screened Poisson equation on a torus",
+ * \ref StructuredExampleSpectralDifferentiation "Fourier spectral differentiation".
  *
  * \sa class Toeplitz, makeCirculant()
  */
@@ -126,12 +130,11 @@ class Circulant : public EigenBase<Circulant<Scalar_, Size_>> {
   template <typename Derived>
   explicit Circulant(const MatrixBase<Derived>& col) : m_col(col) {
     EIGEN_STATIC_ASSERT_VECTOR_ONLY(Derived)
-    eigen_assert(m_col.size() > 0 && "Circulant generator must be non-empty");
+    EIGEN_INTERNAL_ASSERT_NONEMPTY_MSG(m_col, "Circulant generator must be non-empty");
     if (m_col.size() > internal::structured_direct_threshold()) {
       m_symbol = computeSymbol();
       m_prodSymbol = computeProdSymbol(m_col);
     }
-    m_fftUsable = computeFftUsable();
   }
 
   EIGEN_DEVICE_FUNC Index rows() const { return m_col.size(); }
@@ -245,10 +248,6 @@ class Circulant : public EigenBase<Circulant<Scalar_, Size_>> {
    * aliasing between the destination and \a x, and \c .noalias() skips it. */
   template <typename Rhs>
   Product<Circulant, Rhs> operator*(const MatrixBase<Rhs>& x) const {
-    EIGEN_STATIC_ASSERT(ColsAtCompileTime == Dynamic || Rhs::RowsAtCompileTime == Dynamic ||
-                            int(ColsAtCompileTime) == int(Rhs::RowsAtCompileTime),
-                        INVALID_MATRIX_PRODUCT)
-    eigen_assert(x.rows() == cols() && "invalid product: dimensions do not match");
     return Product<Circulant, Rhs>(*this, x.derived());
   }
 
@@ -260,75 +259,27 @@ class Circulant : public EigenBase<Circulant<Scalar_, Size_>> {
    * \c x = ifft( fft(b) ./ fft(c) ). Supports multiple right-hand sides. */
   template <typename Rhs>
   Matrix<Scalar, Size_, Rhs::ColsAtCompileTime> solve(const MatrixBase<Rhs>& b) const {
-    EIGEN_STATIC_ASSERT(RowsAtCompileTime == Dynamic || Rhs::RowsAtCompileTime == Dynamic ||
-                            int(RowsAtCompileTime) == int(Rhs::RowsAtCompileTime),
-                        YOU_MIXED_MATRICES_OF_DIFFERENT_SIZES)
+    EIGEN_INTERNAL_ASSERT_SOLVER_RHS_MSG(*this, b, false, "right-hand side has the wrong number of rows");
     const Index n = rows();
-    eigen_assert(b.rows() == n && "right-hand side has the wrong number of rows");
     const ComplexVector s = symbol();
-    RealVector mods;
-    RealScalar tol;
-    int es = 0;
-    scaledModuli(s, mods, tol, &es);
-    // Strictly-below-threshold entries are zeroed, matching SVDBase::rank(), so a
-    // smallest-normal 1x1 operator stays invertible. NaN moduli fail the
-    // comparison and land in the inverted set, so a NaN input propagates to the
-    // output instead of being silently zeroed.
-    ComplexVector sinv(n);
-    internal::structured_symbol_reciprocal(s.data(), mods.data(), tol, sinv.data(), n);
+    const RealVector mods = s.cwiseAbs();
+    const ComplexVector sinv = internal::structured_pinv_symbol(s, mods, internal::structured_rank_threshold(s, mods));
     Matrix<Scalar, Size_, Rhs::ColsAtCompileTime> x(n, b.cols());
     x.setZero();
-    if (!b.allFinite()) {
-      // A non-finite right-hand side cannot go through the transforms (see
-      // addProduct): apply the pseudo-inverse -- itself a circulant matrix,
-      // generated by the inverse DFT of the thresholded reciprocal symbol --
-      // through the direct kernel so Inf/NaN propagate entrywise.
-      GeneratorType pcol(n);
-      if (n == 1) {
-        pcol[0] = internal::structured_scalar_part_impl<Scalar>::run_scalar(sinv.coeff(0));
-      } else {
-        auto&& fft = internal::structured_fft_engine<RealScalar>();
-        ComplexVector pt(n);
-        fft.inv(pt, sinv, n);
-        pcol = internal::structured_scalar_part_impl<Scalar>::run(pt);
-      }
-      Circulant(pcol, ComplexVector(), ComplexVector()).directProduct(x, b.derived(), Scalar(1));
-      return x;
-    }
-    // The reciprocal of the largest symbol entry is about 2^-es: subnormal, hence
-    // lost under flush-to-zero, only for a symbol at the top of the exponent range.
-    // Dividing by the symbol keeps that mode normal but costs a complex division
-    // per entry, so it is reserved for that band.
-    constexpr Index kSubnormalReciprocal = -(Index(std::numeric_limits<RealScalar>::min_exponent) - 1) - 2;
-    if (es <= kSubnormalReciprocal) {
-      internal::structured_fft_apply(x, sinv, n, b.derived(), Scalar(1));
-      return x;
-    }
-    // ldexp per component rather than a multiply by 2^-es: for a near-boundary
-    // symbol that constant is itself subnormal, and reads as zero under
-    // flush-to-zero. The apply folds es back into the output scaling.
-    const ComplexVector sb = s.unaryExpr([es](const Complex& z) { return internal::structured_ldexp_clamped(z, -es); });
-    // mods and tol are already in a balanced frame, so rebalancing the symbol
-    // leaves the threshold comparison unchanged.
-    internal::structured_symbol_divide<RealVector, RealScalar> divide{&mods, tol};
-    internal::structured_fft_apply(
-        x, sb, n, b.derived(), Scalar(1),
-        [](Index) { eigen_assert(false && "non-finite column requires a direct kernel"); }, divide, es);
+    internal::structured_fft_apply(x, sinv, n, b.derived(), Scalar(1));
     return x;
   }
 
   /** \returns the numerical rank: the number of symbol entries whose modulus is
-   * no smaller than the threshold \c n * epsilon * max_k|symbol[k]|, both
-   * evaluated in an exactly rescaled frame so the moduli cannot overflow (see
-   * scaledModuli()). This is the same threshold \ref solve uses to decide which
-   * Fourier components to invert, and the comparison is strict like SVDBase's,
-   * so an entry sitting exactly on the threshold still counts as non-zero. */
+   * no smaller than the threshold \c n * epsilon * max_k|symbol[k]|, clamped from
+   * below by the smallest normal number. This is the same threshold \ref solve
+   * uses to decide which Fourier components to invert, and the comparison is
+   * strict like SVDBase's, so an entry sitting exactly on the threshold still
+   * counts as non-zero. */
   Index rank() const {
     const ComplexVector s = symbol();
-    RealVector mods;
-    RealScalar tol;
-    scaledModuli(s, mods, tol);
-    return (!(mods.array() < tol)).count();  // negated so NaN entries count as non-zero
+    const RealVector mods = s.cwiseAbs();
+    return (!(mods.array() < internal::structured_rank_threshold(s, mods))).count();  // NaN entries count as non-zero
   }
 
   /** \returns the inverse of \c *this, itself a \c Circulant operator: the one
@@ -337,8 +288,7 @@ class Circulant : public EigenBase<Circulant<Scalar_, Size_>> {
    * pseudo-inverse solve of a rank-deficient operator. */
   Circulant inverse() const {
     const Index n = rows();
-    ComplexVector sinv = symbol();
-    internal::structured_symbol_reciprocal(sinv.data(), n);
+    const ComplexVector sinv = symbol().cwiseInverse();
     GeneratorType col(n);
     if (n == 1) {
       col = internal::structured_scalar_part_impl<Scalar>::run(sinv);
@@ -435,20 +385,12 @@ class Circulant : public EigenBase<Circulant<Scalar_, Size_>> {
 
   /** \internal Computes \c dst += alpha * (*this) * rhs. \c ProductScalar is the
    * promoted scalar of the product (complex when a real operator is applied to a
-   * complex right-hand side); the accumulation runs in the promoted type.
-   *
-   * Non-finite data takes the direct O(n^2) kernel: the transforms would smear a
-   * single Inf/NaN into NaNs across the whole output, where the dense product
-   * only propagates it through the dot products that touch it. A non-finite
-   * generator or cached symbol (which can overflow even for a finite generator)
-   * routes the whole product; a non-finite right-hand-side column is detected
-   * inside the FFT loop -- in the same pass that derives its scaling exponent,
-   * so finite data pays no extra scan -- and falls back per column. */
+   * complex right-hand side); the accumulation runs in the promoted type. */
   template <typename Dest, typename Rhs, typename ProductScalar>
   void addProduct(Dest& dst, const Rhs& rhs, const ProductScalar& alpha) const {
     const Index n = rows();
-    eigen_assert(rhs.rows() == n && "invalid product: dimensions do not match");
-    if (n <= internal::structured_direct_threshold() || !m_fftUsable) {
+    EIGEN_INTERNAL_ASSERT_PRODUCT_SHAPE_MSG(*this, rhs, "invalid product: dimensions do not match");
+    if (n <= internal::structured_direct_threshold()) {
       directProduct(dst, rhs, alpha);
       return;
     }
@@ -456,7 +398,7 @@ class Circulant : public EigenBase<Circulant<Scalar_, Size_>> {
     // 5-smooth (see computeProdSymbol()); the exact-size transform of such a
     // size runs through kissfft's quadratic generic butterfly.
     const ComplexVector& s = m_prodSymbol.size() > 0 ? m_prodSymbol : m_symbol;
-    internal::structured_fft_apply(dst, s, n, rhs, alpha, [&](Index k) { directProductColumn(dst, rhs, k, alpha); });
+    internal::structured_fft_apply(dst, s, n, rhs, alpha);
   }
 
  private:
@@ -466,18 +408,7 @@ class Circulant : public EigenBase<Circulant<Scalar_, Size_>> {
    * constructor. Used by transpose(), conjugate(), adjoint() and inverse(),
    * whose symbols are cheap transformations of the existing ones. */
   Circulant(const GeneratorType& col, const ComplexVector& symbol, const ComplexVector& prodSymbol)
-      : m_col(col), m_symbol(symbol), m_prodSymbol(prodSymbol) {
-    m_fftUsable = computeFftUsable();
-  }
-
-  /** \internal Whether products may take the FFT path: the generator and the
-   * cached symbols must be finite. The symbols accumulate up to n (respectively
-   * p) addends, so they can overflow to Inf even for a finite generator; such
-   * operators fall back to the direct kernel, which stays exact. */
-  bool computeFftUsable() const {
-    return m_col.allFinite() && (m_symbol.size() == 0 || m_symbol.allFinite()) &&
-           (m_prodSymbol.size() == 0 || m_prodSymbol.allFinite());
-  }
+      : m_col(col), m_symbol(symbol), m_prodSymbol(prodSymbol) {}
 
   /** \internal \returns the symbol products should use for a generator \a col of
    * size n: empty when n is 5-smooth (the exact-size transform is already fast),
@@ -503,10 +434,8 @@ class Circulant : public EigenBase<Circulant<Scalar_, Size_>> {
   }
 
   /** \internal Direct O(n^2) kernel for column \a k of the right-hand side:
-   * computes \c dst.col(k) += alpha * (*this) * rhs.col(k) without transforms.
-   * Serves operators below the FFT threshold and any column involving
-   * non-finite data, whose entrywise IEEE semantics the transforms cannot
-   * preserve. */
+   * computes \c dst.col(k) += alpha * (*this) * rhs.col(k) without transforms,
+   * for operators below the FFT threshold. */
   template <typename Dest, typename Rhs, typename ProductScalar>
   void directProductColumn(Dest& dst, const Rhs& rhs, Index k, const ProductScalar& alpha) const {
     const Index n = rows();
@@ -538,33 +467,6 @@ class Circulant : public EigenBase<Circulant<Scalar_, Size_>> {
   template <typename Dest, typename Rhs, typename ProductScalar>
   void directProduct(Dest& dst, const Rhs& rhs, const ProductScalar& alpha) const {
     for (Index k = 0; k < rhs.cols(); ++k) directProductColumn(dst, rhs, k, alpha);
-  }
-
-  /** \internal Computes the moduli of the symbol entries and the matching
-   * rank/pseudo-inversion threshold, both evaluated in an exactly rescaled frame:
-   * the entries are pre-scaled by a power of two chosen so no modulus can
-   * overflow. A finite complex entry near the overflow threshold has a
-   * non-representable modulus, which would otherwise turn the threshold into
-   * infinity and misclassify every other entry (rank under-reported, solve()
-   * zeroing valid Fourier modes). The rescaling is exact, so comparing scaled
-   * moduli against the scaled threshold is equivalent to the unscaled
-   * comparison. The threshold keeps the n * epsilon * max_k|s[k]| convention of
-   * [3], chapter 5.4, and the smallest-normal clamp -- carried into the scaled
-   * frame, where its underflowing to zero for a huge frame is correct: no entry
-   * of such a symbol can sit below the smallest normal number. Entries at or
-   * above the threshold, in particular a smallest-normal entry of a moderate
-   * symbol, are inverted (their reciprocals are finite). */
-  static void scaledModuli(const ComplexVector& s, RealVector& mods, RealScalar& tol, int* frameExp = nullptr) {
-    const int e = numext::maxi(internal::structured_exponent_bound(s), 0);
-    if (frameExp) *frameExp = e;
-    // Two exact factors, as in structured_fft_apply(): a single 2^-e is itself
-    // subnormal once the frame exceeds the exponent range, and reads as zero under
-    // flush-to-zero -- collapsing every scaled modulus, and the threshold with
-    // them. Neither factor exceeds one, so no intermediate underflows on its own.
-    const RealScalar down1 = numext::ldexp(RealScalar(1), -(e / 2)), down2 = numext::ldexp(RealScalar(1), -(e - e / 2));
-    mods = ((s * down1) * down2).cwiseAbs();
-    tol = numext::maxi(RealScalar(s.size()) * NumTraits<RealScalar>::epsilon() * mods.maxCoeff(),
-                       ((std::numeric_limits<RealScalar>::min)() * down1) * down2);
   }
 
   /** \internal Computes the symbol \a s and the moduli \a mods that order the
@@ -635,7 +537,6 @@ class Circulant : public EigenBase<Circulant<Scalar_, Size_>> {
   // The padded embedding symbol products use when the size is not 5-smooth;
   // empty otherwise. See computeProdSymbol().
   ComplexVector m_prodSymbol;
-  bool m_fftUsable;
 };
 
 /** \ingroup StructuredMatrices_Module
@@ -654,6 +555,23 @@ struct generic_product_impl<Circulant<Scalar_, Size_>, Rhs, StructuredShape, Den
     : structured_product_impl<Circulant<Scalar_, Size_>, Rhs> {};
 
 }  // namespace internal
+
+#if EIGEN_COMP_CXXVER < 17
+template <typename Scalar_, int Size_>
+constexpr int Circulant<Scalar_, Size_>::RowsAtCompileTime;
+template <typename Scalar_, int Size_>
+constexpr int Circulant<Scalar_, Size_>::ColsAtCompileTime;
+template <typename Scalar_, int Size_>
+constexpr int Circulant<Scalar_, Size_>::MaxRowsAtCompileTime;
+template <typename Scalar_, int Size_>
+constexpr int Circulant<Scalar_, Size_>::MaxColsAtCompileTime;
+template <typename Scalar_, int Size_>
+constexpr int Circulant<Scalar_, Size_>::SizeAtCompileTime;
+template <typename Scalar_, int Size_>
+constexpr int Circulant<Scalar_, Size_>::MaxSizeAtCompileTime;
+template <typename Scalar_, int Size_>
+constexpr bool Circulant<Scalar_, Size_>::IsRowMajor;
+#endif
 
 }  // namespace Eigen
 

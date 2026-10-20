@@ -432,6 +432,11 @@ extern "C" {
 
 #define EIGEN_VECTORIZE
 #define EIGEN_VECTORIZE_VSX 1
+// The POWER8 (ISA 2.07) vector instructions, such as 64-bit integer lane arithmetic and compares and vec_neg; a
+// POWER7 target has VSX without them.
+#if defined(__POWER8_VECTOR__)
+#define EIGEN_VECTORIZE_POWER8_VECTOR
+#endif
 #define EIGEN_VECTORIZE_FMA
 #include <altivec.h>
 // We need to #undef macros defined by <altivec.h> that conflict with standard C++ names.
@@ -528,6 +533,8 @@ static_assert((EIGEN_ARM64_SVE_VL >= 128) && (EIGEN_ARM64_SVE_VL <= 2048) &&
 
 #define EIGEN_VECTORIZE
 #define EIGEN_VECTORIZE_RVV10
+// pmadd and its variants map to the fused vfmadd/vfmsub/vfnmsub/vfnmadd.
+#define EIGEN_VECTORIZE_FMA
 #include <riscv_vector.h>
 
 // Since we depend on knowing RVV vector length at compile-time, we need
@@ -571,7 +578,8 @@ static_assert((EIGEN_ARM64_SVE_VL >= 128) && (EIGEN_ARM64_SVE_VL <= 2048) &&
 
 #endif  // defined(EIGEN_ARCH_RISCV)
 
-#elif (defined __s390x__ && defined __VEC__)
+// ZVector needs the vector float instructions of z14 (__ARCH__ 12); below that, s390x stays scalar.
+#elif (defined __s390x__ && defined __VEC__ && (!defined(__ARCH__) || __ARCH__ >= 12))
 
 #define EIGEN_VECTORIZE
 #define EIGEN_VECTORIZE_ZVECTOR
@@ -596,6 +604,8 @@ static_assert((EIGEN_ARM64_SVE_VL >= 128) && (EIGEN_ARM64_SVE_VL <= 2048) &&
 
 #define EIGEN_VECTORIZE
 #define EIGEN_VECTORIZE_LSX
+// pmadd and its variants map to the fused vfmadd/vfmsub/vfnmadd/vfnmsub.
+#define EIGEN_VECTORIZE_FMA
 #include <lsxintrin.h>
 
 #elif defined __HVX__ && (__HVX_LENGTH__ == 128)
@@ -619,6 +629,13 @@ static_assert((EIGEN_ARM64_SVE_VL >= 128) && (EIGEN_ARM64_SVE_VL <= 2048) &&
 
 // Enable FMA for ARM.
 #if defined(__ARM_FEATURE_FMA)
+#define EIGEN_VECTORIZE_FMA
+#endif
+
+// The generic clang backend skips the x86 detection above but fuses its pmadd where __FMA__ is defined, and the
+// kernels that choose constants or error-free products by EIGEN_VECTORIZE_FMA must know it.
+#if defined(EIGEN_VECTORIZE_GENERIC) && !defined(EIGEN_DONT_VECTORIZE) && defined(__FMA__) && \
+    !defined(EIGEN_VECTORIZE_FMA)
 #define EIGEN_VECTORIZE_FMA
 #endif
 
@@ -699,6 +716,8 @@ inline static const char* SimdInstructionSetsInUse(void) {
   return "SSE, SSE2";
 #elif defined(EIGEN_VECTORIZE_ALTIVEC)
   return "AltiVec";
+#elif defined(EIGEN_VECTORIZE_POWER8_VECTOR)
+  return "VSX, POWER8 vector";
 #elif defined(EIGEN_VECTORIZE_VSX)
   return "VSX";
 #elif defined(EIGEN_VECTORIZE_NEON)

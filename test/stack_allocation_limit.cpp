@@ -29,4 +29,40 @@ void check_stack_allocation_is_disabled() {
   for (Index i = 0; i < 4; ++i) VERIFY_IS_EQUAL(buffer[i], double(i));
 }
 
-EIGEN_DECLARE_TEST(stack_allocation_limit) { CALL_SUBTEST(check_stack_allocation_is_disabled()); }
+// isApprox evaluates a lazy operand before its scaled fallback, which squares overflowing at 1e200 force; that
+// temporary must not be a fixed-size object the limit rejects.
+void check_approx_comparison_temporaries() {
+  using Vector = Matrix<double, 2, 1>;
+  VERIFY(Vector::Constant(1e200).isApprox(Vector::Constant(1e200)));
+  VERIFY(!Vector::Constant(1e200).isApprox(Vector::Constant(2e200)));
+}
+
+// Triangular product and solver kernels declare internal panel buffers (TriangularMatrixMatrix,
+// GeneralMatrixMatrixTriangular, TriangularSolverMatrix); they must fall back to dynamic allocation when
+// EIGEN_STACK_ALLOCATION_LIMIT is smaller than the panel size.
+template <typename Scalar>
+void check_triangular_product_scratch() {
+  using Mat = Matrix<Scalar, Dynamic, Dynamic>;
+  Mat a = Mat::Random(16, 16);
+  Mat b = Mat::Random(16, 16);
+  Mat c = Mat::Zero(16, 16);
+  c.noalias() += a.template triangularView<Lower>() * b;
+  c.noalias() += b * a.template triangularView<Upper>();
+  c.template triangularView<Lower>() += a * a.adjoint();
+  // Use a non-multiple-of-PacketSize RHS column count to also exercise TriangularSolverMatrix::solve_padded.
+  Mat rhs = Mat::Random(16, 3);
+  a.diagonal().array() += Scalar(4);
+  Mat x = a.template triangularView<Upper>().solve(rhs);
+  VERIFY_IS_APPROX(a.template triangularView<Upper>() * x, rhs);
+  Matrix<Scalar, Dynamic, Dynamic, RowMajor> a_row = a;
+  Mat x_row = a_row.template triangularView<Upper>().solve(rhs);
+  VERIFY_IS_APPROX(a_row.template triangularView<Upper>() * x_row, rhs);
+}
+
+EIGEN_DECLARE_TEST(stack_allocation_limit) {
+  CALL_SUBTEST(check_stack_allocation_is_disabled());
+  CALL_SUBTEST(check_approx_comparison_temporaries());
+  CALL_SUBTEST(check_triangular_product_scratch<float>());
+  CALL_SUBTEST(check_triangular_product_scratch<double>());
+  CALL_SUBTEST(check_triangular_product_scratch<std::complex<double>>());
+}

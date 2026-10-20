@@ -71,6 +71,7 @@ struct ScalarBinaryOpTraits<CustomPromotedScalar, float, Op> {
 };
 }  // namespace Eigen
 
+template <typename = void>
 void custom_scalar_test() {
   {
     Transform<float, 3, Affine> tf = Transform<float, 3, Affine>::Identity();
@@ -470,6 +471,14 @@ void transformations() {
   Transform2 t23 = t20 * t21;
   t21.preshear(Scalar(2), Scalar(3));
   VERIFY_IS_APPROX(t21, t23);
+
+  // shear() composes on the right, so it must also shear a projective last row.
+  Transform2 t24;
+  t24.matrix().setRandom();
+  if (Mode != int(Projective)) t24.makeAffine();
+  Transform2 t25 = t24 * t20;
+  t24.shear(Scalar(2), Scalar(3));
+  VERIFY_IS_APPROX(t24, t25);
 
   // mixed-scalar 2D rotate and prerotate
   {
@@ -947,7 +956,7 @@ EIGEN_DECLARE_TEST(geo_transformations) {
     CALL_SUBTEST_1((transformations<double, Affine, AutoAlign>()));
     CALL_SUBTEST_1((non_projective_only<double, Affine, AutoAlign>()));
     CALL_SUBTEST_1((transformations_computed_scaling_continuity<double, Affine, AutoAlign>()));
-    CALL_SUBTEST_1(custom_scalar_test());
+    CALL_SUBTEST_1(custom_scalar_test<>());
 
     CALL_SUBTEST_2((transformations<float, AffineCompact, AutoAlign>()));
     CALL_SUBTEST_2((non_projective_only<float, AffineCompact, AutoAlign>()));

@@ -453,7 +453,7 @@ class TriangularView
   EIGEN_DEVICE_FUNC constexpr const NestedExpression& nestedExpression() const noexcept { return m_matrix; }
 
   /** \returns a reference to the nested expression */
-  EIGEN_DEVICE_FUNC constexpr NestedExpression& nestedExpression() noexcept { return m_matrix; }
+  EIGEN_DEVICE_FUNC constexpr MatrixTypeNestedNonRef& nestedExpression() noexcept { return m_matrix; }
 
   template <typename Other>
   EIGEN_DEVICE_FUNC inline Solve<TriangularView, Other> solve(const MatrixBase<Other>& other) const {
@@ -480,10 +480,11 @@ class TriangularView
   /** \returns the determinant of the triangular matrix
    * \sa MatrixBase::determinant() */
   EIGEN_DEVICE_FUNC Scalar determinant() const {
-    EIGEN_IF_CONSTEXPR (Mode & UnitDiag) {
+    EIGEN_IF_CONSTEXPR (int(Mode) & int(UnitDiag)) {
       return 1;
-    } else EIGEN_IF_CONSTEXPR (Mode & ZeroDiag) {
-      return 0;
+    } else EIGEN_IF_CONSTEXPR (int(Mode) & int(ZeroDiag)) {
+      // A zero diagonal makes the product vanish unless it is empty.
+      return m_matrix.rows() == 0 ? 1 : 0;
     } else {
       return m_matrix.diagonal().prod();
     }

@@ -17,9 +17,10 @@
 // IWYU pragma: private
 #include "./InternalHeaderCheck.h"
 
+#include "./DeviceScalarOps.h"
 #include "./CuBlasSupport.h"
 #include "./CuSolverSupport.h"
-#include <cusparse.h>
+#include "./CuSparseSupport.h"
 #include <vector>
 
 namespace Eigen {
@@ -98,20 +99,18 @@ class Context {
   /** Create a context with a new non-blocking stream that it owns. The stream
    * stays alive after the Context is destroyed for as long as a DeviceMatrix or
    * DeviceScalar last written on it, or a pending read recorded on it, needs it. */
-  Context() : stream_(internal::make_owned_stream()), oneshot_solver_scratch_(stream_) { init_cublas(); }
+  Context() : Context(internal::make_owned_stream()) { init_cublas(); }
 
   /** Run on \p stream without taking ownership. It may be any stream; passing the
    * legacy default stream puts this Context's work there. \p stream must outlive
    * this Context, every DeviceMatrix or DeviceScalar last written on it (their
    * memory is freed stream-ordered on it), and every read enqueued on it that a
    * later write or free of such an object waits for. */
-  explicit Context(cudaStream_t stream) : stream_(internal::borrow_stream(stream)), oneshot_solver_scratch_(stream_) {
-    init_cublas();
-  }
+  explicit Context(cudaStream_t stream) : Context(internal::borrow_stream(stream)) { init_cublas(); }
 
   /** Internal: an owned stream, with the cuBLAS handle created on first use, for
    * the private Context of a component that may never use cuBLAS. */
-  explicit Context(internal::DeferCublas) : stream_(internal::make_owned_stream()), oneshot_solver_scratch_(stream_) {}
+  explicit Context(internal::DeferCublas) : Context(internal::make_owned_stream()) {}
 
   ~Context() = default;
 
@@ -157,6 +156,11 @@ class Context {
     if (!cublas_) init_cublas();
     return cublas_.get();
   }
+
+  /** NPP stream context for stream(), filled in at construction. Filling it
+   * queries the stream, which fails while the stream is being captured on some
+   * drivers, so NPP calls inside a capture must use this one. */
+  const NppStreamContext& nppStreamContext() const { return npp_stream_ctx_; }
 
   /** Returns the cuSOLVER handle, creating it on first call. */
   cusolverDnHandle_t cusolverHandle() {
@@ -207,13 +211,9 @@ class Context {
   cusparseHandle_t cusparseHandle() {
     if (!cusparse_) {
       cusparseHandle_t h = nullptr;
-      cusparseStatus_t s1 = cusparseCreate(&h);
-      eigen_assert(s1 == CUSPARSE_STATUS_SUCCESS && "cusparseCreate failed");
-      EIGEN_UNUSED_VARIABLE(s1);
+      EIGEN_CUSPARSE_CHECK(cusparseCreate(&h));
       cusparse_ = LazyCusparseHandle(h, &destroyCusparse);
-      cusparseStatus_t s2 = cusparseSetStream(h, stream());
-      eigen_assert(s2 == CUSPARSE_STATUS_SUCCESS && "cusparseSetStream failed");
-      EIGEN_UNUSED_VARIABLE(s2);
+      EIGEN_CUSPARSE_CHECK(cusparseSetStream(h, stream()));
     }
     return cusparse_.get();
   }
@@ -231,7 +231,9 @@ class Context {
   // Destroyed in reverse declaration order: the plan cache before the cuBLASLt handle, this Context's stream
   // reference last.
   internal::StreamHandle stream_;
-  mutable internal::UniqueCublasHandle cublas_;  // lazy only after the DeferCublas constructor
+  NppStreamContext npp_stream_ctx_ = {};
+  mutable internal::UniqueCublasHandle cublas_;      // lazy only after the DeferCublas constructor
+  mutable internal::DeviceBuffer cublas_workspace_;  // cublasSetWorkspace; freed before the handle
   LazyCusolverHandle cusolver_{nullptr, nullptr};
   LazyCusparseHandle cusparse_{nullptr, nullptr};
   internal::UniqueCublasLtHandle cublas_lt_;  // lazy
@@ -250,7 +252,16 @@ class Context {
     EIGEN_CUBLAS_CHECK(cublasCreate(&h));
     cublas_ = internal::UniqueCublasHandle(h);
     EIGEN_CUBLAS_CHECK(cublasSetStream(h, stream()));
+    // Only cuBLAS touches the workspace, always on stream_, so it skips the access protocol.
+    cublas_workspace_ = internal::DeviceBuffer(internal::kCublasWorkspaceBytes, stream_);
+    EIGEN_CUBLAS_CHECK(cublasSetWorkspace(h, cublas_workspace_.get(), cublas_workspace_.size()));
   }
+
+  // The constructors above delegate here: the stream, then the members that are bound to it.
+  explicit Context(internal::StreamHandle stream)
+      : stream_(std::move(stream)),
+        npp_stream_ctx_(internal::make_npp_stream_ctx(stream_.get())),
+        oneshot_solver_scratch_(stream_) {}
 };
 
 }  // namespace gpu

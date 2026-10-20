@@ -289,6 +289,33 @@ void eulerangles_gimbal_lock_reproducer() {
   VERIFY((m - e.toRotationMatrix()).norm() < 1e-6);
 }
 
+template <typename Scalar>
+void eulerangles_data_constructor() {
+  using EulerAnglesType = EulerAngles<Scalar, EulerSystemXYZ>;
+  const auto alpha = Scalar{123.4567};
+  const auto beta = Scalar{-98.7654};
+  const auto gamma = Scalar{4856.2954};
+  const Scalar data[]{alpha, beta, gamma};
+  const EulerAnglesType e(data);
+  VERIFY_IS_APPROX(e.alpha(), alpha);
+  VERIFY_IS_APPROX(e.beta(), beta);
+  VERIFY_IS_APPROX(e.gamma(), gamma);
+}
+
+// A volatile pointer forces odr-use even when optimization could fold the value.
+template <typename T>
+T read_through_address(const T& value) {
+  const T* volatile address = &value;
+  return *address;
+}
+
+template <typename System>
+void eulerangles_axes_odr_use(int alpha, int beta, int gamma) {
+  VERIFY_IS_EQUAL(read_through_address(System::AlphaAxis), alpha);
+  VERIFY_IS_EQUAL(read_through_address(System::BetaAxis), beta);
+  VERIFY_IS_EQUAL(read_through_address(System::GammaAxis), gamma);
+}
+
 EIGEN_DECLARE_TEST(EulerAngles) {
   // Simple cast test
   EulerAnglesXYZd onesEd(1, 1, 1);
@@ -309,6 +336,11 @@ EIGEN_DECLARE_TEST(EulerAngles) {
   CALL_SUBTEST_5(eulerangles_gimbal_lock_regression<float>());
   CALL_SUBTEST_5(eulerangles_gimbal_lock_regression<double>());
   CALL_SUBTEST_5(eulerangles_gimbal_lock_reproducer());
+
+  CALL_SUBTEST_6(eulerangles_data_constructor<float>());
+  CALL_SUBTEST_6(eulerangles_data_constructor<double>());
+  CALL_SUBTEST_6((eulerangles_axes_odr_use<EulerSystemXYZ>(1, 2, 3)));
+  CALL_SUBTEST_6((eulerangles_axes_odr_use<EulerSystem<1, -2, 3>>(1, -2, 3)));
 
   // TODO: Add tests for auto diff
   // TODO: Add tests for complex numbers

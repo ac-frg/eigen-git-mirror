@@ -144,6 +144,13 @@ void stable_norm(const MatrixType& m) {
     VERIFY((numext::isnan)(v.blueNorm()));
     VERIFY(!(numext::isfinite)(v.hypotNorm()));
     VERIFY((numext::isnan)(v.hypotNorm()));
+    VERIFY((numext::isnan)(v.template lpNorm<1>()));
+    VERIFY((numext::isnan)(v.template lpNorm<Infinity>()));
+    // The maximum used to drop a NaN met after its first coefficient.
+    v = vrand;
+    v(rows - 1, cols - 1) = std::numeric_limits<RealScalar>::quiet_NaN();
+    VERIFY((numext::isnan)(v.template lpNorm<Infinity>()));
+    VERIFY((numext::isnan)(v.colwise().template lpNorm<Infinity>()(cols - 1)));
   }
 
   // +inf
@@ -224,9 +231,39 @@ void stable_norm(const MatrixType& m) {
   }
 }
 
+template <typename = void>
 void test_empty() {
   Eigen::VectorXf empty(0);
   VERIFY_IS_EQUAL(empty.stableNorm(), 0.0f);
+}
+
+template <typename VectorType>
+void check_empty_stable_normalization(const VectorType& input) {
+  VectorType empty(input);
+  using RealScalar = typename VectorType::RealScalar;
+  VERIFY_IS_EQUAL((internal::stable_normalization_dispatch<VectorType, RealScalar>::max_abs(empty)), RealScalar(0));
+  VERIFY_IS_EQUAL(empty.stableNormalized().size(), 0);
+  empty.stableNormalize();
+  VERIFY_IS_EQUAL(empty.size(), 0);
+}
+
+template <typename Scalar>
+void stable_normalization_empty_reductions() {
+  check_empty_stable_normalization(Matrix<Scalar, 0, 1>());
+  check_empty_stable_normalization(Matrix<Scalar, 1, 0>());
+  check_empty_stable_normalization(Matrix<Scalar, Dynamic, 1>(0));
+  check_empty_stable_normalization(Matrix<Scalar, 1, Dynamic>(0));
+}
+
+template <typename RealScalar>
+void stable_normalization_max_abs_special_values() {
+  using VectorType = Matrix<RealScalar, 2, 1>;
+  using Dispatch = internal::stable_normalization_dispatch<VectorType, RealScalar>;
+  VectorType special;
+  special << RealScalar(1), NumTraits<RealScalar>::quiet_NaN();
+  VERIFY((numext::isnan)(Dispatch::max_abs(special)));
+  special << -NumTraits<RealScalar>::infinity(), RealScalar(1);
+  VERIFY_IS_EQUAL(Dispatch::max_abs(special), NumTraits<RealScalar>::infinity());
 }
 
 template <typename RealScalar>
@@ -495,6 +532,7 @@ void stable_norm_denormal_rounding() {
   VERIFY_IS_EQUAL(input.hypotNorm(), denorm);
 }
 
+template <typename = void>
 void stable_norm_power_of_two_scaling() {
   // Reciprocal scaling rounds these norms two ULPs away from their correctly rounded values. Allow the fused and
   // non-fused reduction paths to differ by one ULP while still rejecting the previous results.
@@ -582,6 +620,7 @@ void stable_norm_complex_low_precision() {
   VERIFY(abs(static_cast<float>(input(0).imag()) - 0.8f) <= tolerance);
 }
 
+template <typename = void>
 void stable_normalize_promoted_factor() {
   typedef Matrix<half, Dynamic, 1> VectorX;
   using std::abs;
@@ -603,6 +642,7 @@ void stable_normalize_promoted_factor() {
   VERIFY(abs(input.template cast<float>().norm() - 1.0f) <= tolerance);
 }
 
+template <typename = void>
 void stable_normalize_no_malloc() {
   VectorXd input = VectorXd::Constant(2, (std::numeric_limits<double>::max)());
   const Vector2d expected = Vector2d::Constant(1.0 / std::sqrt(2.0));
@@ -613,6 +653,7 @@ void stable_normalize_no_malloc() {
   VERIFY_IS_APPROX(input, expected);
 }
 
+template <typename = void>
 void stable_norm_expression_and_stride() {
   const Index size = 31;
   Index evaluation_count = 0;
@@ -807,6 +848,7 @@ void stable_norm_block_boundary() {
   }
 }
 
+template <typename = void>
 void stable_normalize_custom_scalar() {
   using Scalar = AnnoyingScalar;
   Matrix<Scalar, 2, 1> expected;
@@ -825,7 +867,12 @@ void stable_normalize_custom_scalar() {
 }
 
 EIGEN_DECLARE_TEST(stable_norm) {
-  CALL_SUBTEST_1(test_empty());
+  CALL_SUBTEST_1(test_empty<>());
+  CALL_SUBTEST_1(stable_normalization_empty_reductions<float>());
+  CALL_SUBTEST_2(stable_normalization_empty_reductions<double>());
+  CALL_SUBTEST_2(stable_normalization_empty_reductions<std::complex<double>>());
+  CALL_SUBTEST_1(stable_normalization_max_abs_special_values<float>());
+  CALL_SUBTEST_2(stable_normalization_max_abs_special_values<double>());
 
   for (int i = 0; i < g_repeat; i++) {
     CALL_SUBTEST_3(test_hypot<double>());
@@ -866,15 +913,15 @@ EIGEN_DECLARE_TEST(stable_norm) {
   CALL_SUBTEST_11(stable_norm_mixed_underflow<double>());
   CALL_SUBTEST_11(stable_norm_denormal_rounding<float>());
   CALL_SUBTEST_11(stable_norm_denormal_rounding<double>());
-  CALL_SUBTEST_11(stable_norm_power_of_two_scaling());
+  CALL_SUBTEST_11(stable_norm_power_of_two_scaling<>());
   CALL_SUBTEST_11(stable_norm_power_of_two_ftz<float>());
   CALL_SUBTEST_11(stable_norm_power_of_two_ftz<double>());
   CALL_SUBTEST_12(stable_norm_low_precision<half>());
   CALL_SUBTEST_12(stable_norm_low_precision<bfloat16>());
   CALL_SUBTEST_12(stable_norm_complex_low_precision<half>());
   CALL_SUBTEST_12(stable_norm_complex_low_precision<bfloat16>());
-  CALL_SUBTEST_12(stable_normalize_promoted_factor());
-  CALL_SUBTEST_13(stable_norm_expression_and_stride());
-  CALL_SUBTEST_13(stable_normalize_no_malloc());
-  CALL_SUBTEST_13(stable_normalize_custom_scalar());
+  CALL_SUBTEST_12(stable_normalize_promoted_factor<>());
+  CALL_SUBTEST_13(stable_norm_expression_and_stride<>());
+  CALL_SUBTEST_13(stable_normalize_no_malloc<>());
+  CALL_SUBTEST_13(stable_normalize_custom_scalar<>());
 }

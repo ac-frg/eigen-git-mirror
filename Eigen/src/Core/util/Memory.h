@@ -160,6 +160,8 @@ EIGEN_DEVICE_FUNC inline void* handmade_aligned_malloc(std::size_t size,
                "Alignment must be at least sizeof(void*), less than or equal to 256, and a power of 2");
 
   check_that_malloc_is_allowed();
+  // No object may exceed PTRDIFF_MAX bytes (malloc rejects larger ones), and size + alignment must not wrap.
+  if (size > static_cast<std::size_t>((std::numeric_limits<std::ptrdiff_t>::max)()) - alignment) return nullptr;
   EIGEN_USING_STD(malloc)
   void* original = malloc(size + alignment);
   if (original == nullptr) return nullptr;
@@ -194,6 +196,8 @@ EIGEN_DEVICE_FUNC inline void* handmade_aligned_realloc(void* ptr, std::size_t n
   void* old_original = static_cast<uint8_t*>(ptr) - old_offset;
 
   check_that_malloc_is_allowed();
+  // Same bound as handmade_aligned_malloc; fail as realloc does, leaving the old block untouched.
+  if (new_size > static_cast<std::size_t>((std::numeric_limits<std::ptrdiff_t>::max)()) - alignment) return nullptr;
   EIGEN_USING_STD(realloc)
   void* original = realloc(old_original, new_size + alignment);
   if (original == nullptr) return nullptr;
@@ -337,7 +341,9 @@ EIGEN_DEVICE_FUNC inline void* conditional_aligned_realloc<false>(void* ptr, std
 
   check_that_malloc_is_allowed();
   EIGEN_USING_STD(realloc)
-  return realloc(ptr, new_size);
+  void* result = realloc(ptr, new_size);
+  if (!result) throw_std_bad_alloc();
+  return result;
 }
 
 /*****************************************************************************
@@ -660,6 +666,91 @@ struct smart_memmove_helper<T, false> {
 #undef EIGEN_ALLOCA
 #endif
 
+// The SME GEMM kernel reads its packed panels a streaming vector at a time and slows down when they straddle
+// 64-byte lines, so SME builds align the internal temporaries to 64 bytes, heap and stack alike.
+#ifndef EIGEN_STACK_ALIGN_BYTES
+#if defined(EIGEN_VECTORIZE_SME) && EIGEN_DEFAULT_ALIGN_BYTES < 64
+#define EIGEN_STACK_ALIGN_BYTES 64
+#else
+#define EIGEN_STACK_ALIGN_BYTES EIGEN_DEFAULT_ALIGN_BYTES
+#endif
+#endif
+
+/** \internal Allocates a temporary buffer aligned to EIGEN_STACK_ALIGN_BYTES; release with scratch_free. */
+EIGEN_DEVICE_FUNC inline void* scratch_malloc(std::size_t size) {
+#if EIGEN_STACK_ALIGN_BYTES > EIGEN_DEFAULT_ALIGN_BYTES
+  void* result = handmade_aligned_malloc(size, EIGEN_STACK_ALIGN_BYTES);
+  if (!result && size) throw_std_bad_alloc();
+  return result;
+#else
+  return aligned_malloc(size);
+#endif
+}
+EIGEN_DEVICE_FUNC inline void scratch_free(void* ptr) {
+#if EIGEN_STACK_ALIGN_BYTES > EIGEN_DEFAULT_ALIGN_BYTES
+  handmade_aligned_free(ptr);
+#else
+  aligned_free(ptr);
+#endif
+}
+
+/** \internal Allocates size bytes without constructing T; release with scratch_free<T>. */
+template <typename T>
+EIGEN_DEVICE_FUNC inline T* scratch_malloc(std::size_t size) {
+  EIGEN_IF_CONSTEXPR (alignof(T) <= EIGEN_STACK_ALIGN_BYTES ||
+                      (EIGEN_STACK_ALIGN_BYTES == 0 && alignof(T) <= alignof(std::max_align_t))) {
+    return static_cast<T*>(scratch_malloc(size));
+  } else {
+    // Unlike the byte-offset allocator, this also supports alignments greater than 256.
+    constexpr std::size_t overhead = alignof(T) - 1 + sizeof(void*);
+    size += overhead;
+    if (size < overhead) throw_std_bad_alloc();
+    check_that_malloc_is_allowed();
+    void* original = std::malloc(size);
+    if (!original) throw_std_bad_alloc();
+    // std::align is host-only with CUDA.
+    char* start = static_cast<char*>(original) + sizeof(void*);
+    const std::uintptr_t offset = reinterpret_cast<std::uintptr_t>(start) % alignof(T);
+    const std::uintptr_t shift = offset > 0 ? alignof(T) - offset : 0;
+    void* aligned = start + shift;
+    std::memcpy(static_cast<char*>(aligned) - sizeof(void*), reinterpret_cast<const void*>(&original), sizeof(void*));
+    return static_cast<T*>(aligned);
+  }
+}
+
+template <typename T>
+EIGEN_DEVICE_FUNC inline void scratch_free(void* ptr) {
+  EIGEN_IF_CONSTEXPR (alignof(T) <= EIGEN_STACK_ALIGN_BYTES ||
+                      (EIGEN_STACK_ALIGN_BYTES == 0 && alignof(T) <= alignof(std::max_align_t))) {
+    scratch_free(ptr);
+  } else if (ptr) {
+    void* original;
+    std::memcpy(reinterpret_cast<void*>(&original), static_cast<char*>(ptr) - sizeof(void*), sizeof(void*));
+    check_that_free_is_allowed();
+    std::free(original);
+  }
+}
+
+/** \internal Like aligned_new, respecting both type and scratch alignment; release with scratch_delete. */
+template <typename T>
+EIGEN_DEVICE_FUNC inline T* scratch_new(std::size_t size) {
+  check_size_for_overflow<T>(size);
+  T* result = scratch_malloc<T>(sizeof(T) * size);
+  EIGEN_TRY { default_construct_elements_of_array(result, size); }
+  EIGEN_CATCH(...) {
+    scratch_free<T>(result);
+    EIGEN_THROW;
+  }
+  return result;
+}
+
+/** \internal Deletes objects constructed with scratch_new. */
+template <typename T>
+EIGEN_DEVICE_FUNC inline void scratch_delete(T* ptr, std::size_t size) {
+  destruct_elements_of_array<T>(ptr, size);
+  scratch_free<T>(ptr);
+}
+
 // This helper class construct the allocated memory, and takes care of destructing and freeing the handled data
 // at destruction time. In practice this helper class is mainly useful to avoid memory leak in case of exceptions.
 template <typename T>
@@ -684,7 +775,7 @@ class aligned_stack_memory_handler {
     EIGEN_IF_CONSTEXPR (NumTraits<T>::RequireInitialization) {
       if (m_ptr) Eigen::internal::destruct_elements_of_array<T>(m_ptr, m_size);
     }
-    if (m_deallocate) Eigen::internal::aligned_free(m_ptr);
+    if (m_deallocate) Eigen::internal::scratch_free<T>(m_ptr);
   }
 
  protected:
@@ -718,8 +809,8 @@ struct local_nested_eval_wrapper<Xpr, NbEvaluations, true> {
   ObjectType object;
 
   EIGEN_DEVICE_FUNC local_nested_eval_wrapper(const Xpr& xpr, Scalar* ptr)
-      : object(ptr == 0 ? reinterpret_cast<Scalar*>(Eigen::internal::aligned_malloc(sizeof(Scalar) * xpr.size())) : ptr,
-               xpr.rows(), xpr.cols()),
+      : object(ptr == 0 ? Eigen::internal::scratch_malloc<Scalar>(sizeof(Scalar) * xpr.size()) : ptr, xpr.rows(),
+               xpr.cols()),
         m_deallocate(ptr == 0) {
     EIGEN_IF_CONSTEXPR (NumTraits<Scalar>::RequireInitialization) {
       if (object.data()) Eigen::internal::default_construct_elements_of_array(object.data(), object.size());
@@ -731,7 +822,7 @@ struct local_nested_eval_wrapper<Xpr, NbEvaluations, true> {
     EIGEN_IF_CONSTEXPR (NumTraits<Scalar>::RequireInitialization) {
       if (object.data()) Eigen::internal::destruct_elements_of_array(object.data(), object.size());
     }
-    if (m_deallocate) Eigen::internal::aligned_free(object.data());
+    if (m_deallocate) Eigen::internal::scratch_free<Scalar>(object.data());
   }
 
  private:
@@ -745,7 +836,9 @@ struct local_nested_eval_wrapper<Xpr, NbEvaluations, true> {
 /** \internal
  *
  * The macro ei_declare_aligned_stack_constructed_variable(TYPE,NAME,SIZE,BUFFER) declares, allocates,
- * and construct an aligned buffer named NAME of SIZE elements of type TYPE on the stack
+ * and construct an aligned buffer named NAME of SIZE elements of type TYPE on the stack.
+ * Allocated storage respects both alignof(TYPE) and EIGEN_STACK_ALIGN_BYTES, even when SIMD alignment is disabled.
+ * Storage is allocated on the stack
  * if the size in bytes is smaller than EIGEN_STACK_ALLOCATION_LIMIT, and if stack allocation is supported by the
  * platform (currently, this is Linux, OSX and Visual Studio only). Otherwise the memory is allocated on the heap;
  * in particular, a zero EIGEN_STACK_ALLOCATION_LIMIT disables stack allocation and every buffer is heap-allocated. The
@@ -768,18 +861,6 @@ struct local_nested_eval_wrapper<Xpr, NbEvaluations, true> {
  */
 #if defined(EIGEN_ALLOCA) && !defined(EIGEN_NO_ALLOCA)
 
-// Stack temporaries hold the GEMM packed panels. The SME kernel loads them a
-// streaming vector at a time and runs 35-50% slower when they straddle
-// 64-byte lines, so SME builds align them to that rather than to the ABI's
-// EIGEN_DEFAULT_ALIGN_BYTES.
-#ifndef EIGEN_STACK_ALIGN_BYTES
-#if defined(EIGEN_VECTORIZE_SME) && EIGEN_DEFAULT_ALIGN_BYTES < 64
-#define EIGEN_STACK_ALIGN_BYTES 64
-#else
-#define EIGEN_STACK_ALIGN_BYTES EIGEN_DEFAULT_ALIGN_BYTES
-#endif
-#endif
-
 #if EIGEN_STACK_ALIGN_BYTES > 0
 // We always manually re-align the result of EIGEN_ALLOCA.
 // If alloca is already aligned, the compiler should be smart enough to optimize away the re-alignment.
@@ -801,32 +882,46 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void* eigen_aligned_alloca_helper(void* pt
 #define EIGEN_ALIGNED_ALLOCA(SIZE) EIGEN_ALLOCA(SIZE)
 #endif
 
-#define ei_declare_aligned_stack_constructed_variable(TYPE, NAME, SIZE, BUFFER)                                       \
-  Eigen::internal::check_size_for_overflow<TYPE>(SIZE);                                                               \
-  TYPE* NAME = (BUFFER) != 0 ? (BUFFER)                                                                               \
-                             : reinterpret_cast<TYPE*>((sizeof(TYPE) * (SIZE) <= EIGEN_STACK_ALLOCATION_LIMIT)        \
-                                                           ? EIGEN_ALIGNED_ALLOCA(sizeof(TYPE) * (SIZE))              \
-                                                           : Eigen::internal::aligned_malloc(sizeof(TYPE) * (SIZE))); \
-  Eigen::internal::aligned_stack_memory_handler<TYPE> EIGEN_CAT(NAME, _stack_memory_destructor)(                      \
-      (BUFFER) == 0 ? NAME : 0, SIZE, sizeof(TYPE) * (SIZE) > EIGEN_STACK_ALLOCATION_LIMIT)
+// Preserve the existing allocation path unless the scalar needs stronger alignment.
+#define EIGEN_TYPED_ALIGNED_ALLOCA(TYPE, SIZE)                                                                  \
+  (alignof(TYPE) <= EIGEN_STACK_ALIGN_BYTES                                                                     \
+       ? EIGEN_ALIGNED_ALLOCA(SIZE)                                                                             \
+       : reinterpret_cast<void*>(                                                                               \
+             (reinterpret_cast<std::uintptr_t>(EIGEN_ALLOCA((SIZE) + alignof(TYPE) - 1)) + alignof(TYPE) - 1) & \
+             ~(std::uintptr_t(alignof(TYPE)) - 1)))
 
-#define ei_declare_local_nested_eval(XPR_T, XPR, N, NAME)                                        \
-  Eigen::internal::local_nested_eval_wrapper<XPR_T, N> EIGEN_CAT(NAME, _wrapper)(                \
-      XPR, reinterpret_cast<typename XPR_T::Scalar*>(                                            \
-               ((Eigen::internal::local_nested_eval_wrapper<XPR_T, N>::NeedExternalBuffer) &&    \
-                ((sizeof(typename XPR_T::Scalar) * XPR.size()) <= EIGEN_STACK_ALLOCATION_LIMIT)) \
-                   ? EIGEN_ALIGNED_ALLOCA(sizeof(typename XPR_T::Scalar) * XPR.size())           \
-                   : 0));                                                                        \
+// TYPE and NAME form declarations, not expressions.
+// NOLINTBEGIN(bugprone-macro-parentheses)
+#define ei_declare_aligned_stack_constructed_variable(TYPE, NAME, SIZE, BUFFER)                                   \
+  Eigen::internal::check_size_for_overflow<TYPE>(SIZE);                                                           \
+  TYPE* NAME = (BUFFER) != 0                                                                                      \
+                   ? (BUFFER)                                                                                     \
+                   : reinterpret_cast<TYPE*>((sizeof(TYPE) * (SIZE) <= EIGEN_STACK_ALLOCATION_LIMIT)              \
+                                                 ? EIGEN_TYPED_ALIGNED_ALLOCA(TYPE, sizeof(TYPE) * (SIZE))        \
+                                                 : Eigen::internal::scratch_malloc<TYPE>(sizeof(TYPE) * (SIZE))); \
+  Eigen::internal::aligned_stack_memory_handler<TYPE> EIGEN_CAT(NAME, _stack_memory_destructor)(                  \
+      (BUFFER) == 0 ? NAME : 0, SIZE, sizeof(TYPE) * (SIZE) > EIGEN_STACK_ALLOCATION_LIMIT)
+// NOLINTEND(bugprone-macro-parentheses)
+
+#define ei_declare_local_nested_eval(XPR_T, XPR, N, NAME)                                                              \
+  Eigen::internal::local_nested_eval_wrapper<XPR_T, N> EIGEN_CAT(NAME, _wrapper)(                                      \
+      XPR, reinterpret_cast<typename XPR_T::Scalar*>(                                                                  \
+               ((Eigen::internal::local_nested_eval_wrapper<XPR_T, N>::NeedExternalBuffer) &&                          \
+                ((sizeof(typename XPR_T::Scalar) * (XPR).size()) <= EIGEN_STACK_ALLOCATION_LIMIT))                     \
+                   ? EIGEN_TYPED_ALIGNED_ALLOCA(typename XPR_T::Scalar, sizeof(typename XPR_T::Scalar) * (XPR).size()) \
+                   : 0));                                                                                              \
   typename Eigen::internal::local_nested_eval_wrapper<XPR_T, N>::ObjectType NAME(EIGEN_CAT(NAME, _wrapper).object)
 
 #else
 
-#define ei_declare_aligned_stack_constructed_variable(TYPE, NAME, SIZE, BUFFER)                                 \
-  Eigen::internal::check_size_for_overflow<TYPE>(SIZE);                                                         \
-  TYPE* NAME =                                                                                                  \
-      (BUFFER) != 0 ? BUFFER : reinterpret_cast<TYPE*>(Eigen::internal::aligned_malloc(sizeof(TYPE) * (SIZE))); \
-  Eigen::internal::aligned_stack_memory_handler<TYPE> EIGEN_CAT(NAME, _stack_memory_destructor)(                \
+// TYPE and NAME form declarations, not expressions.
+// NOLINTBEGIN(bugprone-macro-parentheses)
+#define ei_declare_aligned_stack_constructed_variable(TYPE, NAME, SIZE, BUFFER)                         \
+  Eigen::internal::check_size_for_overflow<TYPE>(SIZE);                                                 \
+  TYPE* NAME = (BUFFER) != 0 ? (BUFFER) : Eigen::internal::scratch_malloc<TYPE>(sizeof(TYPE) * (SIZE)); \
+  Eigen::internal::aligned_stack_memory_handler<TYPE> EIGEN_CAT(NAME, _stack_memory_destructor)(        \
       (BUFFER) == 0 ? NAME : 0, SIZE, true)
+// NOLINTEND(bugprone-macro-parentheses)
 
 #define ei_declare_local_nested_eval(XPR_T, XPR, N, NAME) \
   typename Eigen::internal::nested_eval<XPR_T, N>::type NAME(XPR)
@@ -850,10 +945,14 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void* eigen_aligned_alloca_helper(void* pt
 
 // HIP does not support new/delete on device.
 #if EIGEN_MAX_ALIGN_BYTES != 0 && !defined(EIGEN_HIP_DEVICE_COMPILE)
-#define EIGEN_MAKE_ALIGNED_OPERATOR_NEW_NOTHROW(NeedsToAlign)                              \
-  EIGEN_DEVICE_FUNC void* operator new(std::size_t size, const std::nothrow_t&) noexcept { \
-    EIGEN_TRY { return Eigen::internal::conditional_aligned_malloc<NeedsToAlign>(size); }  \
-    EIGEN_CATCH(...) { return 0; }                                                         \
+#define EIGEN_MAKE_ALIGNED_OPERATOR_NEW_NOTHROW(NeedsToAlign)                                \
+  EIGEN_DEVICE_FUNC void* operator new(std::size_t size, const std::nothrow_t&) noexcept {   \
+    EIGEN_TRY { return Eigen::internal::conditional_aligned_malloc<NeedsToAlign>(size); }    \
+    EIGEN_CATCH(...) { return 0; }                                                           \
+  }                                                                                          \
+  EIGEN_DEVICE_FUNC void* operator new[](std::size_t size, const std::nothrow_t&) noexcept { \
+    EIGEN_TRY { return Eigen::internal::conditional_aligned_malloc<NeedsToAlign>(size); }    \
+    EIGEN_CATCH(...) { return 0; }                                                           \
   }
 #define EIGEN_MAKE_ALIGNED_OPERATOR_NEW_IF(NeedsToAlign)                                                              \
   EIGEN_DEVICE_FUNC void* operator new(std::size_t size) {                                                            \
@@ -886,6 +985,9 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void* eigen_aligned_alloca_helper(void* pt
   /* nothrow-new (returns zero instead of std::bad_alloc) */                                                          \
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW_NOTHROW(NeedsToAlign)                                                               \
   EIGEN_DEVICE_FUNC void operator delete(void* ptr, const std::nothrow_t&) noexcept {                                 \
+    Eigen::internal::conditional_aligned_free<NeedsToAlign>(ptr);                                                     \
+  }                                                                                                                   \
+  EIGEN_DEVICE_FUNC void operator delete[](void* ptr, const std::nothrow_t&) noexcept {                               \
     Eigen::internal::conditional_aligned_free<NeedsToAlign>(ptr);                                                     \
   }                                                                                                                   \
   typedef void eigen_aligned_operator_new_marker_type;

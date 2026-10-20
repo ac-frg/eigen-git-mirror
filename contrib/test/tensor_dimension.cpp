@@ -91,7 +91,82 @@ static void test_narrowing_dimensions() {
   VERIFY_RAISES_ASSERT((Eigen::DSizes<std::ptrdiff_t, 3>(2, 3, std::size_t(-1))));
 }
 
+// A volatile pointer forces odr-use even when optimization could fold the value.
+template <typename T>
+T read_through_address(const T& value) {
+  const T* volatile address = &value;
+  return *address;
+}
+
+static void test_dimension_constants_odr_use() {
+  VERIFY_IS_EQUAL((read_through_address(Eigen::Sizes<2, 3>::total_size)), std::ptrdiff_t(6));
+  VERIFY_IS_EQUAL((read_through_address(Eigen::Sizes<2, 3>::count)), std::ptrdiff_t(2));
+  VERIFY_IS_EQUAL(read_through_address(Eigen::Sizes<>::total_size), std::ptrdiff_t(1));
+  VERIFY_IS_EQUAL(read_through_address(Eigen::Sizes<>::count), std::ptrdiff_t(0));
+  VERIFY_IS_EQUAL((read_through_address(Eigen::DSizes<Index, 3>::count)), 3);
+  VERIFY_IS_EQUAL((read_through_address(Eigen::DSizes<int, 0>::count)), 0);
+}
+
+template <typename TensorType>
+void tensor_rank_layout_odr_use(int rank, int layout) {
+  VERIFY_IS_EQUAL(read_through_address(TensorType::NumIndices), rank);
+  VERIFY_IS_EQUAL(read_through_address(TensorType::Layout), layout);
+}
+
+template <typename TensorType>
+void tensor_metadata_odr_use(int rank, int layout, int options) {
+  tensor_rank_layout_odr_use<TensorType>(rank, layout);
+  VERIFY_IS_EQUAL(read_through_address(TensorType::Options), options);
+}
+
+static void test_tensor_metadata_odr_use() {
+  tensor_metadata_odr_use<Tensor<float, 3>>(3, ColMajor, 0);
+  tensor_metadata_odr_use<Tensor<float, 3, RowMajor, int>>(3, RowMajor, RowMajor);
+  tensor_metadata_odr_use<Tensor<float, 0>>(0, ColMajor, 0);
+  tensor_metadata_odr_use<TensorFixedSize<float, Sizes<2, 3>>>(2, ColMajor, 0);
+  tensor_metadata_odr_use<TensorFixedSize<float, Sizes<2, 3>, RowMajor, int>>(2, RowMajor, RowMajor);
+  tensor_metadata_odr_use<TensorFixedSize<float, Sizes<>>>(0, ColMajor, 0);
+  tensor_metadata_odr_use<TensorMap<Tensor<float, 3>>>(3, ColMajor, 0);
+  tensor_metadata_odr_use<TensorMap<const Tensor<float, 3, RowMajor>, Aligned>>(3, RowMajor, Aligned);
+  tensor_metadata_odr_use<TensorMap<TensorFixedSize<float, Sizes<2, 3>>>>(2, ColMajor, 0);
+  tensor_rank_layout_odr_use<TensorRef<Tensor<float, 3>>>(3, ColMajor);
+  tensor_rank_layout_odr_use<TensorRef<const Tensor<float, 3, RowMajor>>>(3, RowMajor);
+  tensor_rank_layout_odr_use<TensorRef<TensorFixedSize<float, Sizes<>>>>(0, ColMajor);
+}
+
+// Test the accessors on actual tensors/maps/refs
+// Check the dynamic assessors for both in- and out-of-range
+// Only test static for in-range here (out-of-range causes a compilation failure)
+static void test_dimension_accessors() {
+  Tensor<float, 3> t(2, 3, 7);
+  Eigen::TensorFixedSize<float, Eigen::Sizes<2, 3, 7>> f;
+  Eigen::TensorMap<Tensor<float, 3>> m(t.data(), 2, 3, 7);
+  Eigen::TensorRef<Tensor<float, 3>> r(t);
+
+  VERIFY_IS_EQUAL(t.dimension<1>(), 3);
+  VERIFY_IS_EQUAL(f.dimension<1>(), 3);
+  VERIFY_IS_EQUAL(m.dimension<1>(), 3);
+  VERIFY_IS_EQUAL(r.dimension<1>(), 3);
+  static_assert(Eigen::TensorFixedSize<float, Eigen::Sizes<2, 3, 7>>::dimension<2>() == 7, "constexpr");
+
+  VERIFY_IS_EQUAL(t.dimension(2), 7);
+  VERIFY_IS_EQUAL(f.dimension(2), 7);
+  VERIFY_IS_EQUAL(m.dimension(2), 7);
+  VERIFY_IS_EQUAL(r.dimension(2), 7);
+
+  VERIFY_RAISES_ASSERT(t.dimension(3));
+  VERIFY_RAISES_ASSERT(t.dimension(-1));
+  VERIFY_RAISES_ASSERT(f.dimension(3));
+  VERIFY_RAISES_ASSERT(f.dimension(-1));
+  VERIFY_RAISES_ASSERT(m.dimension(3));
+  VERIFY_RAISES_ASSERT(m.dimension(-1));
+  VERIFY_RAISES_ASSERT(r.dimension(3));
+  VERIFY_RAISES_ASSERT(r.dimension(-1));
+}
+
 EIGEN_DECLARE_TEST(tensor_dimension) {
+  CALL_SUBTEST(test_dimension_constants_odr_use());
+  CALL_SUBTEST(test_tensor_metadata_odr_use());
   CALL_SUBTEST(test_dynamic_size());
   CALL_SUBTEST(test_fixed_size());
   CALL_SUBTEST(test_match());
@@ -99,4 +174,5 @@ EIGEN_DECLARE_TEST(tensor_dimension) {
   CALL_SUBTEST(test_index_type_promotion());
   CALL_SUBTEST(test_unsigned_dimensions());
   CALL_SUBTEST(test_narrowing_dimensions());
+  CALL_SUBTEST(test_dimension_accessors());
 }

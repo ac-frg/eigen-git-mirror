@@ -420,7 +420,10 @@ EIGEN_DEVICE_FUNC inline Packet ptrue(const Packet& a) {
   }
   Packet b;
   memset(static_cast<void*>(&b), 0xff, sizeof(Packet));
-  EIGEN_FAST_MATH_CONSTANT_BARRIER(b);
+  // Every backend stores integer packets in integer vector types, which the poison folding does not affect.
+  EIGEN_IF_CONSTEXPR (!NumTraits<typename unpacket_traits<Packet>::type>::IsInteger) {
+    EIGEN_FAST_MATH_CONSTANT_BARRIER(b);
+  }
   return b;
 }
 
@@ -561,10 +564,22 @@ EIGEN_DEVICE_FUNC inline Packet pxor(const Packet& a, const Packet& b) {
   return bitwise_helper<Packet>::bitwise_xor(a, b);
 }
 
+// Packets use the backend's pxor and ptrue: compilers do not reliably vectorize the bytewise fallback (GCC 10 at -O2,
+// GCC and Clang at -O1). For boolean packets ptrue is true, so this is the logical not.
+template <typename Packet, bool IsScalar = is_scalar<Packet>::value>
+struct pnot_impl {
+  static EIGEN_DEVICE_FUNC inline Packet run(const Packet& a) { return pxor(a, ptrue(a)); }
+};
+
+template <typename Packet>
+struct pnot_impl<Packet, true> {
+  static EIGEN_DEVICE_FUNC inline Packet run(const Packet& a) { return bitwise_helper<Packet>::bitwise_not(a); }
+};
+
 /** \internal \returns the bitwise not of \a a */
 template <typename Packet>
 EIGEN_DEVICE_FUNC inline Packet pnot(const Packet& a) {
-  return bitwise_helper<Packet>::bitwise_not(a);
+  return pnot_impl<Packet>::run(a);
 }
 
 /** \internal \returns the bitwise and of \a a and not \a b */
@@ -1189,6 +1204,10 @@ EIGEN_DEVICE_FUNC inline Packet pdupimag(const Packet& a) {
  * Special math functions
  ***************************/
 
+// Declared ahead of pisnan_impl so the complex case can use a backend's pisnan for the real packet.
+template <typename Packet>
+EIGEN_DEVICE_FUNC inline Packet pisnan(const Packet& a);
+
 // Implemented without ptrue: an all-ones float packet is a NaN bit pattern, which under
 // fast-math flags clang turns into a poison constant that deletes any expression it flows
 // into.
@@ -1213,7 +1232,7 @@ struct pisnan_impl<Packet, true, false, IsInteger> {
   static EIGEN_DEVICE_FUNC inline Packet run(const Packet& a) {
     using RealPacket = typename unpacket_traits<Packet>::as_real;
     // A NaN in either the real or the imaginary lane marks the whole complex element.
-    Packet nan_lanes = Packet(pcmp_lt_or_nan<RealPacket>(a.v, a.v));
+    Packet nan_lanes = Packet(pisnan<RealPacket>(a.v));
     return por(nan_lanes, pcplxflip(nan_lanes));
   }
 };
@@ -1396,12 +1415,25 @@ EIGEN_DECLARE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet plog10(const Packet&
   return log10(a);
 }
 
+template <typename Packet, bool IsComplexPacket = NumTraits<typename unpacket_traits<Packet>::type>::IsComplex &&
+                                                  !is_scalar<Packet>::value>
+struct plog2_impl {
+  static EIGEN_DEVICE_FUNC inline Packet run(const Packet& a) {
+    using Scalar = typename internal::unpacket_traits<Packet>::type;
+    using RealScalar = typename NumTraits<Scalar>::Real;
+    return pmul(pset1<Packet>(Scalar(RealScalar(EIGEN_LOG2E))), plog(a));
+  }
+};
+
+// Defined with plog_complex in GenericPacketMathComplex.h; declared here so that plog2 on a complex packet cannot
+// silently take the primary template before that header.
+template <typename Packet>
+struct plog2_impl<Packet, true>;
+
 /** \internal \returns the log2 of \a a (coeff-wise) */
 template <typename Packet>
 EIGEN_DECLARE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet plog2(const Packet& a) {
-  using Scalar = typename internal::unpacket_traits<Packet>::type;
-  using RealScalar = typename NumTraits<Scalar>::Real;
-  return pmul(pset1<Packet>(Scalar(RealScalar(EIGEN_LOG2E))), plog(a));
+  return plog2_impl<Packet>::run(a);
 }
 
 /** \internal \returns the square-root of \a a (coeff-wise) */
@@ -1651,8 +1683,32 @@ struct pmadd_impl {
   }
 };
 
+#if defined(EIGEN_VECTORIZE_FMA)
+// Scalar path for pmadd with FMA to ensure consistency with vectorized path.
+template <typename Scalar>
+struct pmadd_impl<Scalar, std::enable_if_t<std::is_same<Scalar, float>::value || std::is_same<Scalar, double>::value>> {
+  static EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE Scalar pmadd(const Scalar& a, const Scalar& b, const Scalar& c) {
+    return numext::fma(a, b, c);
+  }
+  static EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE Scalar pmsub(const Scalar& a, const Scalar& b, const Scalar& c) {
+    return numext::fma(a, b, Scalar(-c));
+  }
+  static EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE Scalar pnmadd(const Scalar& a, const Scalar& b, const Scalar& c) {
+    return numext::fma(Scalar(-a), b, c);
+  }
+  static EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE Scalar pnmsub(const Scalar& a, const Scalar& b, const Scalar& c) {
+    return -Scalar(numext::fma(a, b, c));
+  }
+};
+
+template <typename Scalar>
+struct pmadd_impl<Scalar,
+                  std::enable_if_t<is_scalar<Scalar>::value && NumTraits<Scalar>::IsSigned &&
+                                   !std::is_same<Scalar, float>::value && !std::is_same<Scalar, double>::value>> {
+#else
 template <typename Scalar>
 struct pmadd_impl<Scalar, std::enable_if_t<is_scalar<Scalar>::value && NumTraits<Scalar>::IsSigned>> {
+#endif
   static EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE Scalar pmadd(const Scalar& a, const Scalar& b, const Scalar& c) {
     return numext::madd<Scalar>(a, b, c);
   }
@@ -1893,7 +1949,7 @@ EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE Packet pcarg(const Packet& a) {
 }
 
 /** \internal \returns a packet populated with values in the range [begin, begin + count). Elements
- * outside this range are not defined. \a *from does not need to be aligned, and can be null if \a count is zero.*/
+ * outside this range are zero. \a *from does not need to be aligned, and can be null if \a count is zero.*/
 template <typename Packet>
 EIGEN_DEVICE_FUNC inline Packet ploaduSegment(const typename unpacket_traits<Packet>::type* from, Index begin,
                                               Index count) {
@@ -1908,7 +1964,7 @@ EIGEN_DEVICE_FUNC inline Packet ploaduSegment(const typename unpacket_traits<Pac
 }
 
 /** \internal \returns a packet populated with values in the range [begin, begin + count). Elements
- * outside this range are not defined. \a *from must be aligned, and cannot be null.*/
+ * outside this range are zero. \a *from must be aligned, and cannot be null.*/
 template <typename Packet>
 EIGEN_DEVICE_FUNC inline Packet ploadSegment(const typename unpacket_traits<Packet>::type* from, Index begin,
                                              Index count) {
@@ -1938,7 +1994,7 @@ EIGEN_DEVICE_FUNC inline void pstoreSegment(Scalar* to, const Packet& from, Inde
 }
 
 /** \internal \returns a packet populated with values in the range [begin, begin + count). Elements
- * outside this range are not defined.*/
+ * outside this range are zero.*/
 template <typename Packet, int Alignment>
 EIGEN_DEVICE_FUNC inline Packet ploadtSegment(const typename unpacket_traits<Packet>::type* from, Index begin,
                                               Index count) {

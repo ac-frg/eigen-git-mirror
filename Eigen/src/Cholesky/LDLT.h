@@ -357,7 +357,7 @@ struct ldlt_inplace<Lower> {
     using Scalar = typename MatrixType::Scalar;
     using RealScalar = typename MatrixType::RealScalar;
     using IndexType = typename TranspositionType::StorageIndex;
-    eigen_assert(mat.rows() == mat.cols());
+    EIGEN_INTERNAL_ASSERT_SQUARE(mat);
     const Index size = mat.rows();
     bool found_zero_pivot = false;
     bool ret = true;
@@ -383,19 +383,7 @@ struct ldlt_inplace<Lower> {
 
       transpositions.coeffRef(k) = IndexType(index_of_biggest_in_corner);
       if (k != index_of_biggest_in_corner) {
-        // apply the transposition while taking care to consider only
-        // the lower triangular part
-        Index s = size - index_of_biggest_in_corner - 1;  // trailing size after the biggest element
-        mat.row(k).head(k).swap(mat.row(index_of_biggest_in_corner).head(k));
-        mat.col(k).tail(s).swap(mat.col(index_of_biggest_in_corner).tail(s));
-        std::swap(mat.coeffRef(k, k), mat.coeffRef(index_of_biggest_in_corner, index_of_biggest_in_corner));
-        for (Index i = k + 1; i < index_of_biggest_in_corner; ++i) {
-          Scalar tmp = mat.coeffRef(i, k);
-          mat.coeffRef(i, k) = numext::conj(mat.coeffRef(index_of_biggest_in_corner, i));
-          mat.coeffRef(index_of_biggest_in_corner, i) = numext::conj(tmp);
-        }
-        EIGEN_IF_CONSTEXPR (NumTraits<Scalar>::IsComplex)
-          mat.coeffRef(index_of_biggest_in_corner, k) = numext::conj(mat.coeff(index_of_biggest_in_corner, k));
+        selfadjoint_swap_lower(mat, k, index_of_biggest_in_corner);
       }
 
       // partition the matrix:
@@ -471,7 +459,8 @@ struct ldlt_inplace<Lower> {
     using RealScalar = typename MatrixType::RealScalar;
 
     const Index size = mat.rows();
-    eigen_assert(mat.cols() == size && w.size() == size);
+    EIGEN_INTERNAL_ASSERT_SQUARE(mat);
+    EIGEN_INTERNAL_ASSERT_SIZE_MATCHES_ROWS(w, mat);
 
     RealScalar alpha = 1;
 
@@ -554,7 +543,7 @@ struct LDLT_Traits<MatrixType, Upper> {
 template <typename MatrixType, int UpLo_>
 template <typename InputType>
 LDLT<MatrixType, UpLo_>& LDLT<MatrixType, UpLo_>::compute(const EigenBase<InputType>& a) {
-  eigen_assert(a.rows() == a.cols());
+  EIGEN_INTERNAL_ASSERT_SQUARE(a);
   const Index size = a.rows();
 
   m_matrix = a.derived();
@@ -600,7 +589,7 @@ LDLT<MatrixType, UpLo_>& LDLT<MatrixType, UpLo_>::rankUpdate(
   using IndexType = typename TranspositionType::StorageIndex;
   const Index size = w.rows();
   if (m_isInitialized) {
-    eigen_assert(m_matrix.rows() == size);
+    EIGEN_INTERNAL_ASSERT_SAME_ROWS(m_matrix, w);
   } else {
     m_matrix.resize(size, size);
     m_matrix.setZero();
@@ -711,7 +700,7 @@ template <typename MatrixType, int UpLo_>
 template <typename Derived>
 bool LDLT<MatrixType, UpLo_>::solveInPlace(MatrixBase<Derived>& bAndX) const {
   eigen_assert(m_isInitialized && "LDLT is not initialized.");
-  eigen_assert(m_matrix.rows() == bAndX.rows());
+  EIGEN_INTERNAL_ASSERT_SAME_ROWS(m_matrix, bAndX);
 
   bAndX = this->solve(bAndX);
 
@@ -724,20 +713,13 @@ bool LDLT<MatrixType, UpLo_>::solveInPlace(MatrixBase<Derived>& bAndX) const {
 template <typename MatrixType, int UpLo_>
 MatrixType LDLT<MatrixType, UpLo_>::reconstructedMatrix() const {
   eigen_assert(m_isInitialized && "LDLT is not initialized.");
-  const Index size = m_matrix.rows();
-  MatrixType res(size, size);
-
-  // P
-  res.setIdentity();
-  res = transpositionsP() * res;
-  // L^* P
-  res = matrixU() * res;
-  // D(L^*P)
+  MatrixType res = matrixU();
   res = vectorD().real().asDiagonal() * res;
-  // L(DL^*P)
   res = matrixL() * res;
-  // P^T (LDL^*P)
-  res = transpositionsP().transpose() * res;
+  // P^T (L D L^*) P; the stored pivots cannot alias the new result.
+  auto lower_triangle = res.template selfadjointView<Lower>();
+  for (Index k = m_matrix.rows() - 1; k >= 0; --k) lower_triangle.applyTransposition(k, m_transpositions.coeff(k));
+  res.template triangularView<StrictlyUpper>() = res.adjoint();
 
   return res;
 }

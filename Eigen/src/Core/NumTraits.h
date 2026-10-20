@@ -19,7 +19,7 @@ namespace Eigen {
 namespace internal {
 
 // default implementation of digits(), based on numeric_limits if specialized,
-// 0 for integer types, and log2(epsilon()) otherwise.
+// 0 for integer types, and 1 - log2(epsilon()) otherwise, as epsilon() = 2^(1 - digits).
 template <typename T, bool use_numeric_limits = std::numeric_limits<T>::is_specialized,
           bool is_integer = NumTraits<T>::IsInteger>
 struct default_digits_impl {
@@ -33,7 +33,7 @@ struct default_digits_impl<T, false, false>  // Floating point
     using std::ceil;
     using std::log2;
     using Real = typename NumTraits<T>::Real;
-    return int(ceil(-log2(NumTraits<Real>::epsilon())));
+    return int(ceil(-log2(NumTraits<Real>::epsilon()))) + 1;
   }
 };
 
@@ -164,8 +164,8 @@ EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC Tgt bit_cast(const Src& src) {
  *     called, and to 0 if it is safe not to call it. Default is 0 if \a T is an arithmetic type, and 1 otherwise.
  * \li An epsilon() function which, unlike <a href="http://en.cppreference.com/w/cpp/types/numeric_limits/epsilon">
  *     `std::numeric_limits::epsilon()`</a>, it returns a \c Real instead of a \a T.
- * \li A dummy_precision() function returning a weak epsilon value. It is mainly used as a default value by the fuzzy
- *     comparison operators.
+ * \li A dummy_precision() function returning a default relative tolerance for approximate comparisons.
+ *     This is distinct from epsilon() and does not describe the rounding error of an algorithm.
  * \li highest() and lowest() functions returning the highest and lowest possible values respectively.
  * \li digits() function returning the number of radix digits (non-sign digits for integers, mantissa for floating-point).
  *     This is the analogue of <a href="http://en.cppreference.com/w/cpp/types/numeric_limits/digits">
@@ -248,7 +248,7 @@ template <>
 struct NumTraits<long double> : GenericNumTraits<long double> {
   EIGEN_DEVICE_FUNC constexpr static long double dummy_precision() { return static_cast<long double>(1e-15l); }
 
-#if defined(EIGEN_ARCH_PPC) && (__LDBL_MANT_DIG__ == 106)
+#if EIGEN_ARCH_PPC && (__LDBL_MANT_DIG__ == 106)
   // PowerPC double double causes issues with some values
   EIGEN_DEVICE_FUNC constexpr static long double epsilon() {
     // 2^(-(__LDBL_MANT_DIG__)+1)

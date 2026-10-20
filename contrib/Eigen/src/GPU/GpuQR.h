@@ -47,7 +47,7 @@ class QR {
 
   explicit QR(const DeviceMatrix<Scalar>& d_A) { compute(d_A); }
 
-  /** Factor a device-resident A immediately (adopt when m >= n, no copy). */
+  /** Factor a device-resident A immediately (adopt when m >= n, no copy; a view is copied). */
   explicit QR(DeviceMatrix<Scalar>&& d_A) { compute(std::move(d_A)); }
 
   /** Bind to \p ctx and factor A immediately. */
@@ -58,6 +58,9 @@ class QR {
 
   /** Bind to \p ctx and factor a device-resident A (D2D copy). */
   QR(Context& ctx, const DeviceMatrix<Scalar>& d_A) : solver_ctx_(ctx) { compute(d_A); }
+
+  /** Bind to \p ctx and factor a device-resident A (adopt when m >= n, no copy; a view is copied). */
+  QR(Context& ctx, DeviceMatrix<Scalar>&& d_A) : solver_ctx_(ctx) { compute(std::move(d_A)); }
 
   ~QR() = default;
 
@@ -126,8 +129,7 @@ class QR {
    * factored in place — no copy; for m < n a transposed copy is unavoidable. A
    * view is copied: its storage belongs to another object. */
   QR& compute(DeviceMatrix<Scalar>&& d_A) {
-    if (!internal::DeviceMatrixAccess::buffer(d_A).owns())
-      return compute(static_cast<const DeviceMatrix<Scalar>&>(d_A));
+    if (d_A.isView()) return compute(static_cast<const DeviceMatrix<Scalar>&>(d_A));
     if (!begin_compute(d_A)) return *this;
 
     if (transposed_) {
@@ -153,6 +155,8 @@ class QR {
     // the sync — use info() explicitly when failure must be detected.
     eigen_assert(solver_ctx_.info() == Success && "QR::solve called on a failed or uninitialized factorization");
     eigen_assert(B.rows() == m_);
+    // An empty A has the zero minimum-norm solution, as in xGELS; cuSOLVER would reject 0 x 0's ldb = 0.
+    if (m_ == 0 || n_ == 0) return PlainMatrix::Zero(n_, B.cols());
 
     const Ref<const PlainMatrix> rhs(B.derived());
     const Index nrhs = rhs.cols();
@@ -168,6 +172,11 @@ class QR {
   DeviceMatrix<Scalar> solve(const DeviceMatrix<Scalar>& d_B) const {
     eigen_assert(solver_ctx_.info() == Success && "QR::solve called on a failed or uninitialized factorization");
     eigen_assert(d_B.rows() == m_);
+    if (m_ == 0 || n_ == 0) {
+      DeviceMatrix<Scalar> X(context(), n_, d_B.cols());
+      X.setZero(context());
+      return X;
+    }
     d_B.prepareRead(context());
     DeviceMatrix<Scalar> X = transposed_ ? solve_underdetermined_device(d_B) : solve_overdetermined_device(d_B);
     d_B.finishRead(context());
@@ -198,7 +207,9 @@ class QR {
 
  private:
   mutable internal::GpuSolverContext solver_ctx_;
-  internal::DeviceBuffer d_qr_;   // grow-only; QR factors (reflectors below diag, R above)
+  // QR factors (reflectors below diag, R above). Host and rvalue input are
+  // adopted when m >= n; the copying paths are grow-only.
+  internal::DeviceBuffer d_qr_;
   internal::DeviceBuffer d_tau_;  // grow-only; Householder scalars (length k)
   int64_t m_ = 0;                 // original A.rows()
   int64_t n_ = 0;                 // original A.cols()
@@ -212,19 +223,18 @@ class QR {
 
   size_t factorBytes() const { return static_cast<size_t>(lda_) * static_cast<size_t>(factor_cols()) * sizeof(Scalar); }
 
-  // Common compute() prologue: record shape, reset info, order the read of the
-  // input (the caller finishes it). Returns false (and clears stale factors)
-  // for empty input.
+  // Common compute() prologue: record shape and reset info; the caller brackets
+  // its read of the input. Returns false (and clears stale factors) for empty input.
   bool begin_compute(const DeviceMatrix<Scalar>& d_A) {
     m_ = d_A.rows();
     n_ = d_A.cols();
+    transposed_ = (m_ < n_);
+    lda_ = (std::max)(int64_t(1), static_cast<int64_t>(transposed_ ? n_ : m_));
     if (!solver_ctx_.begin_compute(m_ != 0 && n_ != 0)) {
       d_qr_ = internal::DeviceBuffer();
       d_tau_ = internal::DeviceBuffer();
       return false;
     }
-    transposed_ = (m_ < n_);
-    lda_ = static_cast<int64_t>(transposed_ ? n_ : m_);
     return true;
   }
 

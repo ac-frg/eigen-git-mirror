@@ -1069,7 +1069,7 @@ EIGEN_STRONG_INLINE Packet16uc psub<Packet16uc>(const Packet16uc& a, const Packe
 
 template <>
 EIGEN_STRONG_INLINE Packet4f pnegate(const Packet4f& a) {
-#ifdef __POWER8_VECTOR__
+#ifdef EIGEN_VECTORIZE_POWER8_VECTOR
   return vec_neg(a);
 #else
   return vec_xor(a, p4f_MZERO);
@@ -1077,7 +1077,7 @@ EIGEN_STRONG_INLINE Packet4f pnegate(const Packet4f& a) {
 }
 template <>
 EIGEN_STRONG_INLINE Packet16c pnegate(const Packet16c& a) {
-#ifdef __POWER8_VECTOR__
+#ifdef EIGEN_VECTORIZE_POWER8_VECTOR
   return vec_neg(a);
 #else
   return reinterpret_cast<Packet16c>(p4i_ZERO) - a;
@@ -1085,7 +1085,7 @@ EIGEN_STRONG_INLINE Packet16c pnegate(const Packet16c& a) {
 }
 template <>
 EIGEN_STRONG_INLINE Packet8s pnegate(const Packet8s& a) {
-#ifdef __POWER8_VECTOR__
+#ifdef EIGEN_VECTORIZE_POWER8_VECTOR
   return vec_neg(a);
 #else
   return reinterpret_cast<Packet8s>(p4i_ZERO) - a;
@@ -1093,7 +1093,7 @@ EIGEN_STRONG_INLINE Packet8s pnegate(const Packet8s& a) {
 }
 template <>
 EIGEN_STRONG_INLINE Packet4i pnegate(const Packet4i& a) {
-#ifdef __POWER8_VECTOR__
+#ifdef EIGEN_VECTORIZE_POWER8_VECTOR
   return vec_neg(a);
 #else
   return p4i_ZERO - a;
@@ -1136,6 +1136,8 @@ EIGEN_STRONG_INLINE Packet4f pdiv<Packet4f>(const Packet4f& a, const Packet4f& b
   // Do one Newton-Raphson iteration to get the needed accuracy
   t = vec_nmsub(y_0, b, p4f_ONE);
   y_1 = vec_madd(y_0, t, y_0);
+  // For b = +-0 or +-inf the step computes 0 * inf = NaN, while the estimate +-inf or +-0 is exact.
+  y_1 = vec_sel(y_0, y_1, vec_cmpeq(t, t));
 
   return vec_madd(a, y_1, p4f_MZERO);
 #else
@@ -1261,8 +1263,9 @@ template <>
 EIGEN_STRONG_INLINE Packet4f pcmp_le(const Packet4f& a, const Packet4f& b) {
   return reinterpret_cast<Packet4f>(vec_cmple(a, b));
 }
-// To fix bug with vec_cmplt on older versions
-#ifdef EIGEN_VECTORIZE_VSX
+// To fix bug with vec_cmplt on older versions. Clang needs it: for AltiVec vectors its a < b is one bool, true when
+// every lane compares less, which breaks the generic pcmp_lt.
+#if defined(EIGEN_VECTORIZE_VSX) || EIGEN_COMP_CLANG
 template <>
 EIGEN_STRONG_INLINE Packet4f pcmp_lt(const Packet4f& a, const Packet4f& b) {
   return reinterpret_cast<Packet4f>(vec_cmplt(a, b));
@@ -2437,6 +2440,18 @@ EIGEN_STRONG_INLINE Packet8bf pcmp_eq(const Packet8bf& a, const Packet8bf& b) {
   BF16_TO_F32_BINARY_OP_WRAPPER_BOOL(pcmp_eq<Packet4f>, a, b);
 }
 
+// Compare encoded lanes: widening bf16 subnormals to float loses them under DAZ/FZ.
+template <>
+EIGEN_STRONG_INLINE Packet8bf psign<Packet8bf>(const Packet8bf& a) {
+  const Packet8us magnitude = vec_and(a.m_val, vec_splats(static_cast<unsigned short int>(0x7fff)));
+  const Packet8bi is_zero = vec_cmpeq(magnitude, vec_splats(static_cast<unsigned short int>(0)));
+  const Packet8us keep =
+      vec_or(reinterpret_cast<Packet8us>(vec_cmpgt(magnitude, vec_splats(static_cast<unsigned short int>(0x7f80)))),
+             vec_splats(static_cast<unsigned short int>(0x8000)));
+  const Packet8us value = vec_sel(vec_splats(static_cast<unsigned short int>(0x3f80)), a.m_val, keep);
+  return Packet8bf(vec_andc(value, reinterpret_cast<Packet8us>(is_zero)));
+}
+
 template <>
 EIGEN_STRONG_INLINE bfloat16 pfirst(const Packet8bf& a) {
   return Eigen::bfloat16_impl::raw_uint16_to_bfloat16((pfirst<Packet8us>(a)));
@@ -3298,7 +3313,7 @@ EIGEN_STRONG_INLINE Packet2d psub<Packet2d>(const Packet2d& a, const Packet2d& b
 
 template <>
 EIGEN_STRONG_INLINE Packet2d pnegate(const Packet2d& a) {
-#ifdef __POWER8_VECTOR__
+#ifdef EIGEN_VECTORIZE_POWER8_VECTOR
   return vec_neg(a);
 #else
   return vec_xor(a, p2d_MZERO);
@@ -3361,7 +3376,7 @@ EIGEN_STRONG_INLINE Packet2d pcmp_eq(const Packet2d& a, const Packet2d& b) {
   return reinterpret_cast<Packet2d>(vec_cmpeq(a, b));
 }
 template <>
-#ifdef __POWER8_VECTOR__
+#ifdef EIGEN_VECTORIZE_POWER8_VECTOR
 EIGEN_STRONG_INLINE Packet2l pcmp_eq(const Packet2l& a, const Packet2l& b) {
   return reinterpret_cast<Packet2l>(vec_cmpeq(a, b));
 }
@@ -3370,6 +3385,19 @@ EIGEN_STRONG_INLINE Packet2l pcmp_eq(const Packet2l& a, const Packet2l& b) {
   Packet4i halves = reinterpret_cast<Packet4i>(vec_cmpeq(reinterpret_cast<Packet4i>(a), reinterpret_cast<Packet4i>(b)));
   Packet4i flipped = vec_perm(halves, halves, p16uc_COMPLEX32_REV);
   return reinterpret_cast<Packet2l>(pand(halves, flipped));
+}
+#endif
+// Not the generic a < b ? ptrue(a) : pzero(a): under Clang's default -faltivec-src-compat=mixed,
+// a < b on vector long long is a scalar all-lanes predicate, not a lane mask.
+template <>
+#ifdef EIGEN_VECTORIZE_POWER8_VECTOR
+EIGEN_STRONG_INLINE Packet2l pcmp_lt(const Packet2l& a, const Packet2l& b) {
+  return reinterpret_cast<Packet2l>(vec_cmplt(a, b));
+}
+#else
+EIGEN_STRONG_INLINE Packet2l pcmp_lt(const Packet2l& a, const Packet2l& b) {
+  const Packet2l ret = {a[0] < b[0] ? -1 : 0, a[1] < b[1] ? -1 : 0};
+  return ret;
 }
 #endif
 template <>
@@ -3481,7 +3509,7 @@ template <>
 EIGEN_STRONG_INLINE Packet2d pabs(const Packet2d& a) {
   return vec_abs(a);
 }
-#ifdef __POWER8_VECTOR__
+#ifdef EIGEN_VECTORIZE_POWER8_VECTOR
 template <>
 EIGEN_STRONG_INLINE Packet2d psignbit(const Packet2d& a) {
   return (Packet2d)vec_sra((Packet2l)a, vec_splats((unsigned long long)(63)));
@@ -3512,7 +3540,7 @@ inline Packet2d pcast<Packet2l, Packet2d>(const Packet2l& x);
 // Things are more complicated for POWER7. There is actually a
 // vec_xxsxdi intrinsic but it is not supported by some gcc versions.
 // So we need to shift by N % 32 and rearrange bytes.
-#ifdef __POWER8_VECTOR__
+#ifdef EIGEN_VECTORIZE_POWER8_VECTOR
 
 template <int N>
 EIGEN_STRONG_INLINE Packet2l plogical_shift_left(const Packet2l& a) {
@@ -3619,17 +3647,17 @@ EIGEN_STRONG_INLINE Packet2l plogical_shift_right(const Packet2l& a) {
 
 template <>
 EIGEN_STRONG_INLINE Packet2d pldexp<Packet2d>(const Packet2d& a, const Packet2d& exponent) {
-  // Clamp exponent to [-2099, 2099]
+  // The single-rounding split of pldexp_generic on int64 exponents.
   const Packet2d max_exponent = pset1<Packet2d>(2099.0);
+  const Packet2d last_max = pset1<Packet2d>(1022.0);
   const Packet2l e = pcast<Packet2d, Packet2l>(pmin(pmax(exponent, pnegate(max_exponent)), max_exponent));
-
-  // Split 2^e into four factors and multiply in order; see pldexp_generic.
+  const Packet2l b = pcast<Packet2d, Packet2l>(pmin(pmax(exponent, pnegate(last_max)), last_max));
   const Packet2l bias = {1023, 1023};
-  Packet2l b = plogical_shift_right<2>(e);                                                // floor(e/4)
-  Packet2d c1 = reinterpret_cast<Packet2d>(plogical_shift_left<52>(b + bias));            // 2^b
-  Packet2l b_remainder = psub(psub(psub(e, b), b), b);                                    // e - 3b
-  Packet2d c2 = reinterpret_cast<Packet2d>(plogical_shift_left<52>(b_remainder + bias));  // 2^(e - 3b)
-  return pldexp_apply_factors(a, c1, c2);                                                 // a * 2^e
+  const Packet2l even = {-2, -2};
+  const Packet2l t = psub(e, b) & even;
+  const Packet2d c1 = reinterpret_cast<Packet2d>(plogical_shift_left<51>(t + bias + bias));    // 2^(t/2)
+  const Packet2d c2 = reinterpret_cast<Packet2d>(plogical_shift_left<52>(psub(e, t) + bias));  // 2^(e - t)
+  return pldexp_apply_factors(a, c1, c2);                                                      // a * 2^e
 }
 
 // Extract exponent without existence of Packet2l.
@@ -3653,8 +3681,9 @@ EIGEN_STRONG_INLINE double predux<Packet2d>(const Packet2d& a) {
 
 template <>
 EIGEN_STRONG_INLINE bool predux_any(const Packet2d& a) {
-  const Packet2ul zero = {0, 0};
-  return vec_any_ne(reinterpret_cast<Packet2ul>(a), zero);
+  // A 64-bit lane is nonzero iff one of its 32-bit halves is; the doubleword compare needs POWER8.
+  const Packet4ui zero = {0, 0, 0, 0};
+  return vec_any_ne(reinterpret_cast<Packet4ui>(a), zero);
 }
 
 // Other reduction functions:

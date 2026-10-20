@@ -69,6 +69,40 @@ void test_conversion() {
   VERIFY_BFLOAT16_BITS_EQUAL(bfloat16(0.5f * (val1 + val2)), 0x3c00);
   VERIFY_BFLOAT16_BITS_EQUAL(bfloat16(0.5f * (val2 + val3)), 0x3c02);
 
+  // A double rounds once: just above the midpoint 1 + 2^-8 it rounds up, although its float rounding is the midpoint.
+  VERIFY_BFLOAT16_BITS_EQUAL(bfloat16(1.0 + std::ldexp(1.0, -8) + std::ldexp(1.0, -40)), 0x3f81);
+  VERIFY_BFLOAT16_BITS_EQUAL(bfloat16(-(1.0 + std::ldexp(1.0, -7) + std::ldexp(1.0, -8) - std::ldexp(1.0, -40))),
+                             0xbf81);
+  VERIFY_BFLOAT16_BITS_EQUAL(bfloat16(std::complex<double>(1.0 + std::ldexp(1.0, -8) + std::ldexp(1.0, -40), 0.0)),
+                             0x3f81);
+  // Beyond float's range a double overflows to infinity or underflows to zero, keeping its sign. A bfloat16 subnormal
+  // just above the midpoint 2.5 * 2^-133 rounds up, although the excess is below float's subnormal spacing 2^-149.
+  VERIFY_BFLOAT16_BITS_EQUAL(bfloat16(1e39), 0x7f80);
+  VERIFY_BFLOAT16_BITS_EQUAL(bfloat16(-1e39), 0xff80);
+  VERIFY_BFLOAT16_BITS_EQUAL(bfloat16(1e-300), 0x0000);
+  VERIFY_BFLOAT16_BITS_EQUAL(bfloat16(-1e-300), 0x8000);
+  VERIFY_BFLOAT16_BITS_EQUAL(bfloat16(std::ldexp(2.5, -133) + std::ldexp(1.0, -160)), 0x0003);
+  VERIFY((numext::isnan)(bfloat16(std::numeric_limits<double>::quiet_NaN())));
+
+  // An integer of more than 24 bits rounds once too: just above the midpoint 2^30 + 2^22 it rounds up, although its
+  // float rounding is the midpoint. Just below a midpoint, 2^30 + 3 * 2^22 - 1 and -(2^62 + 3 * 2^54 - 1) round toward
+  // zero, and 2^53 + 1 and the extremes of the integer types round to the nearest power of two.
+  VERIFY_BFLOAT16_BITS_EQUAL(bfloat16(int32_t((1 << 30) + (1 << 22) + 1)), 0x4e81);
+  VERIFY_BFLOAT16_BITS_EQUAL(bfloat16(int32_t(-((1 << 30) + (1 << 22) + 1))), 0xce81);
+  VERIFY_BFLOAT16_BITS_EQUAL(bfloat16(int32_t((1 << 30) + 3 * (1 << 22) - 1)), 0x4e81);
+  VERIFY_BFLOAT16_BITS_EQUAL(bfloat16(int32_t((1 << 24) + (1 << 16) + 1)), 0x4b81);
+  VERIFY_BFLOAT16_BITS_EQUAL(bfloat16(std::numeric_limits<int32_t>::lowest()), 0xcf00);
+  VERIFY_BFLOAT16_BITS_EQUAL(bfloat16((std::numeric_limits<uint32_t>::max)()), 0x4f80);
+  VERIFY_BFLOAT16_BITS_EQUAL(bfloat16(uint32_t((1u << 31) + (1u << 23) + 1)), 0x4f01);
+  VERIFY_BFLOAT16_BITS_EQUAL(bfloat16(-((int64_t(1) << 40) + (int64_t(1) << 32) + 1)), 0xd381);
+  VERIFY_BFLOAT16_BITS_EQUAL(bfloat16(-((int64_t(1) << 60) + (int64_t(1) << 52) + 1)), 0xdd81);
+  VERIFY_BFLOAT16_BITS_EQUAL(bfloat16((uint64_t(1) << 63) + (uint64_t(1) << 55) + 1), 0x5f01);
+  VERIFY_BFLOAT16_BITS_EQUAL(bfloat16(-((int64_t(1) << 62) + 3 * (int64_t(1) << 54) - 1)), 0xde81);
+  VERIFY_BFLOAT16_BITS_EQUAL(bfloat16((int64_t(1) << 53) + 1), 0x5a00);
+  VERIFY_BFLOAT16_BITS_EQUAL(bfloat16(std::numeric_limits<int64_t>::lowest()), 0xdf00);
+  VERIFY_BFLOAT16_BITS_EQUAL(bfloat16((std::numeric_limits<int64_t>::max)()), 0x5f00);
+  VERIFY_BFLOAT16_BITS_EQUAL(bfloat16((std::numeric_limits<uint64_t>::max)()), 0x5f80);
+
   // Conversion from int.
   VERIFY_BFLOAT16_BITS_EQUAL(bfloat16(-1), 0xbf80);
   VERIFY_BFLOAT16_BITS_EQUAL(bfloat16(0), 0x0000);
@@ -218,6 +252,12 @@ void test_arithmetic() {
   VERIFY_IS_APPROX(static_cast<float>(bfloat16(1.0f) / bfloat16(3.0f)), 0.3339f);
   VERIFY_IS_EQUAL(static_cast<float>(-bfloat16(4096.0f)), -4096.0f);
   VERIFY_IS_EQUAL(static_cast<float>(-bfloat16(-4096.0f)), 4096.0f);
+
+  // fma rounds once: a * b = 289/256 is a midpoint of bfloat16, and c = 2^-30 rounds the sum up, not to even. A float
+  // fma rounds the sum to that midpoint first.
+  const bfloat16 tiny = bfloat16(std::ldexp(1.0f, -30));
+  VERIFY_IS_EQUAL(static_cast<float>(numext::fma(bfloat16(17.f / 16), bfloat16(17.f / 16), tiny)), 145.f / 128);
+  VERIFY_IS_EQUAL(static_cast<float>(numext::fma(bfloat16(17.f / 16), bfloat16(-17.f / 16), -tiny)), -145.f / 128);
 }
 
 void test_comparison() {
@@ -233,6 +273,10 @@ void test_comparison() {
   VERIFY(!(bfloat16(-0.0f) < bfloat16(0.0f)));
   VERIFY(!(bfloat16(0.0f) > bfloat16(-0.0f)));
   VERIFY(!(bfloat16(-0.0f) > bfloat16(0.0f)));
+#if EIGEN_HAS_STD_HASH
+  // Equal values hash alike.
+  VERIFY_IS_EQUAL(std::hash<bfloat16>()(bfloat16(0.0f)), std::hash<bfloat16>()(bfloat16(-0.0f)));
+#endif
 
   VERIFY(bfloat16(0.2f) > bfloat16(-1.0f));
   VERIFY(bfloat16(-1.0f) < bfloat16(0.2f));

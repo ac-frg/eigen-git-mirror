@@ -109,6 +109,31 @@ class DiagonalBase : public EigenBase<Derived> {
     return diagonal().cwiseInverse().asDiagonal();
   }
 
+  using TransposeReturnType = DiagonalWrapper<const DiagonalVectorType>;
+
+  /** \returns the transpose of \c *this, a diagonal matrix with the same diagonal.
+   *
+   * \sa conjugate(), adjoint() */
+  EIGEN_DEVICE_FUNC const TransposeReturnType transpose() const { return diagonal().asDiagonal(); }
+
+  using ConjugateReturnType = std::conditional_t<
+      NumTraits<Scalar>::IsComplex,
+      DiagonalWrapper<const CwiseUnaryOp<internal::scalar_conjugate_op<Scalar>, const DiagonalVectorType>>,
+      TransposeReturnType>;
+
+  /** \returns the complex conjugate of \c *this; for real scalars, a diagonal matrix with the same diagonal.
+   *
+   * \sa transpose(), adjoint() */
+  EIGEN_DEVICE_FUNC const ConjugateReturnType conjugate() const { return diagonal().conjugate().asDiagonal(); }
+
+  using AdjointReturnType = ConjugateReturnType;
+
+  /** \returns the adjoint (conjugate transpose) of \c *this. A diagonal matrix equals its transpose, so this is
+   * conjugate().
+   *
+   * \sa transpose(), conjugate() */
+  EIGEN_DEVICE_FUNC const AdjointReturnType adjoint() const { return conjugate(); }
+
   using DiagonalScaleReturnType = DiagonalWrapper<const EIGEN_EXPR_BINARYOP_SCALAR_RETURN_TYPE(
       DiagonalVectorType, Scalar, internal::scalar_product_op)>;
 
@@ -267,7 +292,7 @@ class DiagonalMatrix : public DiagonalBase<DiagonalMatrix<Scalar_, SizeAtCompile
 
 #ifndef EIGEN_PARSED_BY_DOXYGEN
   /** copy constructor. prevent a default copy constructor from hiding the other templated constructor */
-  inline DiagonalMatrix(const DiagonalMatrix& other) : m_diagonal(other.diagonal()) {}
+  EIGEN_DEVICE_FUNC inline DiagonalMatrix(const DiagonalMatrix& other) : m_diagonal(other.diagonal()) {}
 #endif
 
   /** Move constructor. Moves the stored diagonal vector. */
@@ -547,19 +572,24 @@ struct Assignment<DstXprType, SrcXprType, Functor, Diagonal2Dense> {
     Index dstCols = src.cols();
     if ((dst.rows() != dstRows) || (dst.cols() != dstCols)) dst.resize(dstRows, dstCols);
 
-    dst.setZero();
+    // The diagonal may be read from dst, so it is copied before the rest is zeroed.
     dst.diagonal() = src.diagonal();
+    dst.template triangularView<StrictlyLower>().setZero();
+    dst.template triangularView<StrictlyUpper>().setZero();
   }
 
   static EIGEN_DEVICE_FUNC void run(
       DstXprType& dst, const SrcXprType& src,
       const internal::add_assign_op<typename DstXprType::Scalar, typename SrcXprType::Scalar>& /*func*/) {
+    // dst.diagonal() matches src.diagonal() in size whenever min(rows, cols) == size, so check the shape here.
+    eigen_assert(dst.rows() == src.rows() && dst.cols() == src.cols());
     dst.diagonal() += src.diagonal();
   }
 
   static EIGEN_DEVICE_FUNC void run(
       DstXprType& dst, const SrcXprType& src,
       const internal::sub_assign_op<typename DstXprType::Scalar, typename SrcXprType::Scalar>& /*func*/) {
+    eigen_assert(dst.rows() == src.rows() && dst.cols() == src.cols());
     dst.diagonal() -= src.diagonal();
   }
 };

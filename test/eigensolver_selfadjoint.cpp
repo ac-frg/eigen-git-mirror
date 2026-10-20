@@ -416,6 +416,7 @@ void selfadjointeigensolver_extreme_eigenvalues(const MatrixType& m) {
   }
 }
 
+template <typename = void>
 void selfadjointeigensolver_subnormal_coefficients() {
   volatile float normalMinInput = (std::numeric_limits<float>::min)();
   const double scale = 256.0 * double(normalMinInput);
@@ -967,9 +968,16 @@ void generalizedselfadjointeigensolver_no_malloc() {
   GeneralizedSelfAdjointEigenSolver<MatrixType> fresh(symmA, symmB);
   VERIFY_IS_APPROX(reused.eigenvalues(), fresh.eigenvalues());
   VERIFY_IS_APPROX(symmA * reused.eigenvectors(), symmB * reused.eigenvectors() * reused.eigenvalues().asDiagonal());
+
+  // A B that is not positive definite must not be reported as a successful decomposition.
+  for (int type : types) {
+    GeneralizedSelfAdjointEigenSolver<MatrixType> indefinite(symmA, -symmB, ComputeEigenvectors | type);
+    VERIFY_IS_EQUAL(indefinite.info(), NumericalIssue);
+  }
 }
 
 #if defined(EIGEN_TEST_PART_20) || defined(EIGEN_TEST_PART_ALL)
+template <typename = void>
 void selfadjoint_iterative_scaling_rounding() {
   Matrix4f matrix = Matrix4f::Zero();
   matrix.diagonal() << numext::bit_cast<float>(numext::uint32_t(0x44123456)),
@@ -1187,7 +1195,7 @@ void direct_selfadjoint_rotated_boundary() {
   using MatrixType = Matrix<Scalar, 3, 3, Options>;
   using WideMatrix = Matrix<long double, 3, 3>;
   using WideVector = Matrix<long double, 3, 1>;
-  const long double epsilon = NumTraits<Scalar>::epsilon();
+  const long double epsilon = static_cast<long double>(NumTraits<Scalar>::epsilon());
   const Scalar scale = numext::ldexp(Scalar(1), std::numeric_limits<Scalar>::max_exponent - 1);
   const long double repeated = 2 - 64 * epsilon;
   const long double tolerance = 48 * epsilon;
@@ -1331,7 +1339,7 @@ void direct_selfadjoint_low_precision_boundary() {
 #endif
 
 EIGEN_DECLARE_TEST(eigensolver_selfadjoint) {
-  CALL_SUBTEST_20(selfadjoint_iterative_scaling_rounding());
+  CALL_SUBTEST_20(selfadjoint_iterative_scaling_rounding<>());
   CALL_SUBTEST_20((selfadjoint_iterative_scaling_blocks<float, ColMajor>()));
   CALL_SUBTEST_20((selfadjoint_iterative_scaling_blocks<double, RowMajor>()));
   CALL_SUBTEST_20((selfadjoint_iterative_scaling_blocks<std::complex<float>, RowMajor>()));
@@ -1358,10 +1366,18 @@ EIGEN_DECLARE_TEST(eigensolver_selfadjoint) {
   CALL_SUBTEST_21((direct_selfadjoint_low_precision_boundary<bfloat16, 3>()));
   int s = 0;
   CALL_SUBTEST_4(generalizedselfadjointeigensolver_no_malloc<MatrixXd>());
+  // An empty matrix took the maximum of no coefficients.
+  CALL_SUBTEST_4({
+    MatrixXd A(0, 0);
+    SelfAdjointEigenSolver<MatrixXd> solver(A);
+    VERIFY_IS_EQUAL(solver.info(), Success);
+    VERIFY_IS_EQUAL(solver.eigenvectors().size(), 0);
+    VERIFY_IS_EQUAL(A.selfadjointView<Lower>().eigenvalues().size(), 0);
+  });
   CALL_SUBTEST_5(generalizedselfadjointeigensolver_no_malloc<MatrixXcd>());
   CALL_SUBTEST_5(selfadjointeigensolver_dense_deflation_scale_invariance<float>());
   CALL_SUBTEST_5(selfadjointeigensolver_dense_deflation_scale_invariance<double>());
-  CALL_SUBTEST_13(selfadjointeigensolver_subnormal_coefficients());
+  CALL_SUBTEST_13(selfadjointeigensolver_subnormal_coefficients<>());
 
   for (int i = 0; i < g_repeat; i++) {
     // trivial test for 1x1 matrices:

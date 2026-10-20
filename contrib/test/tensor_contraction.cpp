@@ -292,6 +292,44 @@ static void test_out_of_order_contraction() {
                                    mat1(0, 1, 1) * mat2(1, 1, 0) + mat1(1, 1, 1) * mat2(1, 1, 1));
 }
 
+template <int DataLayout, int ContractDims>
+static void check_dispatch_pruning_for_rank() {
+  using Tensor3 = Tensor<float, 3, DataLayout>;
+  using Contraction = TensorContractionOp<const Eigen::array<DimPair, ContractDims>, const Tensor3, const Tensor3>;
+  using Evaluator = TensorEvaluator<const Contraction, DefaultDevice>;
+
+  for (int lhs_c_int = 0; lhs_c_int < 2; ++lhs_c_int) {
+    for (int rhs_c_int = 0; rhs_c_int < 2; ++rhs_c_int) {
+      for (int rhs_r_int = 0; rhs_r_int < 2; ++rhs_r_int) {
+        const bool lhs_c_in = lhs_c_int != 0;
+        const bool rhs_c_in = rhs_c_int != 0;
+        const bool rhs_r_in = rhs_r_int != 0;
+        bool dispatched_lhs_c = false;
+        bool dispatched_rhs_c = false;
+        bool dispatched_rhs_r = false;
+        Evaluator::dispatchContraction(
+            [&](auto lhs_c, auto rhs_c, auto rhs_r) {
+              static_assert(!rhs_r() || (ContractDims > 1 && !rhs_c()), "unreachable contraction instantiated");
+              dispatched_lhs_c = lhs_c();
+              dispatched_rhs_c = rhs_c();
+              dispatched_rhs_r = rhs_r();
+            },
+            lhs_c_in, rhs_c_in, rhs_r_in);
+        VERIFY_IS_EQUAL(dispatched_lhs_c, lhs_c_in);
+        VERIFY_IS_EQUAL(dispatched_rhs_c, rhs_c_in);
+        VERIFY_IS_EQUAL(dispatched_rhs_r, (ContractDims > 1) && !rhs_c_in && rhs_r_in);
+      }
+    }
+  }
+}
+
+template <int DataLayout>
+static void test_dispatch_pruning() {
+  check_dispatch_pruning_for_rank<DataLayout, 0>();
+  check_dispatch_pruning_for_rank<DataLayout, 1>();
+  check_dispatch_pruning_for_rank<DataLayout, 2>();
+}
+
 template <int DataLayout>
 static void test_consistency() {
   // this does something like testing (A*B)^T = (B^T * A^T)
@@ -439,6 +477,23 @@ static void test_tensor_vector() {
 
   for (int i = 0; i < t_result.dimensions().TotalSize(); i++) {
     VERIFY(internal::isApprox(t_result(i), m_result(i, 0), 1));
+  }
+}
+
+// Matrix-vector shape whose vector operand has its contracted dims in the opposite order.
+template <int DataLayout>
+static void test_tensor_vector_reordered() {
+  Tensor<float, 3, DataLayout> t_left(2, 3, 4);
+  Tensor<float, 2, DataLayout> t_right(3, 2);
+  t_left.setRandom();
+  t_right.setRandom();
+  Eigen::array<DimPair, 2> dims{{DimPair(0, 1), DimPair(1, 0)}};
+  Tensor<float, 1, DataLayout> t_result = t_left.contract(t_right, dims);
+  for (int l = 0; l < 4; ++l) {
+    float expected = 0.0f;
+    for (int i = 0; i < 2; ++i)
+      for (int j = 0; j < 3; ++j) expected += t_left(i, j, l) * t_right(j, i);
+    VERIFY_IS_APPROX(t_result(l), expected);
   }
 }
 
@@ -938,6 +993,8 @@ EIGEN_DECLARE_TEST(tensor_contraction) {
   CALL_SUBTEST_4(test_expr<RowMajor>());
   CALL_SUBTEST_4(test_out_of_order_contraction<ColMajor>());
   CALL_SUBTEST_4(test_out_of_order_contraction<RowMajor>());
+  CALL_SUBTEST_4(test_dispatch_pruning<ColMajor>());
+  CALL_SUBTEST_4(test_dispatch_pruning<RowMajor>());
   CALL_SUBTEST_5(test_consistency<ColMajor>());
   CALL_SUBTEST_5(test_consistency<RowMajor>());
   CALL_SUBTEST_5(test_large_contraction<ColMajor>());
@@ -948,6 +1005,8 @@ EIGEN_DECLARE_TEST(tensor_contraction) {
   CALL_SUBTEST_6(test_matrix_transpose_vector<RowMajor>());
   CALL_SUBTEST_6(test_tensor_vector<ColMajor>());
   CALL_SUBTEST_6(test_tensor_vector<RowMajor>());
+  CALL_SUBTEST_6(test_tensor_vector_reordered<ColMajor>());
+  CALL_SUBTEST_6(test_tensor_vector_reordered<RowMajor>());
   CALL_SUBTEST_7(test_small_blocking_factors<ColMajor>());
   CALL_SUBTEST_7(test_small_blocking_factors<RowMajor>());
   CALL_SUBTEST_7(test_tensor_product<ColMajor>());

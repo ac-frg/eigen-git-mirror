@@ -162,11 +162,13 @@ void array_special_functions() {
     CALL_SUBTEST(res = x.ndtri(); verify_component_wise(res, ref););
     CALL_SUBTEST(res = ndtri(x); verify_component_wise(res, ref););
 
-    // ndtri(normal_cdf(x)) ~= x
+    // ndtri(normal_cdf(x)) ~= x. A rounding error of eps * p in p = normal_cdf(x) moves ndtri(p) by eps * p / pdf(x),
+    // at most 3.5 eps on [-1, 1], so the error is bounded absolutely rather than relative to x, which may be near 0.
+    // The rest of the 16 eps covers the rounding of erf and ndtri themselves.
     CALL_SUBTEST(ArrayType m1 = ArrayType::Random(32); using std::sqrt;
 
                  ArrayType cdf_val = (m1 / Scalar(sqrt(2.))).erf(); cdf_val = (cdf_val + Scalar(1)) / Scalar(2);
-                 verify_component_wise(cdf_val.ndtri(), m1););
+                 VERIFY(max_abs_coeff(cdf_val.ndtri() - m1) <= RealScalar(16) * NumTraits<RealScalar>::epsilon()););
   }
 
   // Check the zeta function against scipy.special.zeta
@@ -293,31 +295,37 @@ void array_special_functions() {
     ArrayType b = (m2 * Scalar(4)).exp();
     ArrayType x = m3.abs();
 
-    // betainc(a, 1, x) == x**a
-    CALL_SUBTEST(ArrayType test = betainc(a, one, x); ArrayType expected = x.pow(a);
-                 verify_component_wise(test, expected););
+    // ARMv7 NEON flushes subnormal float intermediates, unlike the scalar betainc implementation. Form the
+    // reference in at least double precision so x**a and the recurrence term retain subnormal float results.
+    using ReferenceScalar = std::conditional_t<(sizeof(Scalar) < sizeof(double)), double, Scalar>;
+    using ReferenceArray = Array<ReferenceScalar, Dynamic, 1>;
+    const ReferenceArray& ar = a.template cast<ReferenceScalar>();
+    const ReferenceArray& br = b.template cast<ReferenceScalar>();
+    const ReferenceArray& xr = x.template cast<ReferenceScalar>();
+    const Scalar tiny = (std::numeric_limits<Scalar>::min)();
 
-    // betainc(1, b, x) == 1 - (1 - x)**b
-    CALL_SUBTEST(ArrayType test = betainc(one, b, x); ArrayType expected = one - (one - x).pow(b);
+    // betainc(a, 1, x) == x**a. The absolute floor covers rounding of subnormal results.
+    CALL_SUBTEST(ArrayType test = betainc(a, one, x); ArrayType expected = xr.pow(ar).template cast<Scalar>();
+                 for (Index i = 0; i < test.size(); ++i)
+                     VERIFY_IS_APPROX_SCALED(test.segment(i, 1), expected.segment(i, 1), expected(i) + tiny););
+
+    // betainc(1, b, x) == 1 - (1 - x)**b, evaluated as -expm1(b * log1p(-x)): for small b * x the direct form cancels
+    // to a relative error near eps / (b * x).
+    CALL_SUBTEST(ArrayType test = betainc(one, b, x); ArrayType expected = -(b * (-x).log1p()).expm1();
                  verify_component_wise(test, expected););
 
     // betainc(a, b, x) == 1 - betainc(b, a, 1-x)
     CALL_SUBTEST(ArrayType test = betainc(a, b, x) + betainc(b, a, one - x); ArrayType expected = one;
                  verify_component_wise(test, expected););
 
-    // betainc(a+1, b, x) = betainc(a, b, x) - x**a * (1 - x)**b / (a * beta(a, b))
-    CALL_SUBTEST(
-        ArrayType num = x.pow(a) * (one - x).pow(b);
-        ArrayType denom = a * (a.lgamma() + b.lgamma() - (a + b).lgamma()).exp();
-        // Add eps to rhs and lhs so that component-wise test doesn't result in
-        // nans when both outputs are zeros.
-        ArrayType expected = betainc(a, b, x) - num / denom + eps;
-        ArrayType test = betainc(a + one, b, x) + eps; if (sizeof(Scalar) >= 8) {  // double
-          verify_component_wise(test, expected);
-        } else {
-          // Reason for limited test: http://eigen.tuxfamily.org/bz/show_bug.cgi?id=1232
-          verify_component_wise(test.head(8), expected.head(8));
-        });
+    // betainc(a+1, b, x) = betainc(a, b, x) - x**a * (1 - x)**b / (a * beta(a, b)). Bound cancellation relative
+    // to the larger term. Log space avoids underflow of the numerator before division by a small beta(a, b).
+    CALL_SUBTEST(ReferenceArray log_beta = ar.lgamma() + br.lgamma() - (ar + br).lgamma();
+                 ReferenceArray term = (ar * xr.log() + br * (-xr).log1p() - ar.log() - log_beta).exp();
+                 ArrayType lhs = betainc(a, b, x); ArrayType scale = (lhs.max)(term.template cast<Scalar>()) + tiny;
+                 ArrayType expected = (lhs.template cast<ReferenceScalar>() - term).template cast<Scalar>();
+                 ArrayType test = betainc(a + one, b, x); for (Index i = 0; i < test.size(); ++i)
+                     VERIFY_IS_APPROX_SCALED(test.segment(i, 1), expected.segment(i, 1), scale(i)););
 
     // betainc(a, b+1, x) = betainc(a, b, x) + x**a * (1 - x)**b / (b * beta(a, b))
     CALL_SUBTEST(
@@ -557,6 +565,33 @@ void test_special_functions_edge_cases() {
   VERIFY_IS_EQUAL(numext::erfc(plusinf), Scalar(0.0));
   VERIFY_IS_EQUAL(numext::erfc(-plusinf), Scalar(2.0));
   VERIFY((numext::isnan)(numext::erfc(nan)));
+
+  // NaN propagates through the x = 0 shortcut of igamma and its derivatives.
+  VERIFY((numext::isnan)(numext::igamma(nan, Scalar(0))));
+  VERIFY((numext::isnan)(numext::igamma_der_a(nan, Scalar(0))));
+  VERIFY((numext::isnan)(numext::gamma_sample_der_alpha(nan, Scalar(0))));
+
+  // betainc propagates NaN past its a = 0 and b = 0 shortcuts.
+  VERIFY((numext::isnan)(numext::betainc(Scalar(0), Scalar(0.5), nan)));
+  VERIFY((numext::isnan)(numext::betainc(Scalar(0.5), Scalar(0), nan)));
+  VERIFY((numext::isnan)(numext::betainc(nan, Scalar(0.5), Scalar(0))));
+
+  if (sizeof(Scalar) < sizeof(double)) {
+    // MPFR-backed Boost.Math ibeta, 100 decimal digits. The log-domain evaluation at a ~= 38 amplifies rounding;
+    // 32 eps bounds the scalar error here, plus one subnormal ulp for the final conversion.
+    const Scalar a = Scalar(38.325092315673828), b = Scalar(5.0568113327026367), x = Scalar(0.07500767707824707);
+    const double ref = 6.17294757793914262e-40;
+    const double actual = static_cast<double>(numext::betainc(a + Scalar(1), b, x));
+    VERIFY(std::abs(actual - ref) <= 32 * static_cast<double>(NumTraits<Scalar>::epsilon()) * ref +
+                                         static_cast<double>((std::numeric_limits<Scalar>::denorm_min)()));
+  }
+
+  // A negative q sums until n + q > 9. zeta(2, -20.5) = pi^2/2 + sum_{j=0}^{20} (j + 1/2)^-2.
+  {
+    double ref = EIGEN_PI * EIGEN_PI / 2;
+    for (int j = 0; j <= 20; ++j) ref += 1 / ((j + 0.5) * (j + 0.5));
+    VERIFY_IS_APPROX(numext::zeta(Scalar(2), Scalar(-20.5)), Scalar(ref));
+  }
 
   if (sizeof(Scalar) >= 8) {
     VERIFY_IS_EQUAL(numext::erf(Scalar(1e200)), Scalar(1.0));

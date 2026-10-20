@@ -1,14 +1,14 @@
 # Numerical Code
 
-Use this guidance when changing scalar math, packet math, decompositions, eigensolvers, linear solvers, matrix
+Use this guide when changing scalar math, packet math, decompositions, eigensolvers, linear solvers, matrix
 functions, or numerical tests. The nearby implementation, tests, and public documentation in the checked-out tree
 are the source of truth; this file defines the review standard rather than an algorithm.
 
 ## Standards and Accuracy Contracts
 
-- Follow the applicable ISO C++ and incorporated ISO C library contracts. IEEE 754 requirements apply where the
-  platform and API claim IEC 60559 behavior. cppreference is a useful secondary summary, not a normative
-  specification.
+- Follow the applicable contracts of ISO C++ and of the parts of the ISO C library that C++ incorporates. IEEE 754
+  requirements apply where the platform and API claim IEC 60559 behavior. cppreference is a useful secondary summary,
+  not a normative specification.
 - Distinguish exact semantic requirements from approximation quality. NaN, infinity, signed zero, domain errors,
   and function-specific boundary behavior must follow the contract. For ordinary finite inputs, the C++ standard
   generally does not promise correctly rounded elementary functions, so Eigen's documented or established ULP
@@ -31,7 +31,7 @@ that matches the contract:
   [`ULP accuracy tool`](../test/ulp_accuracy/README.md) supports MPFR and standard-library references. The
   [`coefficient-wise math table`](../doc/CoeffwiseMathFunctionsTable.dox) records existing accuracy expectations.
 - Sollya is appropriate for polynomial or rational approximation design. Record the function, domain, precision,
-  error objective, tool version, and generation command or script so coefficients are reproducible; verify the
+  error objective, tool version, and generation command or script so coefficients are reproducible. Verify the
   emitted implementation independently with MPFR.
 
 Test special values explicitly: `+0`, `-0`, positive and negative infinity, quiet NaN, normal/subnormal boundaries,
@@ -43,12 +43,13 @@ treat two NaNs as matching and cannot distinguish the sign of zero. Therefore us
 - Check zero by equality and its sign with `(numext::signbit)(value)`.
 - Check finite classification when overflow or invalid results are possible.
 
-Under `-ffast-math`, and `-ffinite-math-only` in particular, those predicates fold to constants, and clang marks every
-floating-point argument and return value `nofpclass(nan inf)`: a NaN or infinity constant then provably violates the
-attribute, is folded to poison, and the code consuming it is deleted. Wrap such constants in
-`EIGEN_FAST_MATH_CONSTANT_BARRIER` as the existing packet code does, keep finiteness probes on values the compiler
-cannot see through, and verify the changed path in a build with the flag. CI includes focused fast-math tests, including
-packet-mask and constant regressions, but they do not cover every numerical path (see [`testing.md`](testing.md)).
+Under `-ffast-math`, and `-ffinite-math-only` in particular, the compiler folds those predicates to constants. Under
+these flags, clang also marks every floating-point argument and return value `nofpclass(nan inf)`. A NaN or infinity
+constant then provably violates that attribute, so clang folds it to poison and deletes the code that uses it. Wrap such
+constants in `EIGEN_FAST_MATH_CONSTANT_BARRIER`, as the existing packet code does. Keep finiteness checks on values the
+compiler cannot see through. Verify the changed path in a build with the flag. CI includes focused fast-math tests,
+including regression tests for packet masks and constants, but they do not cover every numerical path (see
+[`testing.md`](testing.md)).
 
 ## Decompositions and Solvers
 
@@ -57,20 +58,20 @@ operation, test normalized reconstruction error, solve residual, eigenpair resid
 symmetry, or structure preservation. Express tolerances as named bounds derived from
 `NumTraits<RealScalar>::epsilon()`, dimension, and the expected operation count; avoid unexplained decimal literals.
 
-Forward error is condition-dependent. A well-conditioned problem may support a tight result comparison, while a
-near-singular problem can have a small residual and a large forward error. Estimate or bound conditioning when a
-forward comparison is necessary, and do not reject a stable answer merely because a different stable algorithm
-selects different vectors, signs, phases, pivots, or bases for a clustered invariant subspace.
+Forward error is condition-dependent. A well-conditioned problem can support a tight result comparison, while a
+near-singular problem can have a small residual and a large forward error. When a forward comparison is necessary,
+estimate or bound the conditioning. Do not reject a stable answer merely because a different stable algorithm selects
+different vectors, signs, phases, pivots, or bases for a clustered invariant subspace.
 
 Exercise structures relevant to the algorithm: well-conditioned, ill-conditioned, near-singular, singular,
 rank-deficient, clustered/repeated spectra, extreme scaling, and the matrix properties promised by the API. Useful
 families include Hilbert, Vandermonde, Wilkinson, Toeplitz/KMS, banded, defective or near-defective, and barely
 positive-definite matrices. Check error/status reporting as well as successful results.
 
-For uniform transformations and built-in operations on small structured submatrices, use fixed-size block expressions,
-such as `T.template block<2, 2>(i, i).determinant()`, so the mathematical structure and compile-time dimensions remain
-explicit. This is especially useful for Schur blocks, pivots, and small panels; use coefficient access instead when the
-entries require distinct formulas.
+When you apply a uniform transformation or a built-in operation to a small structured submatrix, use a fixed-size
+block expression, such as `T.template block<2, 2>(i, i).determinant()`, so the mathematical structure and compile-time
+dimensions remain explicit. This is especially useful for Schur blocks, pivots, and small panels. Use coefficient
+access instead when the entries require distinct formulas.
 
 Where LAPACK has a counterpart, require comparable backward stability, conditioning behavior, pivoting robustness,
 and test-category coverage. Do not require identical internal steps, pivot order, eigenvector signs/phases, or
@@ -83,26 +84,29 @@ Computations* are standard references for choosing error measures and adversaria
   and run [`test/packetmath.cpp`](../test/packetmath.cpp) and, for special functions,
   [`contrib/test/special_packetmath.cpp`](../contrib/test/special_packetmath.cpp). Report backends that were
   not available locally.
-- Compare packet results with the scalar contract for special values, but use MPFR rather than assuming the scalar
-  standard-library result is accurate enough to set a new finite-input ULP target.
+- For special values, compare packet results with the scalar contract. To set a new ULP target for finite inputs, use
+  MPFR rather than assuming the scalar standard-library result is accurate enough.
 - Cover every lane, mixed regular/special lanes, alignment and tail cases where applicable, and values around
   approximation-region boundaries. A packet implementation must not let one lane's special value affect another.
-- Treat a few-ULP performance tradeoff as a measured, documented finite-input decision. It does not waive NaN,
-  infinity, signed-zero, or domain semantics unless the API and build mode explicitly document different behavior.
+- A trade of a few ULPs for performance applies to finite inputs only. Measure it and document it. It does not waive
+  NaN, infinity, signed-zero, or domain semantics unless the API and build mode explicitly document different
+  behavior.
 
 ## Documented Bounds And Shortcut Paths
 
-A scaling threshold or overflow budget stated in a comment is part of the code: when the operation it bounds widens
-(a multiply path gains a divide, a growth factor becomes a parameter), re-derive the bound rather than carrying the
-old expression forward. Early exits and length-one shortcuts must satisfy the same invariant as the general path —
-they are where a guard added later tends not to reach — so give them regression coverage at the boundary they handle.
+A scaling threshold or overflow budget stated in a comment is part of the code. When the operation it bounds widens,
+re-derive the bound rather than carrying the old expression forward. A multiply path that gains a divide widens the
+operation, and so does a growth factor that becomes a parameter. Early exits and length-one shortcuts must satisfy the
+same invariant as the general path. Give them regression tests at the boundary they handle, because a guard added
+later often misses them.
 
 ## Subnormals and Flush-to-Zero
 
 Require gradual-underflow behavior when the target and active floating-point mode support it. Some targets or build
-modes have fixed or enabled flush-to-zero (FTZ) behavior, so an impossible subnormal expectation must be detected and
-conditionalized rather than made flaky. Use the facilities and platform notes in
-[`test/fp_control.h`](../test/fp_control.h) and nearby packet tests.
+modes flush subnormals to zero (FTZ), either unconditionally or because FTZ is enabled. In those modes some
+expectations about subnormals cannot hold. A test must detect that case and make the expectation conditional rather
+than leave the test flaky. Use
+the facilities and platform notes in [`test/fp_control.h`](../test/fp_control.h) and nearby packet tests.
 
 Keep an FTZ exception narrow: document the affected target and operation, preserve and restore controllable FP
 state, and still verify normal values, NaN, infinity, signed zero, and scalar/packet consistency in that mode. Do not
@@ -111,7 +115,7 @@ use FTZ as a blanket reason to skip underflow tests or to hide accidental compil
 ## Provenance
 
 Learn algorithms from published papers, standards, and textbooks, then write an original Eigen implementation. Cite
-the specific reference inline by author/year and algorithm, routine, paper, or working-note identifier. If adapting
-source code rather than an idea, first confirm that its license and provenance are compatible with Eigen. A citation
-does not make copied expression from an incompatible or unknown source permissible, and attribution must never be
-invented. Include the numerical rationale for non-obvious scaling, pivoting, stopping, and tolerance choices.
+the specific reference inline: author and year, plus the algorithm, routine, paper, or working-note identifier.
+Before adapting source code rather than an idea, confirm that its license and provenance are compatible with Eigen. A
+citation does not make copying from an incompatible or unknown source permissible. Never invent an attribution.
+Include the numerical rationale for non-obvious scaling, pivoting, stopping, and tolerance choices.

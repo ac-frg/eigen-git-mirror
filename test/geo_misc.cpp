@@ -108,6 +108,40 @@ void angleaxis_edge_cases() {
     VERIFY_IS_APPROX(aa.toRotationMatrix(), aa2.toRotationMatrix());
   }
 
+  // Near-180-degree rotation with negative dominant axis component:
+  // when sin(angle) is well above machine epsilon (e.g. angle = pi - 0.25 * sqrt(eps)),
+  // the axis sign is well-defined and must not flip.
+  {
+    Scalar delta = Scalar(0.25) * numext::sqrt(NumTraits<Scalar>::epsilon());
+    Scalar a = Scalar(EIGEN_PI) - delta;
+    for (int d = 0; d < 3; ++d) {
+      Vector3 axis(Scalar(0.1), Scalar(-0.2), Scalar(0.15));
+      axis(d) = Scalar(-1);
+      axis.normalize();
+      AngleAxisx aa(a, axis);
+      Matrix3 m = aa.toRotationMatrix();
+      AngleAxisx aa2;
+      aa2.fromRotationMatrix(m);
+      VERIFY_IS_APPROX(aa2.axis(), axis);
+      VERIFY_IS_APPROX(aa2.angle(), a);
+    }
+  }
+
+  // Near-180-degree rotation extracted from a composed rotation matrix
+  // R_parent^T * (R_parent * R_true): rounding errors in R must not be
+  // amplified by 1 / sin(angle).
+  {
+    Vector3 r_true(Scalar(-3.134111), Scalar(-0.011655), Scalar(-0.003976));
+    AngleAxisx aa_true(r_true.norm(), r_true.normalized());
+    Matrix3 R_true = aa_true.toRotationMatrix();
+    Vector3 r_parent(Scalar(1.946572), Scalar(-1.908926), Scalar(0.648041));
+    Matrix3 R_parent = AngleAxisx(r_parent.norm(), r_parent.normalized()).toRotationMatrix();
+    Matrix3 R_composed = R_parent.transpose() * (R_parent * R_true);
+    AngleAxisx aa_extracted(R_composed);
+    Vector3 r_extracted = aa_extracted.angle() * aa_extracted.axis();
+    VERIFY((r_extracted - r_true).norm() < Scalar(16) * NumTraits<Scalar>::epsilon());
+  }
+
   // Accessors
   {
     Vector3 axis = Vector3::Random().normalized();
@@ -395,6 +429,27 @@ void quaternion_from_non_orthogonal_matrix() {
     VERIFY(!(numext::isnan)(q.x()));
     VERIFY(!(numext::isnan)(q.y()));
     VERIFY(!(numext::isnan)(q.z()));
+  }
+
+  // Pivot component must be rounded as 0.5 * sqrt(t) (single rounding, <= 0.5 ULP)
+  // rather than t * (0.5 / sqrt(t)) (which loses 1 ULP for t = 2 and 2 ULP for
+  // t = 3 in double, degrading downstream extraction on 90-deg and 60-deg rotations).
+  {
+    Matrix3 r90;
+    r90 << Scalar(0), Scalar(0), Scalar(1), Scalar(0), Scalar(1), Scalar(0), Scalar(-1), Scalar(0), Scalar(0);
+    Quaternionx q90(r90);
+    VERIFY_IS_EQUAL(q90.w(), Scalar(0.5) * numext::sqrt(Scalar(2)));
+
+    Matrix3 r180_xy;
+    r180_xy << Scalar(0), Scalar(1), Scalar(0), Scalar(1), Scalar(0), Scalar(0), Scalar(0), Scalar(0), Scalar(-1);
+    Quaternionx q180(r180_xy);
+    VERIFY_IS_EQUAL(q180.x(), Scalar(0.5) * numext::sqrt(Scalar(2)));
+
+    const Scalar s60 = numext::sqrt(Scalar(3)) * Scalar(0.5);
+    Matrix3 r60;
+    r60 << Scalar(0.5), -s60, Scalar(0), s60, Scalar(0.5), Scalar(0), Scalar(0), Scalar(0), Scalar(1);
+    Quaternionx q60(r60);
+    VERIFY_IS_EQUAL(q60.w(), Scalar(0.5) * numext::sqrt(Scalar(3)));
   }
 }
 

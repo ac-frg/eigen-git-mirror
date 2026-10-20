@@ -131,6 +131,18 @@ void permutationmatrices(const MatrixType& m) {
     VERIFY_IS_APPROX(A, B.transpose());
   }
 
+  // A permutation matrix is real and orthogonal: P^H = P^T = P^-1.
+  {
+    using LeftPermutationDense = typename LeftPermutationType::DenseMatrixType;
+    VERIFY_IS_EQUAL(LeftPermutationDense(lp.adjoint().toDenseMatrix()),
+                    LeftPermutationDense(lp.toDenseMatrix().adjoint()));
+    VERIFY_IS_APPROX(lp.adjoint() * m_permuted, lp.inverse() * m_permuted);
+    VERIFY_IS_APPROX(m_permuted * rp.adjoint(), m_permuted * rp.inverse());
+    VERIFY((lp * lp.adjoint()).toDenseMatrix().isIdentity());
+    VERIFY_IS_APPROX(lv.asPermutation().adjoint() * m_permuted, lv.asPermutation().inverse() * m_permuted);
+    VERIFY_IS_APPROX(MapLeftPerm(lv.data(), lv.size()).adjoint() * m_permuted, lp.inverse() * m_permuted);
+  }
+
   m_permuted = m_original;
   lp = lt;
   rp = rt;
@@ -148,6 +160,33 @@ void permutationmatrices(const MatrixType& m) {
   VERIFY_IS_APPROX(m_permuted = m_permuted * rt, m_original * rt);
   m_permuted = m_original;
   VERIFY_IS_APPROX(m_permuted = m_permuted * rt.inverse(), m_original * rt.inverse());
+
+  // Transpositions represent a real permutation: T^H = T^T = T^-1. With lp = lt and rp = rt as above,
+  // lt * M = lp * M and M * rt = M * rp^T.
+  VERIFY_IS_APPROX(lt.adjoint() * m_original, lp.inverse() * m_original);
+  VERIFY_IS_APPROX(m_original * rt.adjoint(), m_original * rp);
+  m_permuted = m_original;
+  VERIFY_IS_APPROX(m_permuted = lt.adjoint() * m_permuted, lp.inverse() * m_original);
+
+  // Accumulating permutation and transposition products without aliasing.
+  const MatrixType m_base = MatrixType::Random(rows, cols);
+  lm = lp;
+  rm = rp;
+  m_permuted = m_base;
+  m_permuted.noalias() += lp * m_original;
+  VERIFY_IS_APPROX(m_permuted, m_base + lm * m_original);
+  m_permuted = m_base;
+  m_permuted.noalias() -= m_original * rp.inverse();
+  VERIFY_IS_APPROX(m_permuted, m_base - m_original * rm.transpose());
+  m_permuted = m_base;
+  m_permuted.noalias() += Scalar(2) * (m_original * rp);
+  VERIFY_IS_APPROX(m_permuted, m_base + Scalar(2) * (m_original * rm));
+  m_permuted = m_base;
+  m_permuted.noalias() -= lt * m_original;
+  VERIFY_IS_APPROX(m_permuted, m_base - lm * m_original);
+  m_permuted = m_base;
+  m_permuted.noalias() += m_original * rt.transpose();
+  VERIFY_IS_APPROX(m_permuted, m_base + m_original * rm);
 }
 
 template <typename T>

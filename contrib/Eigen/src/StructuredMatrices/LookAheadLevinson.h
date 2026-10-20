@@ -78,6 +78,9 @@ Matrix<Scalar, Dynamic, 1> structured_upshift(const Matrix<Scalar, Dynamic, 1>& 
  *  - T. F. Chan and P. C. Hansen, "A look-ahead Levinson algorithm for indefinite
  *    Toeplitz systems," SIAM J. Matrix Anal. Appl., 13(2):490-506, 1992.
  *
+ * \par Examples
+ * \ref StructuredExampleLoveEquation "Love's integral equation and a preconditioned Toeplitz system".
+ *
  * \sa class Toeplitz
  */
 template <typename Scalar_>
@@ -153,8 +156,9 @@ class LookAheadLevinson : public SolverBase<LookAheadLevinson<Scalar_>> {
   }
 #endif
 
-  /** \returns \c Success if the algorithm could skip all ill-conditioned leading
-   * submatrices within the look-ahead range, \c NumericalIssue otherwise. */
+  /** \returns \c Success, or \c NumericalIssue when conditionEstimate() reaches
+   * \f$ 1/\varepsilon \f$; a run of ill-conditioned leading submatrices longer
+   * than the look-ahead is reported only through that estimate. */
   ComputationInfo info() const {
     eigen_assert(m_isInitialized && "LookAheadLevinson is not initialized.");
     return m_info;
@@ -236,8 +240,9 @@ LookAheadLevinson<Scalar_>& LookAheadLevinson<Scalar_>::compute(const Toeplitz<S
   using internal::structured_tdot;
   using internal::structured_upshift;
 
-  EIGEN_STATIC_ASSERT(Rows_ == Dynamic || Cols_ == Dynamic || Rows_ == Cols_, YOU_MIXED_MATRICES_OF_DIFFERENT_SIZES)
-  eigen_assert(T.rows() == T.cols() && "LookAheadLevinson requires a square Toeplitz matrix");
+  EIGEN_INTERNAL_CHECK_SHAPE(T.rows() == T.cols() && "LookAheadLevinson requires a square Toeplitz matrix",
+                             YOU_MIXED_MATRICES_OF_DIFFERENT_SIZES,
+                             internal::square_dimensions<Toeplitz<Scalar, Rows_, Cols_>>);
   const Index n = T.rows();
   const DenseVector c = T.column();  // (rho_0, sigma_1, ..., sigma_{n-1})
   const DenseVector r = T.row();     // (rho_0, rho_1,   ..., rho_{n-1})

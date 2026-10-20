@@ -31,7 +31,8 @@ namespace internal {
 
    If the preconditions are satisfied, which they are for the _*_rcp_ps
    instructions on x86, the result has a maximum relative error of 2 ulps,
-   and correctly handles reciprocals of zero, infinity, and NaN.
+   and correctly handles reciprocals of zero, infinity, and NaN. Lanes where the
+   approximation flushed a denormal input or result to zero take a division.
 */
 template <typename Packet, int Steps>
 struct generic_reciprocal_newton_step {
@@ -43,11 +44,12 @@ struct generic_reciprocal_newton_step {
     //   x_{i} = x_{i-1} * (2 - a * x_{i-1})
     const Packet x = generic_reciprocal_newton_step<Packet, Steps - 1>::run(a, approx_a_recip);
     const Packet tmp = pnmadd(a, x, one);
-    // If tmp is NaN, it means that a is either +/-0 or +/-Inf.
-    // In this case return the approximation directly.
-    const Packet is_not_nan = pcmp_eq(tmp, tmp);
     // Use two FMAs instead of FMA+FMUL to improve precision.
-    return pselect(is_not_nan, pmadd(x, tmp, x), x);
+    const Packet refined = pmadd(x, tmp, x);
+    // The step yields NaN when a is +/-0, +/-Inf or NaN, and NaN or 0 where the approximation flushed a denormal a or
+    // 1 / a to zero (x = +/-inf, or x = 0 for |a| > 1 / min). Divide in those lanes.
+    const Packet redo = pcmp_lt_or_nan(pabs(refined), pset1<Packet>((std::numeric_limits<Scalar>::denorm_min)()));
+    return predux_any(redo) ? pselect(redo, pdiv(one, a), refined) : refined;
   }
 };
 
@@ -171,7 +173,7 @@ struct hypot_impl {
 };
 
 template <typename ComplexT, bool Reciprocal>
-EIGEN_DEVICE_FUNC EIGEN_DONT_INLINE constexpr ComplexT complex_sqrt_extreme(const ComplexT& z) {
+EIGEN_DEVICE_FUNC EIGEN_DONT_INLINE ComplexT complex_sqrt_extreme(const ComplexT& z) {
   using T = typename NumTraits<ComplexT>::Real;
   const T x = numext::real(z);
   const T y = numext::imag(z);
@@ -272,7 +274,35 @@ EIGEN_DEVICE_FUNC constexpr ComplexT complex_log(const ComplexT& z) {
   T a = numext::abs(z);
   EIGEN_USING_STD(atan2);
   T b = atan2(z.imag(), z.real());
+  // log|z| is finite where |z| itself overflows or rounds to a subnormal: scale z exactly by a power of two first.
+  if (EIGEN_PREDICT_FALSE((numext::isinf)(a) && (numext::isfinite)(z.real()) && (numext::isfinite)(z.imag()))) {
+    const T half = T(0.5);
+    return ComplexT(numext::log(numext::abs(ComplexT(z.real() * half, z.imag() * half))) + T(EIGEN_LN2), b);
+  }
+  if (EIGEN_PREDICT_FALSE(a < (numext::numeric_limits<T>::min)() && !numext::is_exactly_zero(a))) {
+    const T eps = NumTraits<T>::epsilon();
+    return ComplexT(numext::log(numext::abs(ComplexT(z.real() / eps, z.imag() / eps))) + numext::log(eps), b);
+  }
   return ComplexT(numext::log(a), b);
+}
+
+// log2|z| + i arg(z) log2(e), scaled as in complex_log. The real part comes from log2, which is exact where |z| is a
+// power of two; log2(e) log|z| can be an ulp off there.
+template <typename ComplexT>
+EIGEN_DEVICE_FUNC ComplexT complex_log2(const ComplexT& z) {
+  using T = typename NumTraits<ComplexT>::Real;
+  const T a = numext::abs(z);
+  EIGEN_USING_STD(atan2);
+  const T b = T(EIGEN_LOG2E) * atan2(z.imag(), z.real());
+  if (EIGEN_PREDICT_FALSE((numext::isinf)(a) && (numext::isfinite)(z.real()) && (numext::isfinite)(z.imag()))) {
+    const T half = T(0.5);
+    return ComplexT(numext::log2(numext::abs(ComplexT(z.real() * half, z.imag() * half))) + T(1), b);
+  }
+  if (EIGEN_PREDICT_FALSE(a < (numext::numeric_limits<T>::min)() && !numext::is_exactly_zero(a))) {
+    const T eps = NumTraits<T>::epsilon();
+    return ComplexT(numext::log2(numext::abs(ComplexT(z.real() / eps, z.imag() / eps))) + numext::log2(eps), b);
+  }
+  return ComplexT(numext::log2(a), b);
 }
 
 }  // end namespace internal

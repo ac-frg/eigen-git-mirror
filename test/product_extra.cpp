@@ -95,9 +95,15 @@ void product_extra(const MatrixType& m) {
                      m1.reverse() * m2.reverse().adjoint());
     VERIFY_IS_APPROX(m3.noalias() = map1 * map2.adjoint(), m1.reverse() * m2.reverse().adjoint());
     VERIFY_IS_APPROX(map1 * vc2, m1.reverse() * vc2);
-    VERIFY_IS_APPROX(m1 * mapvc2, m1 * mapvc2);
+    VERIFY_IS_APPROX(m1 * mapvc2, m1 * vc2.reverse().eval());
     VERIFY_IS_APPROX(map1.adjoint() * v1.transpose(), m1.adjoint().reverse() * v1.transpose());
     VERIFY_IS_APPROX(m1.adjoint() * mapv1.transpose(), m1.adjoint() * v1.reverse().transpose());
+
+    // a destination with a negative inner stride
+    ColVectorType reversedRes(cols);
+    Map<ColVectorType, Unaligned, InnerStride<-1> > mapvcres(&reversedRes(cols - 1), cols, InnerStride<-1>(-1));
+    mapvcres.noalias() = m1.adjoint() * v1.transpose();
+    VERIFY_IS_APPROX(reversedRes, (m1.adjoint() * v1.transpose()).eval().reverse());
   }
 
   // regression test
@@ -656,6 +662,60 @@ void gemv_complex_conjugate() {
   (void)PS_d;
 }
 
+// y += alpha * A * x for every extent of the vectorized dimension from 1 to 12 packets + 2: the GEMV kernels split it
+// into passes of up to 8 packets, a final pass of up to 9 packets, and a partial packet (masked where segments exist).
+// A is a block of a NaN-padded matrix and x a segment of a NaN-padded vector, so a load past the extent poisons the
+// result, and sentinels around y catch a store past it. The reference is an independent long-double loop.
+template <typename Scalar, int Order>
+void gemv_remainder_sweep() {
+  using RealScalar = typename NumTraits<Scalar>::Real;
+  using WideScalar = std::conditional_t<NumTraits<Scalar>::IsComplex, std::complex<long double>, long double>;
+  using Mat = Matrix<Scalar, Dynamic, Dynamic, Order>;
+  using Vec = Matrix<Scalar, Dynamic, 1>;
+  const Index PS = internal::packet_traits<Scalar>::size;
+  const Scalar nan = Scalar(NumTraits<RealScalar>::quiet_NaN());
+  const Scalar sentinel = Scalar(RealScalar(12345));
+  const Scalar alpha = internal::random<Scalar>();
+  const Index pad = 2 * PS + 1;
+  // Columns 130 > 128 make the col-major kernel block the columns.
+  const Index others[] = {1, 2, 3, 5, 9, 17, 130};
+
+  for (Index vec_extent = 1; vec_extent <= 12 * PS + 2; ++vec_extent) {
+    for (Index other : others) {
+      // The vectorized dimension is the rows for col-major and the columns for row-major.
+      const Index rows = Order == ColMajor ? vec_extent : other;
+      const Index cols = Order == ColMajor ? other : vec_extent;
+      Mat big = Mat::Constant(rows + pad, cols + pad, nan);
+      big.topLeftCorner(rows, cols).setRandom();
+      Vec xbig = Vec::Constant(cols + pad, nan);
+      xbig.head(cols).setRandom();
+      Vec ybig = Vec::Constant(rows + 2 * pad, sentinel);
+      ybig.segment(pad, rows).setRandom();
+      const Vec y0 = ybig.segment(pad, rows);
+
+      ybig.segment(pad, rows).noalias() += alpha * big.topLeftCorner(rows, cols) * xbig.head(cols);
+
+      for (Index i = 0; i < rows; ++i) {
+        WideScalar expected(0);
+        long double magnitude = 0;
+        for (Index j = 0; j < cols; ++j) {
+          const WideScalar term = WideScalar(big(i, j)) * WideScalar(xbig(j));
+          expected += term;
+          magnitude += numext::abs(term);
+        }
+        expected = WideScalar(y0(i)) + WideScalar(alpha) * expected;
+        magnitude = numext::abs(WideScalar(y0(i))) + numext::abs(WideScalar(alpha)) * magnitude;
+        // Each product and sum rounds once in Scalar, and alpha is applied with one more product and sum.
+        const long double bound = 4 * (cols + 2) * (long double)NumTraits<RealScalar>::epsilon() * magnitude;
+        const long double error = numext::abs(WideScalar(ybig(pad + i)) - expected);
+        VERIFY((numext::isfinite)(error) && error <= bound);
+      }
+      VERIFY_IS_CWISE_EQUAL(ybig.head(pad), Vec::Constant(pad, sentinel));
+      VERIFY_IS_CWISE_EQUAL(ybig.tail(pad), Vec::Constant(pad, sentinel));
+    }
+  }
+}
+
 // Locks the BLAS contract that GEMM/GEMV leave the destination unchanged when
 // alpha == 0, including under non-finite inputs in A/x/B that would otherwise
 // taint the result via 0 * Inf = NaN.
@@ -947,4 +1007,13 @@ EIGEN_DECLARE_TEST(product_extra) {
   CALL_SUBTEST_12(alpha_zero_skips_kernel<double>());
   CALL_SUBTEST_12(alpha_zero_skips_kernel<std::complex<float> >());
   CALL_SUBTEST_12(alpha_zero_skips_kernel<std::complex<double> >());
+
+  CALL_SUBTEST_15((gemv_remainder_sweep<float, ColMajor>()));
+  CALL_SUBTEST_15((gemv_remainder_sweep<float, RowMajor>()));
+  CALL_SUBTEST_15((gemv_remainder_sweep<double, ColMajor>()));
+  CALL_SUBTEST_15((gemv_remainder_sweep<double, RowMajor>()));
+  CALL_SUBTEST_16((gemv_remainder_sweep<std::complex<float>, ColMajor>()));
+  CALL_SUBTEST_16((gemv_remainder_sweep<std::complex<float>, RowMajor>()));
+  CALL_SUBTEST_16((gemv_remainder_sweep<std::complex<double>, ColMajor>()));
+  CALL_SUBTEST_16((gemv_remainder_sweep<std::complex<double>, RowMajor>()));
 }

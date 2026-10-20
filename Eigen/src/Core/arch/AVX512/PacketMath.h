@@ -733,20 +733,7 @@ EIGEN_STRONG_INLINE Packet16i cat256i(const Packet8i& a, const Packet8i& b) {
 
 // Helper function for bit packing snippet of low precision comparison.
 // It packs the flags from 32x16 to 16x16.
-EIGEN_STRONG_INLINE __m256i Pack32To16(const Packet16f& rf) {
-  // Split data into small pieces and handle with AVX instructions
-  // to guarantee internal order of vector.
-  // Operation:
-  //   dst[15:0]    := Saturate16(rf[31:0])
-  //   dst[31:16]   := Saturate16(rf[63:32])
-  //   ...
-  //   dst[255:240] := Saturate16(rf[255:224])
-  __m256i lo = _mm256_castps_si256(extract256<0>(rf));
-  __m256i hi = _mm256_castps_si256(extract256<1>(rf));
-  __m128i result_lo = _mm_packs_epi32(_mm256_extractf128_si256(lo, 0), _mm256_extractf128_si256(lo, 1));
-  __m128i result_hi = _mm_packs_epi32(_mm256_extractf128_si256(hi, 0), _mm256_extractf128_si256(hi, 1));
-  return _mm256_insertf128_si256(_mm256_castsi128_si256(result_lo), result_hi, 1);
-}
+EIGEN_STRONG_INLINE __m256i Pack32To16(const Packet16f& rf) { return _mm512_cvtepi32_epi16(_mm512_castps_si512(rf)); }
 
 template <>
 EIGEN_STRONG_INLINE Packet16f pisnan(const Packet16f& a) {
@@ -1131,7 +1118,7 @@ EIGEN_STRONG_INLINE Packet8l ploaddup<Packet8l>(const int64_t* from) {
 // {a0, a0  a1, a1, a2, a2, a3, a3, a4, a4, a5, a5, a6, a6, a7, a7}
 template <>
 EIGEN_STRONG_INLINE Packet16i ploaddup<Packet16i>(const int* from) {
-  __m256i low_half = _mm256_load_si256(reinterpret_cast<const __m256i*>(from));
+  __m256i low_half = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(from));
   __m512 even_elements = _mm512_castsi512_ps(_mm512_cvtepu32_epi64(low_half));
   __m512 pairs = _mm512_permute_ps(even_elements, _MM_SHUFFLE(2, 2, 0, 0));
   return _mm512_castps_si512(pairs);
@@ -1221,12 +1208,40 @@ EIGEN_STRONG_INLINE void pstoreu<double>(double* to, const Packet8d& from, uint8
   EIGEN_DEBUG_UNALIGNED_STORE return _mm512_mask_storeu_pd(to, mask, from);
 }
 
+// The gathers and scatters below address lane i through the 32-bit offset i * stride. Where that overflows an int,
+// the lanes are addressed one at a time.
+template <typename Packet>
+EIGEN_STRONG_INLINE bool avx512_lane_offsets_fit(Index stride) {
+  const Index max_stride = Index(NumTraits<int>::highest()) / Index(unpacket_traits<Packet>::size - 1);
+  return stride <= max_stride && stride >= -max_stride;
+}
+
+template <typename Scalar, typename Packet>
+EIGEN_STRONG_INLINE Packet avx512_pgather_lanes(const Packet& src, const Scalar* from, Index stride,
+                                                typename unpacket_traits<Packet>::mask_t umask) {
+  EIGEN_ALIGN64 Scalar values[unpacket_traits<Packet>::size];
+  pstore(values, src);
+  for (int i = 0; i < unpacket_traits<Packet>::size; ++i)
+    if ((umask >> i) & 1) values[i] = from[i * stride];
+  return pload<Packet>(values);
+}
+
+template <typename Scalar, typename Packet>
+EIGEN_STRONG_INLINE void avx512_pscatter_lanes(Scalar* to, const Packet& from, Index stride,
+                                               typename unpacket_traits<Packet>::mask_t umask) {
+  EIGEN_ALIGN64 Scalar values[unpacket_traits<Packet>::size];
+  pstore(values, from);
+  for (int i = 0; i < unpacket_traits<Packet>::size; ++i)
+    if ((umask >> i) & 1) to[i * stride] = values[i];
+}
+
 template <typename Scalar, typename Packet>
 EIGEN_DEVICE_FUNC inline Packet pgather(const Packet& src, const Scalar* from, Index stride,
                                         typename unpacket_traits<Packet>::mask_t umask);
 template <>
 EIGEN_DEVICE_FUNC inline Packet16f pgather<float, Packet16f>(const Packet16f& src, const float* from, Index stride,
                                                              uint16_t umask) {
+  if (!avx512_lane_offsets_fit<Packet16f>(stride)) return avx512_pgather_lanes(src, from, stride, umask);
   Packet16i stride_vector = _mm512_set1_epi32(convert_index<int>(stride));
   Packet16i stride_multiplier = _mm512_set_epi32(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
   Packet16i indices = _mm512_mullo_epi32(stride_vector, stride_multiplier);
@@ -1237,6 +1252,7 @@ EIGEN_DEVICE_FUNC inline Packet16f pgather<float, Packet16f>(const Packet16f& sr
 template <>
 EIGEN_DEVICE_FUNC inline Packet8d pgather<double, Packet8d>(const Packet8d& src, const double* from, Index stride,
                                                             uint8_t umask) {
+  if (!avx512_lane_offsets_fit<Packet8d>(stride)) return avx512_pgather_lanes(src, from, stride, umask);
   Packet8i stride_vector = _mm256_set1_epi32(convert_index<int>(stride));
   Packet8i stride_multiplier = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
   Packet8i indices = _mm256_mullo_epi32(stride_vector, stride_multiplier);
@@ -1254,6 +1270,7 @@ EIGEN_DEVICE_FUNC inline Packet16f pgather<float, Packet16f>(const float* from, 
     const Packet16i indices = _mm512_setr_epi32(0, 2, 4, 6, 8, 10, 12, 14, 17, 19, 21, 23, 25, 27, 29, 31);
     return _mm512_permutex2var_ps(low, indices, high);
   }
+  if (!avx512_lane_offsets_fit<Packet16f>(stride)) return pgather_partial<float, Packet16f>(from, stride, 16);
   Packet16i stride_vector = _mm512_set1_epi32(convert_index<int>(stride));
   Packet16i stride_multiplier = _mm512_set_epi32(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
   Packet16i indices = _mm512_mullo_epi32(stride_vector, stride_multiplier);
@@ -1268,6 +1285,7 @@ EIGEN_DEVICE_FUNC inline Packet8d pgather<double, Packet8d>(const double* from, 
     const __m512i indices = _mm512_setr_epi64(0, 2, 4, 6, 9, 11, 13, 15);
     return _mm512_permutex2var_pd(low, indices, high);
   }
+  if (!avx512_lane_offsets_fit<Packet8d>(stride)) return pgather_partial<double, Packet8d>(from, stride, 8);
   Packet8i stride_vector = _mm256_set1_epi32(convert_index<int>(stride));
   Packet8i stride_multiplier = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
   Packet8i indices = _mm256_mullo_epi32(stride_vector, stride_multiplier);
@@ -1276,6 +1294,7 @@ EIGEN_DEVICE_FUNC inline Packet8d pgather<double, Packet8d>(const double* from, 
 }
 template <>
 EIGEN_DEVICE_FUNC inline Packet8l pgather<int64_t, Packet8l>(const int64_t* from, Index stride) {
+  if (!avx512_lane_offsets_fit<Packet8l>(stride)) return pgather_partial<int64_t, Packet8l>(from, stride, 8);
   Packet8i stride_vector = _mm256_set1_epi32(convert_index<int>(stride));
   Packet8i stride_multiplier = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
   Packet8i indices = _mm256_mullo_epi32(stride_vector, stride_multiplier);
@@ -1284,6 +1303,7 @@ EIGEN_DEVICE_FUNC inline Packet8l pgather<int64_t, Packet8l>(const int64_t* from
 }
 template <>
 EIGEN_DEVICE_FUNC inline Packet16i pgather<int, Packet16i>(const int* from, Index stride) {
+  if (!avx512_lane_offsets_fit<Packet16i>(stride)) return pgather_partial<int, Packet16i>(from, stride, 16);
   Packet16i stride_vector = _mm512_set1_epi32(convert_index<int>(stride));
   Packet16i stride_multiplier = _mm512_set_epi32(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
   Packet16i indices = _mm512_mullo_epi32(stride_vector, stride_multiplier);
@@ -1296,6 +1316,7 @@ EIGEN_DEVICE_FUNC inline void pscatter(Scalar* to, const Packet& from, Index str
 template <>
 EIGEN_DEVICE_FUNC inline void pscatter<float, Packet16f>(float* to, const Packet16f& from, Index stride,
                                                          uint16_t umask) {
+  if (!avx512_lane_offsets_fit<Packet16f>(stride)) return avx512_pscatter_lanes(to, from, stride, umask);
   Packet16i stride_vector = _mm512_set1_epi32(convert_index<int>(stride));
   Packet16i stride_multiplier = _mm512_set_epi32(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
   Packet16i indices = _mm512_mullo_epi32(stride_vector, stride_multiplier);
@@ -1305,6 +1326,7 @@ EIGEN_DEVICE_FUNC inline void pscatter<float, Packet16f>(float* to, const Packet
 template <>
 EIGEN_DEVICE_FUNC inline void pscatter<double, Packet8d>(double* to, const Packet8d& from, Index stride,
                                                          uint8_t umask) {
+  if (!avx512_lane_offsets_fit<Packet8d>(stride)) return avx512_pscatter_lanes(to, from, stride, umask);
   Packet8i stride_vector = _mm256_set1_epi32(convert_index<int>(stride));
   Packet8i stride_multiplier = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
   Packet8i indices = _mm256_mullo_epi32(stride_vector, stride_multiplier);
@@ -1313,6 +1335,7 @@ EIGEN_DEVICE_FUNC inline void pscatter<double, Packet8d>(double* to, const Packe
 }
 template <>
 EIGEN_DEVICE_FUNC inline void pscatter<float, Packet16f>(float* to, const Packet16f& from, Index stride) {
+  if (!avx512_lane_offsets_fit<Packet16f>(stride)) return pscatter_partial<float, Packet16f>(to, from, stride, 16);
   Packet16i stride_vector = _mm512_set1_epi32(convert_index<int>(stride));
   Packet16i stride_multiplier = _mm512_set_epi32(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
   Packet16i indices = _mm512_mullo_epi32(stride_vector, stride_multiplier);
@@ -1320,6 +1343,7 @@ EIGEN_DEVICE_FUNC inline void pscatter<float, Packet16f>(float* to, const Packet
 }
 template <>
 EIGEN_DEVICE_FUNC inline void pscatter<double, Packet8d>(double* to, const Packet8d& from, Index stride) {
+  if (!avx512_lane_offsets_fit<Packet8d>(stride)) return pscatter_partial<double, Packet8d>(to, from, stride, 8);
   Packet8i stride_vector = _mm256_set1_epi32(convert_index<int>(stride));
   Packet8i stride_multiplier = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
   Packet8i indices = _mm256_mullo_epi32(stride_vector, stride_multiplier);
@@ -1327,6 +1351,7 @@ EIGEN_DEVICE_FUNC inline void pscatter<double, Packet8d>(double* to, const Packe
 }
 template <>
 EIGEN_DEVICE_FUNC inline void pscatter<int64_t, Packet8l>(int64_t* to, const Packet8l& from, Index stride) {
+  if (!avx512_lane_offsets_fit<Packet8l>(stride)) return pscatter_partial<int64_t, Packet8l>(to, from, stride, 8);
   Packet8i stride_vector = _mm256_set1_epi32(convert_index<int>(stride));
   Packet8i stride_multiplier = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
   Packet8i indices = _mm256_mullo_epi32(stride_vector, stride_multiplier);
@@ -1334,6 +1359,7 @@ EIGEN_DEVICE_FUNC inline void pscatter<int64_t, Packet8l>(int64_t* to, const Pac
 }
 template <>
 EIGEN_DEVICE_FUNC inline void pscatter<int, Packet16i>(int* to, const Packet16i& from, Index stride) {
+  if (!avx512_lane_offsets_fit<Packet16i>(stride)) return pscatter_partial<int, Packet16i>(to, from, stride, 16);
   Packet16i stride_vector = _mm512_set1_epi32(convert_index<int>(stride));
   Packet16i stride_multiplier = _mm512_set_epi32(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
   Packet16i indices = _mm512_mullo_epi32(stride_vector, stride_multiplier);
@@ -1478,26 +1504,30 @@ EIGEN_STRONG_INLINE Packet8d pfrexp<Packet8d>(const Packet8d& a, Packet8d& expon
 
 template <>
 EIGEN_STRONG_INLINE Packet16f pldexp<Packet16f>(const Packet16f& a, const Packet16f& exponent) {
-  return pldexp_generic(a, exponent);
+  // vscalef is a * 2^floor(exponent), rounded once, and pldexp takes (int)exponent: truncate first. Clamp as
+  // pldexp_generic does: vscalef gives NaN for 0 * 2^inf and inf * 2^-inf, and a number for NaN * 2^(+-inf), and an
+  // int exponent beyond the range of half is infinite by the time it reaches here through half2float.
+  const Packet16f max_exponent = pset1<Packet16f>(278.0f);
+  const Packet16f e = pmin(pmax(exponent, pnegate(max_exponent)), max_exponent);
+  return _mm512_scalef_ps(a, _mm512_roundscale_ps(e, _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC));
 }
 
 template <>
 EIGEN_STRONG_INLINE Packet8d pldexp<Packet8d>(const Packet8d& a, const Packet8d& exponent) {
-  // Clamp exponent to [-2099, 2099]
-  const Packet8d max_exponent = pset1<Packet8d>(2099.0);
-  const Packet8i e = _mm512_cvtpd_epi32(pmin(pmax(exponent, pnegate(max_exponent)), max_exponent));
+  const Packet8d max_exponent = pset1<Packet8d>(2099.0);  // see pldexp<Packet16f>
+  const Packet8d e = pmin(pmax(exponent, pnegate(max_exponent)), max_exponent);
+  return _mm512_scalef_pd(a, _mm512_roundscale_pd(e, _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC));
+}
 
-  // Preserve the sequential 4-way split; see pldexp_generic.
-  // 2^b and 2^(e-3b) are built by widening the biased int32 exponent to int64
-  // with vpmovsxdq and shifting into the double exponent field with vpsllq.
-  const Packet8i bias = pset1<Packet8i>(1023);
-  const Packet8i b = parithmetic_shift_right<2>(e);           // floor(e/4)
-  const Packet8i b_remainder = psub(psub(e, b), padd(b, b));  // e - 3b (depth 2)
-  const Packet8d c1 = _mm512_castsi512_pd(_mm512_slli_epi64(_mm512_cvtepi32_epi64(padd(b, bias)), 52));  // 2^b
-  const Packet8d c2 =
-      _mm512_castsi512_pd(_mm512_slli_epi64(_mm512_cvtepi32_epi64(padd(b_remainder, bias)), 52));  // 2^(e-3b)
+// pldexp_fast's callers pass integral exponents, and vscalef floors, so neither the clamp nor the truncation.
+template <>
+EIGEN_STRONG_INLINE Packet16f pldexp_fast<Packet16f>(const Packet16f& a, const Packet16f& exponent) {
+  return _mm512_scalef_ps(a, exponent);
+}
 
-  return pldexp_apply_factors(a, c1, c2);  // a * 2^e
+template <>
+EIGEN_STRONG_INLINE Packet8d pldexp_fast<Packet8d>(const Packet8d& a, const Packet8d& exponent) {
+  return _mm512_scalef_pd(a, exponent);
 }
 
 #ifdef EIGEN_VECTORIZE_AVX512DQ
@@ -2652,13 +2682,8 @@ EIGEN_STRONG_INLINE Packet16f Bf16ToF32(const Packet16bf& a) {
 EIGEN_STRONG_INLINE Packet16bf F32ToBf16(const Packet16f& a) {
   Packet16bf r;
 
-#if defined(EIGEN_VECTORIZE_AVX512BF16) && EIGEN_GNUC_STRICT_AT_LEAST(10, 1, 0)
-  // Since GCC 10.1 supports avx512bf16 and C style explicit cast
-  // (C++ static_cast is not supported yet), do conversion via intrinsic
-  // and register path for performance.
-  r = (__m256i)(_mm512_cvtneps_pbh(a));
-
-#else
+  // We do not use _mm512_cvtneps_pbh because VCVTNEPS2BF16 flushes subnormal inputs to zero regardless of MXCSR,
+  // while the integer rounding below keeps them, as the scalar float_to_bfloat16_rtne does.
   __m512i t;
   __m512i input = _mm512_castps_si512(a);
   __m512i nan = _mm512_set1_epi32(0x7fc0);
@@ -2678,7 +2703,6 @@ EIGEN_STRONG_INLINE Packet16bf F32ToBf16(const Packet16f& a) {
   t = _mm512_mask_blend_epi32(mask, nan, t);
   // output.value = static_cast<uint16_t>(input);
   r = _mm512_cvtepi32_epi16(t);
-#endif  // EIGEN_VECTORIZE_AVX512BF16
 
   return r;
 }
@@ -2780,6 +2804,15 @@ EIGEN_STRONG_INLINE Packet16bf pisnan<Packet16bf>(const Packet16bf& a) {
   constexpr uint16_t kInf = ((1 << 8) - 1) << 7;
   constexpr uint16_t kAbsMask = (1 << 15) - 1;
   return _mm256_cmpgt_epi16(_mm256_and_si256(a, _mm256_set1_epi16(kAbsMask)), _mm256_set1_epi16(kInf));
+}
+
+// Compare encoded lanes: widening bf16 subnormals to float loses them under DAZ/FZ.
+template <>
+EIGEN_STRONG_INLINE Packet16bf psign<Packet16bf>(const Packet16bf& a) {
+  const __m256i magnitude = _mm256_and_si256(a, _mm256_set1_epi16(0x7fff));
+  const __m256i is_nan = _mm256_cmpgt_epi16(magnitude, _mm256_set1_epi16(0x7f80));
+  const __m256i keep = _mm256_or_si256(is_nan, _mm256_set1_epi16(static_cast<short>(0xbf80u)));
+  return _mm256_sign_epi16(_mm256_and_si256(_mm256_or_si256(a, _mm256_set1_epi16(0x3f80)), keep), magnitude);
 }
 
 template <>
@@ -3045,21 +3078,13 @@ EIGEN_STRONG_INLINE void pstore<numext::int16_t, Packet32s>(numext::int16_t* out
 template <>
 EIGEN_STRONG_INLINE void pstore<numext::int16_t, Packet16s>(numext::int16_t* out, const Packet16s& x) {
   EIGEN_DEBUG_ALIGNED_STORE
-#if defined(EIGEN_VECTORIZE_AVX512F) && defined(EIGEN_VECTORIZE_AVX512VL)
-  _mm256_store_epi32(out, x);
-#else
   _mm256_store_si256(reinterpret_cast<__m256i*>(out), x);
-#endif
 }
 
 template <>
 EIGEN_STRONG_INLINE void pstore<numext::int16_t, Packet8s>(numext::int16_t* out, const Packet8s& x) {
   EIGEN_DEBUG_ALIGNED_STORE
-#if defined(EIGEN_VECTORIZE_AVX512F) && defined(EIGEN_VECTORIZE_AVX512VL)
-  _mm256_store_epi32(out, x);
-#else
   _mm_store_si128(reinterpret_cast<__m128i*>(out), x);
-#endif
 }
 
 template <>
@@ -3184,6 +3209,270 @@ template <int N>
 EIGEN_STRONG_INLINE Packet8s plogical_shift_right(const Packet8s& a) {
   return _mm_srli_epi16(a, N);
 }
+
+/*---------------- load/store segment support ----------------*/
+
+// Returns a k-mask with bits [begin, begin + count) set. 64-bit arithmetic lets count reach the lane
+// count of the widest AVX-512 packet (32) without shifting a 1 past the top bit.
+EIGEN_STRONG_INLINE uint64_t segment_kmask(Index begin, Index count) {
+  eigen_assert(begin >= 0 && count >= 0 && begin + count <= 32);
+  return ((uint64_t(1) << count) - 1) << begin;
+}
+
+/*---------------- float ----------------*/
+
+template <>
+struct has_packet_segment<Packet16f> : std::true_type {};
+
+template <>
+inline Packet16f ploaduSegment<Packet16f>(const float* from, Index begin, Index count) {
+  return _mm512_maskz_loadu_ps(static_cast<__mmask16>(segment_kmask(begin, count)), from);
+}
+
+template <>
+inline void pstoreuSegment<float, Packet16f>(float* to, const Packet16f& from, Index begin, Index count) {
+  _mm512_mask_storeu_ps(to, static_cast<__mmask16>(segment_kmask(begin, count)), from);
+}
+
+/*---------------- double ----------------*/
+
+template <>
+struct has_packet_segment<Packet8d> : std::true_type {};
+
+template <>
+inline Packet8d ploaduSegment<Packet8d>(const double* from, Index begin, Index count) {
+  return _mm512_maskz_loadu_pd(static_cast<__mmask8>(segment_kmask(begin, count)), from);
+}
+
+template <>
+inline void pstoreuSegment<double, Packet8d>(double* to, const Packet8d& from, Index begin, Index count) {
+  _mm512_mask_storeu_pd(to, static_cast<__mmask8>(segment_kmask(begin, count)), from);
+}
+
+/*---------------- int32 ----------------*/
+
+template <>
+struct has_packet_segment<Packet16i> : std::true_type {};
+
+template <>
+inline Packet16i ploaduSegment<Packet16i>(const int* from, Index begin, Index count) {
+  return _mm512_maskz_loadu_epi32(static_cast<__mmask16>(segment_kmask(begin, count)), from);
+}
+
+template <>
+inline void pstoreuSegment<int, Packet16i>(int* to, const Packet16i& from, Index begin, Index count) {
+  _mm512_mask_storeu_epi32(to, static_cast<__mmask16>(segment_kmask(begin, count)), from);
+}
+
+/*---------------- int64_t ----------------*/
+
+template <>
+struct has_packet_segment<Packet8l> : std::true_type {};
+
+template <>
+inline Packet8l ploaduSegment<Packet8l>(const int64_t* from, Index begin, Index count) {
+  return _mm512_maskz_loadu_epi64(static_cast<__mmask8>(segment_kmask(begin, count)), from);
+}
+
+template <>
+inline void pstoreuSegment<int64_t, Packet8l>(int64_t* to, const Packet8l& from, Index begin, Index count) {
+  _mm512_mask_storeu_epi64(to, static_cast<__mmask8>(segment_kmask(begin, count)), from);
+}
+
+#ifdef EIGEN_VECTORIZE_AVX512VL
+
+// The 256- and 128-bit packets declare has_packet_segment in AVX/PacketMath.h; with AVX-512VL their
+// segments are k-masked as well, which avoids vmaskmov and the vector mask it needs.
+
+/*---------------- float ----------------*/
+
+template <>
+inline Packet8f ploaduSegment<Packet8f>(const float* from, Index begin, Index count) {
+  return _mm256_maskz_loadu_ps(static_cast<__mmask8>(segment_kmask(begin, count)), from);
+}
+
+template <>
+inline void pstoreuSegment<float, Packet8f>(float* to, const Packet8f& from, Index begin, Index count) {
+  _mm256_mask_storeu_ps(to, static_cast<__mmask8>(segment_kmask(begin, count)), from);
+}
+
+template <>
+inline Packet4f ploaduSegment<Packet4f>(const float* from, Index begin, Index count) {
+  return _mm_maskz_loadu_ps(static_cast<__mmask8>(segment_kmask(begin, count)), from);
+}
+
+template <>
+inline void pstoreuSegment<float, Packet4f>(float* to, const Packet4f& from, Index begin, Index count) {
+  _mm_mask_storeu_ps(to, static_cast<__mmask8>(segment_kmask(begin, count)), from);
+}
+
+/*---------------- double ----------------*/
+
+template <>
+inline Packet4d ploaduSegment<Packet4d>(const double* from, Index begin, Index count) {
+  return _mm256_maskz_loadu_pd(static_cast<__mmask8>(segment_kmask(begin, count)), from);
+}
+
+template <>
+inline void pstoreuSegment<double, Packet4d>(double* to, const Packet4d& from, Index begin, Index count) {
+  _mm256_mask_storeu_pd(to, static_cast<__mmask8>(segment_kmask(begin, count)), from);
+}
+
+template <>
+inline Packet2d ploaduSegment<Packet2d>(const double* from, Index begin, Index count) {
+  return _mm_maskz_loadu_pd(static_cast<__mmask8>(segment_kmask(begin, count)), from);
+}
+
+template <>
+inline void pstoreuSegment<double, Packet2d>(double* to, const Packet2d& from, Index begin, Index count) {
+  _mm_mask_storeu_pd(to, static_cast<__mmask8>(segment_kmask(begin, count)), from);
+}
+
+/*---------------- int32 ----------------*/
+
+template <>
+inline Packet8i ploaduSegment<Packet8i>(const int* from, Index begin, Index count) {
+  return _mm256_maskz_loadu_epi32(static_cast<__mmask8>(segment_kmask(begin, count)), from);
+}
+
+template <>
+inline void pstoreuSegment<int, Packet8i>(int* to, const Packet8i& from, Index begin, Index count) {
+  _mm256_mask_storeu_epi32(to, static_cast<__mmask8>(segment_kmask(begin, count)), from);
+}
+
+template <>
+inline Packet4i ploaduSegment<Packet4i>(const int* from, Index begin, Index count) {
+  return _mm_maskz_loadu_epi32(static_cast<__mmask8>(segment_kmask(begin, count)), from);
+}
+
+template <>
+inline void pstoreuSegment<int, Packet4i>(int* to, const Packet4i& from, Index begin, Index count) {
+  _mm_mask_storeu_epi32(to, static_cast<__mmask8>(segment_kmask(begin, count)), from);
+}
+
+/*---------------- uint32 ----------------*/
+
+template <>
+inline Packet8ui ploaduSegment<Packet8ui>(const uint32_t* from, Index begin, Index count) {
+  return Packet8ui(ploaduSegment<Packet8i>(reinterpret_cast<const int*>(from), begin, count));
+}
+
+template <>
+inline void pstoreuSegment<uint32_t, Packet8ui>(uint32_t* to, const Packet8ui& from, Index begin, Index count) {
+  pstoreuSegment<int, Packet8i>(reinterpret_cast<int*>(to), Packet8i(from), begin, count);
+}
+
+template <>
+inline Packet4ui ploaduSegment<Packet4ui>(const uint32_t* from, Index begin, Index count) {
+  return Packet4ui(ploaduSegment<Packet4i>(reinterpret_cast<const int*>(from), begin, count));
+}
+
+template <>
+inline void pstoreuSegment<uint32_t, Packet4ui>(uint32_t* to, const Packet4ui& from, Index begin, Index count) {
+  pstoreuSegment<int, Packet4i>(reinterpret_cast<int*>(to), Packet4i(from), begin, count);
+}
+
+/*---------------- int64_t ----------------*/
+
+template <>
+inline Packet4l ploaduSegment<Packet4l>(const int64_t* from, Index begin, Index count) {
+  return _mm256_maskz_loadu_epi64(static_cast<__mmask8>(segment_kmask(begin, count)), from);
+}
+
+template <>
+inline void pstoreuSegment<int64_t, Packet4l>(int64_t* to, const Packet4l& from, Index begin, Index count) {
+  _mm256_mask_storeu_epi64(to, static_cast<__mmask8>(segment_kmask(begin, count)), from);
+}
+
+template <>
+inline Packet2l ploaduSegment<Packet2l>(const int64_t* from, Index begin, Index count) {
+  return _mm_maskz_loadu_epi64(static_cast<__mmask8>(segment_kmask(begin, count)), from);
+}
+
+template <>
+inline void pstoreuSegment<int64_t, Packet2l>(int64_t* to, const Packet2l& from, Index begin, Index count) {
+  _mm_mask_storeu_epi64(to, static_cast<__mmask8>(segment_kmask(begin, count)), from);
+}
+
+/*---------------- uint64_t ----------------*/
+
+template <>
+inline Packet4ul ploaduSegment<Packet4ul>(const uint64_t* from, Index begin, Index count) {
+  return Packet4ul(ploaduSegment<Packet4l>(reinterpret_cast<const int64_t*>(from), begin, count));
+}
+
+template <>
+inline void pstoreuSegment<uint64_t, Packet4ul>(uint64_t* to, const Packet4ul& from, Index begin, Index count) {
+  pstoreuSegment<int64_t, Packet4l>(reinterpret_cast<int64_t*>(to), Packet4l(from), begin, count);
+}
+
+#if defined(__AVX512BW__)
+
+// 16-bit lanes need the AVX-512BW word-granular masked moves.
+
+/*---------------- bfloat16 ----------------*/
+
+template <>
+struct has_packet_segment<Packet16bf> : std::true_type {};
+
+template <>
+struct has_packet_segment<Packet8bf> : std::true_type {};
+
+template <>
+inline Packet16bf ploaduSegment<Packet16bf>(const bfloat16* from, Index begin, Index count) {
+  return _mm256_maskz_loadu_epi16(static_cast<__mmask16>(segment_kmask(begin, count)), from);
+}
+
+template <>
+inline void pstoreuSegment<bfloat16, Packet16bf>(bfloat16* to, const Packet16bf& from, Index begin, Index count) {
+  _mm256_mask_storeu_epi16(to, static_cast<__mmask16>(segment_kmask(begin, count)), from);
+}
+
+template <>
+inline Packet8bf ploaduSegment<Packet8bf>(const bfloat16* from, Index begin, Index count) {
+  return _mm_maskz_loadu_epi16(static_cast<__mmask8>(segment_kmask(begin, count)), from);
+}
+
+template <>
+inline void pstoreuSegment<bfloat16, Packet8bf>(bfloat16* to, const Packet8bf& from, Index begin, Index count) {
+  _mm_mask_storeu_epi16(to, static_cast<__mmask8>(segment_kmask(begin, count)), from);
+}
+
+#ifndef EIGEN_VECTORIZE_AVX512FP16
+
+/*---------------- half ----------------*/
+
+template <>
+struct has_packet_segment<Packet16h> : std::true_type {};
+
+template <>
+struct has_packet_segment<Packet8h> : std::true_type {};
+
+template <>
+inline Packet16h ploaduSegment<Packet16h>(const Eigen::half* from, Index begin, Index count) {
+  return _mm256_maskz_loadu_epi16(static_cast<__mmask16>(segment_kmask(begin, count)), from);
+}
+
+template <>
+inline void pstoreuSegment<Eigen::half, Packet16h>(Eigen::half* to, const Packet16h& from, Index begin, Index count) {
+  _mm256_mask_storeu_epi16(to, static_cast<__mmask16>(segment_kmask(begin, count)), from);
+}
+
+template <>
+inline Packet8h ploaduSegment<Packet8h>(const Eigen::half* from, Index begin, Index count) {
+  return _mm_maskz_loadu_epi16(static_cast<__mmask8>(segment_kmask(begin, count)), from);
+}
+
+template <>
+inline void pstoreuSegment<Eigen::half, Packet8h>(Eigen::half* to, const Packet8h& from, Index begin, Index count) {
+  _mm_mask_storeu_epi16(to, static_cast<__mmask8>(segment_kmask(begin, count)), from);
+}
+
+#endif  // EIGEN_VECTORIZE_AVX512FP16
+#endif  // __AVX512BW__
+#endif  // EIGEN_VECTORIZE_AVX512VL
+
+/*---------------- end load/store segment support ----------------*/
 
 }  // end namespace internal
 

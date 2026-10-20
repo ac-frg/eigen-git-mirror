@@ -590,6 +590,7 @@ void test_mixed_storage_imp() {
   }
 }
 
+template <typename = void>
 void test_mixed_storage() {
   test_mixed_storage_imp<RowMajor, RowMajor, RowMajor>();
   test_mixed_storage_imp<RowMajor, RowMajor, ColMajor>();
@@ -606,6 +607,7 @@ void test_mixed_storage() {
 // (index, value) nodes depending on the estimated density. Both storage modes
 // must construct, move, and destroy the coefficients properly for
 // non-trivially-copyable scalars (issue #2873).
+template <typename = void>
 void test_pruned_product_custom_scalar() {
   typedef SparseMatrix<AnnoyingScalar> SpMat;
   typedef Matrix<AnnoyingScalar, Dynamic, Dynamic> DenseMat;
@@ -648,6 +650,7 @@ void test_pruned_product_custom_scalar() {
 // reaches it through init(), which drops the list too. Neither may abandon the
 // coefficients the dropped nodes own, and neither may leave a node behind for
 // the next coeffRef() to construct over.
+template <typename = void>
 void test_ambivector_discard_custom_scalar() {
   typedef internal::AmbiVector<AnnoyingScalar, int> AmbiVec;
   const Index n = 32;
@@ -678,6 +681,7 @@ void test_ambivector_discard_custom_scalar() {
 
 // resize() reuses its allocation whenever the new size still fits, and the
 // sub-vector bounds an iterator walks describe the size the vector had before.
+template <typename = void>
 void test_ambivector_resize_bounds() {
   typedef internal::AmbiVector<double, int> AmbiVec;
   {
@@ -769,6 +773,7 @@ bool ThrowingScalar::throw_on_relocation = false;
 
 // A coefficient that fails to construct leaves no node: the count of live nodes
 // the destructor walks may not include it, and the vector must remain usable.
+template <typename = void>
 void test_ambivector_failed_insertion() {
   using ambivector_throwing::ThrowingScalar;
   typedef internal::AmbiVector<ThrowingScalar, int> AmbiVec;
@@ -835,6 +840,7 @@ void test_ambivector_failed_insertion() {
 // next insertion relocates again instead of writing past its end. The leak
 // itself shows up under a leak checker; the retry below is what fails when the
 // capacity has already been advanced.
+template <typename = void>
 void test_ambivector_failed_reallocation() {
   using ambivector_throwing::ThrowingScalar;
   typedef internal::AmbiVector<ThrowingScalar, int> AmbiVec;
@@ -876,8 +882,95 @@ void test_ambivector_failed_reallocation() {
   }
   VERIFY_IS_EQUAL(ThrowingScalar::live, live_before);
 }
+
+// An insertion at the front of a list that has filled its capacity must relocate the list first, not write a node
+// past its end. Descending indices make every insertion a front insertion. A write past the end is invisible
+// without a sanitizer, but the relocation it skips is not: it throws here.
+template <typename = void>
+void test_ambivector_front_insertion_relocates() {
+  using ambivector_throwing::ThrowingScalar;
+  typedef internal::AmbiVector<ThrowingScalar, int> AmbiVec;
+  const int live_before = ThrowingScalar::live;
+  {
+    const Index n = 1200;  // a list capacity of a third of n
+    AmbiVec v(n);
+    v.init(IsSparse);
+    v.restart();
+
+    ThrowingScalar::throw_on_relocation = true;
+    Index inserted = 0;
+    bool threw = false;
+    while (!threw && inserted < n / 2) {
+      try {
+        ThrowingScalar& value = v.coeffRef(n - 1 - inserted);
+        value = ThrowingScalar(1);
+        ++inserted;
+      } catch (const ambivector_throwing::scalar_exception&) {
+        threw = true;
+      }
+    }
+    ThrowingScalar::throw_on_relocation = false;
+    VERIFY(threw);
+    VERIFY_IS_EQUAL(v.nonZeros(), inserted);
+
+    v.restart();
+    v.coeffRef(n - 1 - inserted) = ThrowingScalar(2);
+    VERIFY_IS_EQUAL(v.nonZeros(), inserted + 1);
+  }
+  VERIFY_IS_EQUAL(ThrowingScalar::live, live_before);
+}
 #endif  // EIGEN_EXCEPTIONS
 
+// A list that fills its initial capacity must grow before an insertion at its front.
+template <typename = void>
+void test_ambivector_front_insertion_growth() {
+  const int n = 1000;
+  SparseMatrix<double> A(n, 2), B(2, 100);
+  for (int i = 1; i <= n / 2; ++i) A.insert(i, 0) = 1.0;
+  A.insert(0, 1) = 2.0;
+  B.insert(0, 0) = 1.0;
+  B.insert(1, 0) = 1.0;
+  SparseMatrix<double> C = (A * B).pruned();
+  VERIFY_IS_EQUAL(C.nonZeros(), n / 2 + 1);
+  VERIFY_IS_APPROX(MatrixXd(C.toDense()), MatrixXd(A.toDense() * B.toDense()));
+}
+
+template <typename = void>
+void test_pruned_product_row_vector() {
+  SparseMatrix<double> A(4, 3);
+  A.insert(0, 1) = 1;
+  A.insert(3, 0) = 3;
+  SparseVector<double, RowMajor> r(4);
+  r.insert(0) = 2;
+  r.insert(3) = 5;
+  SparseVector<double, RowMajor> c = (r * A).pruned();
+  VERIFY_IS_APPROX(MatrixXd(c.toDense()), MatrixXd(r.toDense() * A.toDense()));
+
+  // A row-major product whose nested lhs evaluates column-major.
+  SparseMatrix<double> P(4, 4), Q(4, 4);
+  SparseMatrix<double, RowMajor> S(4, 4);
+  for (int i = 0; i < 4; ++i) {
+    P.insert(i, i) = i + 1;
+    Q.insert(i, (i + 1) % 4) = 2;
+    S.insert(i, (i + 2) % 4) = 3;
+  }
+  SparseMatrix<double, RowMajor> R = (P * Q * S).pruned();
+  VERIFY_IS_APPROX(MatrixXd(R.toDense()), MatrixXd(P.toDense() * Q.toDense() * S.toDense()));
+}
+
+template <typename = void>
+void test_sparse_product_mul_assign() {
+  SparseMatrix<double> A(3, 3), B(3, 3);
+  A.insert(0, 1) = 2;
+  A.insert(2, 2) = 3;
+  B.insert(1, 0) = 5;
+  B.insert(2, 1) = 7;
+  const MatrixXd ref = A.toDense() * B.toDense();
+  A *= B;
+  VERIFY_IS_APPROX(MatrixXd(A.toDense()), ref);
+}
+
+template <typename = void>
 void test_sparse_vector_dense_product() {
   SparseVector<double> sv(3);
   sv.insert(0) = 1.0;
@@ -894,7 +987,9 @@ EIGEN_DECLARE_TEST(sparse_product) {
   sparse_structured_view_product_sfinae<SparseMatrix<double, RowMajor>>();
 
   for (int i = 0; i < g_repeat; i++) {
-    CALL_SUBTEST_1((test_sparse_vector_dense_product()));
+    CALL_SUBTEST_1((test_sparse_vector_dense_product<>()));
+    CALL_SUBTEST_1((test_pruned_product_row_vector<>()));
+    CALL_SUBTEST_1((test_sparse_product_mul_assign<>()));
     CALL_SUBTEST_1((sparse_product<SparseMatrix<double, ColMajor>>()));
     CALL_SUBTEST_1((sparse_product<SparseMatrix<double, RowMajor>>()));
     CALL_SUBTEST_1((bug_942<double>()));
@@ -905,14 +1000,16 @@ EIGEN_DECLARE_TEST(sparse_product) {
         (sparse_product_regression_test<SparseMatrix<double, RowMajor>, Matrix<double, Dynamic, Dynamic, RowMajor>>()));
 
     CALL_SUBTEST_5((test_mixing_types<float>()));
-    CALL_SUBTEST_5((test_mixed_storage()));
+    CALL_SUBTEST_5((test_mixed_storage<>()));
 
-    CALL_SUBTEST_6((test_pruned_product_custom_scalar()));
-    CALL_SUBTEST_6((test_ambivector_discard_custom_scalar()));
-    CALL_SUBTEST_6((test_ambivector_resize_bounds()));
+    CALL_SUBTEST_6((test_pruned_product_custom_scalar<>()));
+    CALL_SUBTEST_6((test_ambivector_discard_custom_scalar<>()));
+    CALL_SUBTEST_6((test_ambivector_resize_bounds<>()));
+    CALL_SUBTEST_6((test_ambivector_front_insertion_growth<>()));
 #if defined(EIGEN_EXCEPTIONS)
-    CALL_SUBTEST_6((test_ambivector_failed_insertion()));
-    CALL_SUBTEST_6((test_ambivector_failed_reallocation()));
+    CALL_SUBTEST_6((test_ambivector_failed_insertion<>()));
+    CALL_SUBTEST_6((test_ambivector_failed_reallocation<>()));
+    CALL_SUBTEST_6((test_ambivector_front_insertion_relocates<>()));
 #endif
   }
 }

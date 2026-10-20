@@ -159,7 +159,8 @@ struct GpuSolverContext {
     return info_;
   }
 
-  // Blocking download of solver-owned device data, on the solver's stream.
+  // Blocking download of solver-owned device data. It waits only for the solver's stream; cudaMemcpy would run on
+  // the legacy default stream.
   void download(void* dst, const void* src, size_t bytes) const {
     if (bytes == 0) return;
     EIGEN_CUDA_RUNTIME_CHECK(cudaMemcpyAsync(dst, src, bytes, cudaMemcpyDeviceToHost, stream()));

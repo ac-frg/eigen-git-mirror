@@ -38,7 +38,7 @@ struct packet_layout<ulonglong2> {
 }  // namespace test
 }  // namespace Eigen
 
-namespace {
+namespace packetmath_gpu_test {
 
 using Eigen::Index;
 using Eigen::internal::packet_traits;
@@ -49,19 +49,9 @@ using test::special_values;
 using test::Buffer;
 using test::packet_layout;
 
-// Named budgets. rsqrt is the one approximate intrinsic among the core operations: the CUDA Math API documents
-// 2 ulp for rsqrtf and 1 ulp for rsqrt. The float reference rounds 1/sqrt from double. The double reference uses
-// long double, which is double itself under MSVC; rounding y = sqrt(x) and then 1/y is still within 1.5 ulp of
-// 1/sqrt(x), so a device result within 1 ulp is at most 2 representable steps from the reference.
-const uint64_t kRsqrtFloatUlps = 3;
-const uint64_t kRsqrtDoubleUlps = 2;
-// The CUDA Math API's documented maximum error for each function, plus one for the rounding of the reference from
-// the wider type. The Windows CRT expm1 reference can be 3 ulps off, and its long double has no extra precision.
 struct MathUlpBudget {
   uint64_t log, log1p, exp, exp2, expm1;
 };
-const MathUlpBudget kFloatUlps = {2, 2, 3, 3, 2};
-const MathUlpBudget kDoubleUlps = {2, 2, 2, 2, EIGEN_COMP_MSVC ? 3 : 2};
 
 // The reference uses the next floating-point type; long double is not wider on MSVC.
 template <typename Scalar>
@@ -157,6 +147,9 @@ EIGEN_GPU_TEST_BINARY_OP(op_pcmp_eq, Eigen::internal::pcmp_eq(a, b))
 EIGEN_GPU_TEST_BINARY_OP(op_pcmp_lt, Eigen::internal::pcmp_lt(a, b))
 EIGEN_GPU_TEST_BINARY_OP(op_pcmp_le, Eigen::internal::pcmp_le(a, b))
 EIGEN_GPU_TEST_BINARY_OP(op_pcmp_lt_or_nan, Eigen::internal::pcmp_lt_or_nan(a, b))
+EIGEN_GPU_TEST_BINARY_OP(op_cmp_ne, a != b ? Eigen::internal::ptrue(a) : Eigen::internal::pzero(a))
+EIGEN_GPU_TEST_BINARY_OP(op_cmp_gt, a > b ? Eigen::internal::ptrue(a) : Eigen::internal::pzero(a))
+EIGEN_GPU_TEST_BINARY_OP(op_cmp_ge, a >= b ? Eigen::internal::ptrue(a) : Eigen::internal::pzero(a))
 EIGEN_GPU_TEST_BINARY_OP(op_pabsdiff, Eigen::internal::pabsdiff(a, b))
 
 EIGEN_GPU_TEST_TERNARY_OP(op_pmadd, Eigen::internal::pmadd(a, b, c))
@@ -631,11 +624,34 @@ void check_special_values(
 // host reference; the values the standard fixes are checked exactly.
 
 template <typename Scalar>
+Scalar exp_reference(Scalar x) {
+  return static_cast<Scalar>(std::exp(static_cast<typename wider_type<Scalar>::type>(x)));
+}
+template <typename Scalar>
+Scalar exp2_reference(Scalar x) {
+  return static_cast<Scalar>(std::exp2(static_cast<typename wider_type<Scalar>::type>(x)));
+}
+template <typename Scalar>
+Scalar expm1_reference(Scalar x) {
+  return static_cast<Scalar>(std::expm1(static_cast<typename wider_type<Scalar>::type>(x)));
+}
+template <typename Scalar>
+Scalar log_reference(Scalar x) {
+  return static_cast<Scalar>(std::log(static_cast<typename wider_type<Scalar>::type>(x)));
+}
+template <typename Scalar>
+Scalar log1p_reference(Scalar x) {
+  return static_cast<Scalar>(std::log1p(static_cast<typename wider_type<Scalar>::type>(x)));
+}
+
+template <typename Scalar>
 void packetmath_gpu_real_math() {
   using Packet = typename packet_traits<Scalar>::type;
-  using Wider = typename wider_type<Scalar>::type;
   const int kSize = packet_layout<Packet>::kSize;
-  const MathUlpBudget& budget = std::is_same<Scalar, double>::value ? kDoubleUlps : kFloatUlps;
+  // The CUDA Math API's documented maximum error for each function, plus one for the rounding of the reference from
+  // the wider type. The Windows CRT expm1 reference can be 3 ulps off, and its long double has no extra precision.
+  const MathUlpBudget budget = std::is_same<Scalar, double>::value ? MathUlpBudget{2, 2, 2, 2, EIGEN_COMP_MSVC ? 3 : 2}
+                                                                   : MathUlpBudget{2, 2, 3, 3, 2};
 
   const std::vector<int> traits = device_traits<Scalar>();
   VERIFY_IS_EQUAL(traits[kHasExp], 1);
@@ -675,21 +691,11 @@ void packetmath_gpu_real_math() {
     }
   }
 
-  check_unary<Packet, op_pexp>(
-      in, [](Scalar x) { return static_cast<Scalar>(std::exp(static_cast<Wider>(x))); },
-      compare_ulps<Scalar>{budget.exp});
-  check_unary<Packet, op_pexp2>(
-      in, [](Scalar x) { return static_cast<Scalar>(std::exp2(static_cast<Wider>(x))); },
-      compare_ulps<Scalar>{budget.exp2});
-  check_unary<Packet, op_pexpm1>(
-      in, [](Scalar x) { return static_cast<Scalar>(std::expm1(static_cast<Wider>(x))); },
-      compare_ulps<Scalar>{budget.expm1});
-  check_unary<Packet, op_plog>(
-      positive, [](Scalar x) { return static_cast<Scalar>(std::log(static_cast<Wider>(x))); },
-      compare_ulps<Scalar>{budget.log});
-  check_unary<Packet, op_plog1p>(
-      above_minus_one, [](Scalar x) { return static_cast<Scalar>(std::log1p(static_cast<Wider>(x))); },
-      compare_ulps<Scalar>{budget.log1p});
+  check_unary<Packet, op_pexp>(in, exp_reference<Scalar>, compare_ulps<Scalar>{budget.exp});
+  check_unary<Packet, op_pexp2>(in, exp2_reference<Scalar>, compare_ulps<Scalar>{budget.exp2});
+  check_unary<Packet, op_pexpm1>(in, expm1_reference<Scalar>, compare_ulps<Scalar>{budget.expm1});
+  check_unary<Packet, op_plog>(positive, log_reference<Scalar>, compare_ulps<Scalar>{budget.log});
+  check_unary<Packet, op_plog1p>(above_minus_one, log1p_reference<Scalar>, compare_ulps<Scalar>{budget.log1p});
 
   check_special_values<Packet, op_pexp>(
       {{zero, one}, {-zero, one}, {-inf, zero}, {inf, inf}, {nan, nan}, {lowest, zero}, {largest, inf}});
@@ -722,7 +728,11 @@ void packetmath_gpu_real_core() {
   const compare_bits<Scalar> bits{true};
   const compare_bits<Scalar> bits_and_payload{false};
   const auto values = test::areEqual<Scalar>;
-  const uint64_t rsqrt_ulps = std::is_same<Scalar, double>::value ? kRsqrtDoubleUlps : kRsqrtFloatUlps;
+  // rsqrt is the one approximate intrinsic among the core operations: the CUDA Math API documents 2 ulp for rsqrtf
+  // and 1 ulp for rsqrt. The float reference rounds 1/sqrt from double. The double reference uses long double, which
+  // is double itself under MSVC; rounding y = sqrt(x) and then 1/y is still within 1.5 ulp of 1/sqrt(x), so a device
+  // result within 1 ulp is at most 2 representable steps from the reference.
+  const uint64_t rsqrt_ulps = std::is_same<Scalar, double>::value ? 2 : 3;
 
   // The device's view of the type, and what this part covers of it.
   const std::vector<int> traits = device_traits<Scalar>();
@@ -737,7 +747,6 @@ void packetmath_gpu_real_core() {
                kHasRsqrt, kHasSign, kHasAbsDiff, kHasSetLinear, kHasConj});
 
   const Buffer<Scalar> in = unary_inputs<Scalar>(kSize, 1 << 18);
-  const int n = int(in.size()) / kSize;
 
   // Loads and stores keep every bit, NaN payloads included.
   check_unary<Packet, op_identity>(
@@ -969,7 +978,6 @@ void packetmath_gpu_half_core() {
   // Exhaustive: every value a half can hold.
   const std::vector<Scalar> all = all_half_values();
   const Buffer<Scalar> in = Eigen::Map<const Buffer<Scalar>>(all.data(), all.size());
-  const int n = int(in.size()) / kSize;
 
   check_unary<Packet, op_identity>(
       in, [](Scalar x) { return x; }, bits_and_payload);
@@ -1260,10 +1268,16 @@ void packetmath_gpu_bool_fallback() {
 void packetmath_gpu_bfloat16_fallback() {
   using Scalar = Eigen::bfloat16;
   const compare_bits<Scalar> bits{true};
-  const std::vector<float> specials = special_values<float>();
+  std::vector<Scalar> specials;
+  for (float x : special_values<float>()) specials.push_back(Scalar(x));
+  // float denorm_min rounds to 0x0000 and float min - denorm_min rounds to 0x0080, so add raw bfloat16 subnormals.
+  for (uint16_t raw :
+       {uint16_t(0x0001), uint16_t(0x0002), uint16_t(0x007f), uint16_t(0x8001), uint16_t(0x8002), uint16_t(0x807f)}) {
+    specials.push_back(bit_cast<Scalar>(raw));
+  }
   binary_inputs<Scalar> pairs;
-  for (float x : specials) {
-    for (float y : specials) pairs.push(Scalar(x), Scalar(y));
+  for (Scalar x : specials) {
+    for (Scalar y : specials) pairs.push(x, y);
   }
   for (int k = 0; k < 1 << 12; ++k) {
     pairs.push(Scalar(Eigen::internal::random<float>(-4.0f, 4.0f)),
@@ -1271,6 +1285,12 @@ void packetmath_gpu_bfloat16_fallback() {
   }
   const Buffer<Scalar> in = Eigen::Map<const Buffer<Scalar>>(pairs.a.data(), pairs.size());
   check_scalar_fallback_common<Scalar>(pairs, in);
+  check_binary<Scalar, op_cmp_ne>(
+      pairs, [](Scalar x, Scalar y) { return x != y ? Eigen::internal::ptrue(x) : Eigen::internal::pzero(x); }, bits);
+  check_binary<Scalar, op_cmp_gt>(
+      pairs, [](Scalar x, Scalar y) { return x > y ? Eigen::internal::ptrue(x) : Eigen::internal::pzero(x); }, bits);
+  check_binary<Scalar, op_cmp_ge>(
+      pairs, [](Scalar x, Scalar y) { return x >= y ? Eigen::internal::ptrue(x) : Eigen::internal::pzero(x); }, bits);
   check_unary<Scalar, op_pnegate>(in, test::negate<Scalar>, bits);
   check_unary<Scalar, op_pabs>(
       in, [](Scalar x) { return Eigen::internal::pabs(x); }, bits);
@@ -1310,7 +1330,9 @@ void host_pass_instantiation() {
   VERIFY(clamped(1) >= 0.0f && clamped(1) <= 1.0f);
 }
 
-}  // namespace
+}  // namespace packetmath_gpu_test
+
+using namespace packetmath_gpu_test;
 
 EIGEN_DECLARE_TEST(packetmath_gpu) {
   ei_test_init_gpu();

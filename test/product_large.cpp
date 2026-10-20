@@ -11,10 +11,11 @@
 #include "product.h"
 #include <Eigen/LU>
 
-#if (defined(EIGEN_VECTORIZE_ALTIVEC) || defined(EIGEN_VECTORIZE_VSX)) && defined(__unix__)
+#if defined(__unix__)
 #include <sys/mman.h>
 #include <unistd.h>
 
+#if defined(EIGEN_VECTORIZE_ALTIVEC) || defined(EIGEN_VECTORIZE_VSX)
 template <int>
 void gemv_bfloat16_strided_tail() {
   using MatrixType = Matrix<bfloat16, Dynamic, Dynamic, RowMajor>;
@@ -42,6 +43,101 @@ void gemv_bfloat16_strided_tail() {
   }
   VERIFY_IS_EQUAL(munmap(storage, 2 * page_size), 0);
 }
+#endif
+
+#if (defined(EIGEN_VECTORIZE_AVX512) && EIGEN_USE_AVX512_GEMM_KERNELS) || defined(EIGEN_VECTORIZE_VSX)
+// Place packed A, packed B, and C right before PROT_NONE guard pages to catch
+// any out-of-bounds lookahead or tail over-read in GEBP kernels.
+template <typename Scalar, int ResIncr = Dynamic>
+void gebp_guard_page_tail() {
+  struct GuardedArena {
+    long page_size;
+    std::size_t data_pages;
+    std::size_t map_bytes;
+    char* raw;
+
+    explicit GuardedArena(std::size_t max_bytes) {
+      page_size = sysconf(_SC_PAGESIZE);
+      VERIFY(page_size > 0);
+      data_pages = (max_bytes + page_size - 1) / page_size;
+      if (data_pages == 0) data_pages = 1;
+      map_bytes = (data_pages + 1) * page_size;
+      raw = static_cast<char*>(mmap(nullptr, map_bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+      VERIFY(raw != MAP_FAILED);
+      VERIFY_IS_EQUAL(mprotect(raw + data_pages * page_size, page_size, PROT_NONE), 0);
+    }
+    ~GuardedArena() { VERIFY_IS_EQUAL(munmap(raw, map_bytes), 0); }
+
+    // The last start aligned to `alignment` bytes from which n_elems fit before the guard page.
+    Scalar* place_at_end(std::size_t n_elems, std::size_t alignment = alignof(Scalar)) {
+      const std::size_t end = data_pages * page_size;
+      VERIFY(n_elems * sizeof(Scalar) <= end);
+      return reinterpret_cast<Scalar*>(raw + numext::round_down(end - n_elems * sizeof(Scalar), alignment));
+    }
+  };
+
+  using Traits = internal::gebp_traits<Scalar, Scalar>;
+  using ResMapper = internal::blas_data_mapper<Scalar, Index, ColMajor, Unaligned, ResIncr>;
+  using LhsMapper = internal::const_blas_data_mapper<Scalar, Index, ColMajor>;
+  using RhsMapper = internal::const_blas_data_mapper<Scalar, Index, ColMajor>;
+  internal::gemm_pack_lhs<Scalar, Index, LhsMapper, Traits::mr, Traits::LhsProgress, typename Traits::LhsPacket4Packing,
+                          ColMajor>
+      pack_lhs;
+  internal::gemm_pack_rhs<Scalar, Index, RhsMapper, Traits::nr, ColMajor> pack_rhs;
+  internal::gebp_kernel<Scalar, Scalar, Index, ResMapper, Traits::mr, Traits::nr, false, false> gebp;
+
+  GuardedArena arenaA(64 * 64 * sizeof(Scalar));
+  GuardedArena arenaB(64 * 64 * sizeof(Scalar));
+  GuardedArena arenaC(64 * 64 * 2 * sizeof(Scalar));
+
+  for (Index m : {0, 1, 2, 3, 4, 8, 16, 24, 32, 48, 53}) {
+    for (Index n : {0, 1, 2, 3, 4, 5, 8, 9, 13}) {
+      for (Index k : {0, 1, 2, 3, 4, 5, 8, 9, 17}) {
+        Matrix<Scalar, Dynamic, Dynamic, ColMajor> A = Matrix<Scalar, Dynamic, Dynamic, ColMajor>::Random(m, k);
+        Matrix<Scalar, Dynamic, Dynamic, ColMajor> B = Matrix<Scalar, Dynamic, Dynamic, ColMajor>::Random(k, n);
+        Matrix<Scalar, Dynamic, Dynamic, ColMajor> C0 = Matrix<Scalar, Dynamic, Dynamic, ColMajor>::Random(m, n);
+
+        // GEMM allocates packed blocks EIGEN_DEFAULT_ALIGN_BYTES-aligned, and GEBP may load them with aligned
+        // packets. The resulting gap before the guard page is the smallest a real block can leave before a page end.
+        Scalar* blockA = arenaA.place_at_end(m * k, EIGEN_DEFAULT_ALIGN_BYTES);
+        Scalar* blockB = arenaB.place_at_end(k * n, EIGEN_DEFAULT_ALIGN_BYTES);
+        if (m > 0 && k > 0) {
+          Matrix<Scalar, Dynamic, 1> packedA(m * k);
+          pack_lhs(packedA.data(), LhsMapper(A.data(), A.outerStride()), k, m);
+          std::copy_n(packedA.data(), m * k, blockA);
+        }
+        if (k > 0 && n > 0) {
+          pack_rhs(blockB, RhsMapper(B.data(), B.outerStride()), k, n);
+        }
+
+        for (Index inc : {1, 2}) {
+          if (ResIncr == 1 && inc != 1) continue;
+          for (Scalar alpha : {Scalar(1), Scalar(2)}) {
+            Index ldc = m * inc;
+            Scalar* C = arenaC.place_at_end(ldc * n);
+            for (Index j = 0; j < n; ++j) {
+              for (Index i = 0; i < m; ++i) {
+                C[j * ldc + i * inc] = C0(i, j);
+              }
+            }
+
+            ResMapper res(C, ldc, inc);
+            gebp(res, blockA, blockB, m, k, n, alpha, -1, -1, 0, 0);
+
+            if (m > 0 && n > 0) {
+              Matrix<Scalar, Dynamic, Dynamic, ColMajor> Cref = C0;
+              if (k > 0) Cref.noalias() += alpha * (A * B);
+              Map<const Matrix<Scalar, Dynamic, Dynamic, ColMajor>, 0, InnerStride<Dynamic>> Cmap(
+                  C, m, n, InnerStride<Dynamic>(inc));
+              VERIFY_IS_APPROX(Cmap, Cref);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+#endif
 #endif
 
 template <typename T>
@@ -375,6 +471,17 @@ EIGEN_DECLARE_TEST(product_large) {
   CALL_SUBTEST_6(gemv_small_cols_systematic<0>());
   CALL_SUBTEST_6(gemv_rowmajor_large_stride_varied_rows<0>());
   CALL_SUBTEST_6(product_extreme_aspect_ratios<0>());
+#if defined(__unix__) && \
+    ((defined(EIGEN_VECTORIZE_AVX512) && EIGEN_USE_AVX512_GEMM_KERNELS) || defined(EIGEN_VECTORIZE_VSX))
+  CALL_SUBTEST_6(gebp_guard_page_tail<float>());
+  CALL_SUBTEST_6(gebp_guard_page_tail<double>());
+  CALL_SUBTEST_6(gebp_guard_page_tail<std::complex<float>>());
+  CALL_SUBTEST_6(gebp_guard_page_tail<std::complex<double>>());
+  CALL_SUBTEST_6((gebp_guard_page_tail<float, 1>()));
+  CALL_SUBTEST_6((gebp_guard_page_tail<double, 1>()));
+  CALL_SUBTEST_6((gebp_guard_page_tail<std::complex<float>, 1>()));
+  CALL_SUBTEST_6((gebp_guard_page_tail<std::complex<double>, 1>()));
+#endif
 
   // Regression test for bug 714:
 #if defined EIGEN_HAS_OPENMP

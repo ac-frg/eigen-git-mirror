@@ -56,16 +56,7 @@ struct packet_traits<std::complex<float>> : default_packet_traits {
 
     HasSqrt = 1,
     HasLog = 1,
-    // pexp_complex evaluates exp(a+bi) as e^a * (cos b + i sin b), and psin for
-    // PacketXf returns |sin| under -ffast-math with GCC (13 through 15): the
-    // magnitude is right but the sign is dropped, so exp of any value with a
-    // negative imaginary part comes out conjugated. clang is unaffected, as is
-    // NEON under either compiler, and every primitive psincos_float uses checks
-    // out in isolation -- a verbatim copy of its body in another translation
-    // unit gives the right answer with the same flags. Until that is resolved,
-    // leave exp to the scalar path. See
-    // https://gitlab.com/libeigen/eigen/-/issues/3132.
-    HasExp = 0
+    HasExp = 1
   };
 };
 
@@ -93,10 +84,7 @@ struct packet_traits<std::complex<double>> : default_packet_traits {
 
     HasSqrt = 1,
     HasLog = 1,
-    // As for complex<float>: pexp_complex reaches psin, which drops the sign
-    // under -ffast-math with GCC. See
-    // https://gitlab.com/libeigen/eigen/-/issues/3132.
-    HasExp = 0
+    HasExp = 1
   };
 };
 
@@ -463,8 +451,8 @@ EIGEN_SVE_COMPLEX_DELEGATE(PacketXcf)
 EIGEN_SVE_COMPLEX_DELEGATE(PacketXcd)
 #undef EIGEN_SVE_COMPLEX_DELEGATE
 
-EIGEN_INSTANTIATE_COMPLEX_MATH_FUNCS_NO_EXP(PacketXcf)
-EIGEN_INSTANTIATE_COMPLEX_MATH_FUNCS_NO_EXP(PacketXcd)
+EIGEN_INSTANTIATE_COMPLEX_MATH_FUNCS(PacketXcf)
+EIGEN_INSTANTIATE_COMPLEX_MATH_FUNCS(PacketXcd)
 
 // A complex value is exactly one 64-bit lane, so transposing complex packets is
 // a zip network run on 64-bit elements.
@@ -485,6 +473,40 @@ EIGEN_DEVICE_FUNC inline void ptranspose(PacketBlock<PacketXcf, N>& kernel) {
 
 EIGEN_MAKE_CONJ_HELPER_CPLX_REAL(PacketXcf, PacketXf)
 EIGEN_MAKE_CONJ_HELPER_CPLX_REAL(PacketXcd, PacketXd)
+
+/*---------------- load/store segment support ----------------*/
+
+// A complex lane is two real lanes, so the predicate is formed over 2 * begin and 2 * count.
+
+template <>
+struct has_packet_segment<PacketXcf> : std::true_type {};
+
+template <>
+inline PacketXcf ploaduSegment<PacketXcf>(const std::complex<float>* from, Index begin, Index count) {
+  return PacketXcf(svld1_f32(sve_segment_predicate_b32(2 * begin, 2 * count), reinterpret_cast<const float*>(from)));
+}
+
+template <>
+inline void pstoreuSegment<std::complex<float>, PacketXcf>(std::complex<float>* to, const PacketXcf& from, Index begin,
+                                                           Index count) {
+  svst1_f32(sve_segment_predicate_b32(2 * begin, 2 * count), reinterpret_cast<float*>(to), from.v);
+}
+
+template <>
+struct has_packet_segment<PacketXcd> : std::true_type {};
+
+template <>
+inline PacketXcd ploaduSegment<PacketXcd>(const std::complex<double>* from, Index begin, Index count) {
+  return PacketXcd(svld1_f64(sve_segment_predicate_b64(2 * begin, 2 * count), reinterpret_cast<const double*>(from)));
+}
+
+template <>
+inline void pstoreuSegment<std::complex<double>, PacketXcd>(std::complex<double>* to, const PacketXcd& from,
+                                                            Index begin, Index count) {
+  svst1_f64(sve_segment_predicate_b64(2 * begin, 2 * count), reinterpret_cast<double*>(to), from.v);
+}
+
+/*---------------- end load/store segment support ----------------*/
 
 }  // end namespace internal
 }  // end namespace Eigen

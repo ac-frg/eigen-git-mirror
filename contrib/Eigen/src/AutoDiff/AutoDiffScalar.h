@@ -431,6 +431,18 @@ template <typename DerType>
 inline typename DerType::Scalar imag(const AutoDiffScalar<DerType>&) {
   return 0.;
 }
+template <typename DerType>
+inline bool(isnan)(const AutoDiffScalar<DerType>& x) {
+  return (numext::isnan)(x.value());
+}
+template <typename DerType>
+inline bool(isinf)(const AutoDiffScalar<DerType>& x) {
+  return (numext::isinf)(x.value());
+}
+template <typename DerType>
+inline bool(isfinite)(const AutoDiffScalar<DerType>& x) {
+  return (numext::isfinite)(x.value());
+}
 template <typename DerType, typename T>
 inline typename CleanedUpDerType<DerType>::type(min)(const AutoDiffScalar<DerType>& x, const T& y) {
   typedef typename CleanedUpDerType<DerType>::type ADS;
@@ -508,7 +520,9 @@ inline AutoDiffScalar<Matrix<typename internal::traits<internal::remove_all_t<De
   Scalar squared_hypot = a.value() * a.value() + b.value() * b.value();
 
   // if (squared_hypot==0) the derivation is undefined and the following results in a NaN:
-  ret.derivatives() = (a.derivatives() * b.value() - a.value() * b.derivatives()) / squared_hypot;
+  ret.derivatives() = internal::MakeCoherentCwiseBinaryOp<internal::scalar_difference_op<Scalar>>(
+                          a.derivatives() * b.value(), b.derivatives() * a.value()) /
+                      squared_hypot;
 
   return ret;
 }

@@ -410,6 +410,9 @@ static void test_mixed_index_list() {
   EIGEN_STATIC_ASSERT((internal::all_indices_known_statically<ReductionIndices>() == false), YOU_MADE_A_PROGRAMMING_MISTAKE);
   EIGEN_STATIC_ASSERT((internal::indices_statically_known_to_increase<ReductionIndices>() == false), YOU_MADE_A_PROGRAMMING_MISTAKE);
 #endif
+  // A runtime entry below a static one does not make the list statically increasing.
+  EIGEN_STATIC_ASSERT((internal::indices_statically_known_to_increase<IndexList<int, type2index<1>>>() == false),
+                      YOU_MADE_A_PROGRAMMING_MISTAKE);
 
   typedef IndexList<type2index<0>, type2index<1>, type2index<2>, type2index<3>> ReductionList;
   ReductionList reduction_list;
@@ -449,7 +452,22 @@ static void test_dim_check() {
   VERIFY(dimensions_match(dim1, dim2));
 }
 
+// A volatile pointer forces odr-use even when optimization could fold the value.
+template <typename T>
+T read_through_address(const T& value) {
+  const T* volatile address = &value;
+  return *address;
+}
+
+static void test_static_index_odr_use() {
+  VERIFY_IS_EQUAL(read_through_address(Eigen::type2index<3>::value), Index(3));
+  VERIFY_IS_EQUAL(read_through_address(Eigen::type2index<-3>::value), Index(-3));
+  VERIFY_IS_EQUAL((read_through_address(Eigen::type2indexpair<1, -2>::first)), Index(1));
+  VERIFY_IS_EQUAL((read_through_address(Eigen::type2indexpair<1, -2>::second)), Index(-2));
+}
+
 EIGEN_DECLARE_TEST(tensor_index_list) {
+  CALL_SUBTEST(test_static_index_odr_use());
   CALL_SUBTEST(test_static_index_list());
   CALL_SUBTEST(test_type2index_list());
   CALL_SUBTEST(test_type2indexpair_list());

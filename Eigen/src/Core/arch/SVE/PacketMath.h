@@ -261,18 +261,29 @@ EIGEN_STRONG_INLINE void pstoreu<numext::int32_t>(numext::int32_t* to, const Pac
   EIGEN_DEBUG_UNALIGNED_STORE svst1_s32(svptrue_b32(), to, from);
 }
 
+// The 32-bit gathers and scatters address lane i through the int32 index i * stride. Where that would overflow, the
+// lanes are addressed one at a time.
+EIGEN_STRONG_INLINE bool sve_s32index_fits(Index stride) {
+  const Index max_stride = Index(NumTraits<numext::int32_t>::highest()) / Index(EIGEN_ARM64_SVE_VL / 32 - 1);
+  return stride <= max_stride && stride >= -max_stride;
+}
+
 template <>
 EIGEN_DEVICE_FUNC inline PacketXi pgather<numext::int32_t, PacketXi>(const numext::int32_t* from, Index stride) {
+  if (!sve_s32index_fits(stride))
+    return pgather_partial<numext::int32_t, PacketXi>(from, stride, unpacket_traits<PacketXi>::size);
   // Index format: {base=0, base+stride, base+stride*2, base+stride*3, ...}
-  svint32_t indices = svindex_s32(0, stride);
+  svint32_t indices = svindex_s32(0, numext::int32_t(stride));
   return svld1_gather_s32index_s32(svptrue_b32(), from, indices);
 }
 
 template <>
 EIGEN_DEVICE_FUNC inline void pscatter<numext::int32_t, PacketXi>(numext::int32_t* to, const PacketXi& from,
                                                                   Index stride) {
+  if (!sve_s32index_fits(stride))
+    return pscatter_partial<numext::int32_t, PacketXi>(to, from, stride, unpacket_traits<PacketXi>::size);
   // Index format: {base=0, base+stride, base+stride*2, base+stride*3, ...}
-  svint32_t indices = svindex_s32(0, stride);
+  svint32_t indices = svindex_s32(0, numext::int32_t(stride));
   svst1_scatter_s32index_s32(svptrue_b32(), to, indices, from);
 }
 
@@ -888,15 +899,19 @@ EIGEN_STRONG_INLINE void pstoreu<float>(float* to, const PacketXf& from) {
 
 template <>
 EIGEN_DEVICE_FUNC inline PacketXf pgather<float, PacketXf>(const float* from, Index stride) {
+  if (!sve_s32index_fits(stride))
+    return pgather_partial<float, PacketXf>(from, stride, unpacket_traits<PacketXf>::size);
   // Index format: {base=0, base+stride, base+stride*2, base+stride*3, ...}
-  svint32_t indices = svindex_s32(0, stride);
+  svint32_t indices = svindex_s32(0, numext::int32_t(stride));
   return svld1_gather_s32index_f32(svptrue_b32(), from, indices);
 }
 
 template <>
 EIGEN_DEVICE_FUNC inline void pscatter<float, PacketXf>(float* to, const PacketXf& from, Index stride) {
+  if (!sve_s32index_fits(stride))
+    return pscatter_partial<float, PacketXf>(to, from, stride, unpacket_traits<PacketXf>::size);
   // Index format: {base=0, base+stride, base+stride*2, base+stride*3, ...}
-  svint32_t indices = svindex_s32(0, stride);
+  svint32_t indices = svindex_s32(0, numext::int32_t(stride));
   svst1_scatter_s32index_f32(svptrue_b32(), to, indices, from);
 }
 
@@ -989,7 +1004,8 @@ EIGEN_DEVICE_FUNC inline void ptranspose(PacketBlock<PacketXf, N>& kernel) {
 
 template <>
 EIGEN_STRONG_INLINE PacketXf pldexp<PacketXf>(const PacketXf& a, const PacketXf& exponent) {
-  return pldexp_generic(a, exponent);
+  // fscale is a * 2^n rounded once; the conversion saturates, and a saturated n over- or underflows every finite a.
+  return svscale_f32_x(svptrue_b32(), a, svcvt_s32_f32_x(svptrue_b32(), exponent));
 }
 
 template <>
@@ -1034,13 +1050,9 @@ struct packet_traits<double> : default_packet_traits {
     HasRsqrt = 1,
     // asin and acos are absent from EIGEN_INSTANTIATE_GENERIC_MATH_FUNCS_DOUBLE,
     // so they stay scalar.
-    //
-    // sin, cos and tan stay off despite being available: psin, pcos and ptan
-    // return the magnitude with the sign dropped under -ffast-math with GCC.
-    // Turning them on here would extend that to double, where the scalar path
-    // is correct today. tanh, exp, log, atan and cbrt are unaffected -- checked
-    // against the scalar reference under -ffast-math -- so they are on. See
-    // https://gitlab.com/libeigen/eigen/-/issues/3132.
+    HasSin = EIGEN_FAST_MATH,
+    HasCos = EIGEN_FAST_MATH,
+    HasTan = EIGEN_FAST_MATH,
     HasATan = 1,
     HasATanh = 1,
     HasLog = 1,
@@ -1367,7 +1379,7 @@ EIGEN_STRONG_INLINE PacketXd pfrexp<PacketXd>(const PacketXd& a, PacketXd& expon
 
 template <>
 EIGEN_STRONG_INLINE PacketXd pldexp<PacketXd>(const PacketXd& a, const PacketXd& exponent) {
-  return pldexp_generic(a, exponent);
+  return svscale_f64_x(svptrue_b64(), a, svcvt_s64_f64_x(svptrue_b64(), exponent));  // see pldexp<PacketXf>
 }
 
 template <>
@@ -1382,6 +1394,86 @@ EIGEN_STRONG_INLINE PacketXd prsqrt<PacketXd>(const PacketXd& a) {
   // which is slow enough here to lose to the scalar loop.
   return generic_rsqrt_newton_step<PacketXd, /*Steps=*/3>::run(a, svrsqrte_f64(a));
 }
+
+/*---------------- load/store segment support ----------------*/
+
+// Predicates with lanes [begin, begin + count) active. begin is a literal 0 at the assignment
+// call sites, so that branch folds and the common case is a single whilelt.
+EIGEN_STRONG_INLINE svbool_t sve_segment_predicate_b32(Index begin, Index count) {
+  eigen_assert(begin >= 0 && count >= 0);
+  if (begin == 0) return svwhilelt_b32(uint64_t(0), uint64_t(count));
+  return svnot_b_z(svwhilelt_b32(uint64_t(0), uint64_t(begin + count)), svwhilelt_b32(uint64_t(0), uint64_t(begin)));
+}
+
+EIGEN_STRONG_INLINE svbool_t sve_segment_predicate_b64(Index begin, Index count) {
+  eigen_assert(begin >= 0 && count >= 0);
+  if (begin == 0) return svwhilelt_b64(uint64_t(0), uint64_t(count));
+  return svnot_b_z(svwhilelt_b64(uint64_t(0), uint64_t(begin + count)), svwhilelt_b64(uint64_t(0), uint64_t(begin)));
+}
+
+/*---------------- int32 ----------------*/
+
+template <>
+struct has_packet_segment<PacketXi> : std::true_type {};
+
+template <>
+inline PacketXi ploaduSegment<PacketXi>(const numext::int32_t* from, Index begin, Index count) {
+  return svld1_s32(sve_segment_predicate_b32(begin, count), from);
+}
+
+template <>
+inline void pstoreuSegment<numext::int32_t, PacketXi>(numext::int32_t* to, const PacketXi& from, Index begin,
+                                                      Index count) {
+  svst1_s32(sve_segment_predicate_b32(begin, count), to, from);
+}
+
+/*---------------- int64 ----------------*/
+
+template <>
+struct has_packet_segment<PacketXl> : std::true_type {};
+
+template <>
+inline PacketXl ploaduSegment<PacketXl>(const numext::int64_t* from, Index begin, Index count) {
+  return svld1_s64(sve_segment_predicate_b64(begin, count), from);
+}
+
+template <>
+inline void pstoreuSegment<numext::int64_t, PacketXl>(numext::int64_t* to, const PacketXl& from, Index begin,
+                                                      Index count) {
+  svst1_s64(sve_segment_predicate_b64(begin, count), to, from);
+}
+
+/*---------------- float ----------------*/
+
+template <>
+struct has_packet_segment<PacketXf> : std::true_type {};
+
+template <>
+inline PacketXf ploaduSegment<PacketXf>(const float* from, Index begin, Index count) {
+  return svld1_f32(sve_segment_predicate_b32(begin, count), from);
+}
+
+template <>
+inline void pstoreuSegment<float, PacketXf>(float* to, const PacketXf& from, Index begin, Index count) {
+  svst1_f32(sve_segment_predicate_b32(begin, count), to, from);
+}
+
+/*---------------- double ----------------*/
+
+template <>
+struct has_packet_segment<PacketXd> : std::true_type {};
+
+template <>
+inline PacketXd ploaduSegment<PacketXd>(const double* from, Index begin, Index count) {
+  return svld1_f64(sve_segment_predicate_b64(begin, count), from);
+}
+
+template <>
+inline void pstoreuSegment<double, PacketXd>(double* to, const PacketXd& from, Index begin, Index count) {
+  svst1_f64(sve_segment_predicate_b64(begin, count), to, from);
+}
+
+/*---------------- end load/store segment support ----------------*/
 
 }  // namespace internal
 }  // namespace Eigen

@@ -92,6 +92,10 @@ struct evaluator_traits<Hankel<Scalar_, Rows_, Cols_>> {
  * \tparam Rows_ the number of rows at compile time, or \c Dynamic (the default).
  * \tparam Cols_ the number of columns at compile time, or \c Dynamic (the default).
  *
+ * \par Examples
+ * \ref StructuredExamplePade "Pade approximation",
+ * \ref StructuredExampleProny "Prony's method".
+ *
  * \sa class Toeplitz, class Circulant, makeHankel()
  */
 template <typename Scalar_, int Rows_, int Cols_>
@@ -134,13 +138,13 @@ class Hankel : public EigenBase<Hankel<Scalar_, Rows_, Cols_>> {
     EIGEN_STATIC_ASSERT_VECTOR_ONLY(ColDerived)
     EIGEN_STATIC_ASSERT_VECTOR_ONLY(RowDerived)
     const Index m = col.size(), n = row.size();
-    eigen_assert(m > 0 && n > 0 && "Hankel generators must be non-empty");
+    EIGEN_INTERNAL_ASSERT_NONEMPTY_SIZE_MSG(col, m, "Hankel generators must be non-empty");
+    EIGEN_INTERNAL_ASSERT_NONEMPTY_SIZE_MSG(row, n, "Hankel generators must be non-empty");
     m_h.resize(m + n - 1);
     m_h.head(m) = col;
     if (n > 1) m_h.tail(n - 1) = row.tail(n - 1);
     if (m > 1 && n > 1 && (m > internal::structured_direct_threshold() || n > internal::structured_direct_threshold()))
       m_symbol = computeSymbol();
-    m_fftUsable = computeFftUsable();
   }
 
   EIGEN_DEVICE_FUNC Index rows() const { return m_rows.value(); }
@@ -211,11 +215,8 @@ class Hankel : public EigenBase<Hankel<Scalar_, Rows_, Cols_>> {
    * the solution rows. */
   template <typename Rhs>
   Matrix<Scalar, SolveRowsAtCompileTime, Rhs::ColsAtCompileTime> solve(const MatrixBase<Rhs>& b) const {
-    EIGEN_STATIC_ASSERT(RowsAtCompileTime == Dynamic || Rhs::RowsAtCompileTime == Dynamic ||
-                            int(RowsAtCompileTime) == int(Rhs::RowsAtCompileTime),
-                        YOU_MIXED_MATRICES_OF_DIFFERENT_SIZES)
-    eigen_assert(rows() == cols() && "Hankel::solve requires a square matrix");
-    eigen_assert(b.rows() == rows() && "right-hand side has the wrong number of rows");
+    EIGEN_INTERNAL_ASSERT_SQUARE_MSG(*this, "Hankel::solve requires a square matrix");
+    EIGEN_INTERNAL_ASSERT_SOLVER_RHS_MSG(*this, b, false, "right-hand side has the wrong number of rows");
     LookAheadLevinson<Scalar> levinson(toToeplitz());
     eigen_assert(levinson.info() == Success &&
                  "Hankel::solve: the Levinson recursion broke down; "
@@ -261,10 +262,6 @@ class Hankel : public EigenBase<Hankel<Scalar_, Rows_, Cols_>> {
    * aliasing between the destination and \a x, and \c .noalias() skips it. */
   template <typename Rhs>
   Product<Hankel, Rhs> operator*(const MatrixBase<Rhs>& x) const {
-    EIGEN_STATIC_ASSERT(ColsAtCompileTime == Dynamic || Rhs::RowsAtCompileTime == Dynamic ||
-                            int(ColsAtCompileTime) == int(Rhs::RowsAtCompileTime),
-                        INVALID_MATRIX_PRODUCT)
-    eigen_assert(x.rows() == cols() && "invalid product: dimensions do not match");
     return Product<Hankel, Rhs>(*this, x.derived());
   }
 
@@ -275,28 +272,18 @@ class Hankel : public EigenBase<Hankel<Scalar_, Rows_, Cols_>> {
    * The FFT path evaluates the circular convolution
    * \f[ (Hx)_i = \sum_{j=0}^{n-1} h_{i+j} x_j. \f]
    * Reversing \f$x\f$ and rotating the padded symbol by \f$n-1\f$ places these
-   * entries at the start of the inverse transform.
-   *
-   * Non-finite data takes the direct kernels: the transforms would smear a
-   * single Inf/NaN into NaNs across the whole output, where the dense product
-   * only propagates it through the dot products that touch it. A non-finite
-   * generating sequence or cached symbol (which can overflow even for a finite
-   * sequence) routes the whole product; a non-finite right-hand-side column is
-   * detected inside the FFT loop -- in the same pass that derives its scaling
-   * exponent, so finite data pays no extra scan -- and falls back per column. */
+   * entries at the start of the inverse transform. */
   template <typename Dest, typename Rhs, typename ProductScalar>
   void addProduct(Dest& dst, const Rhs& rhs, const ProductScalar& alpha) const {
     const Index m = rows(), n = cols();
-    eigen_assert(rhs.rows() == n && "invalid product: dimensions do not match");
+    EIGEN_INTERNAL_ASSERT_PRODUCT_SHAPE_MSG(*this, rhs, "invalid product: dimensions do not match");
     const bool small = m == 1 || n == 1 ||
                        (m <= internal::structured_direct_threshold() && n <= internal::structured_direct_threshold());
-    if (small || !m_fftUsable) {
+    if (small) {
       directProduct(dst, rhs, alpha);
       return;
     }
-    // Reversal preserves which right-hand-side columns need the direct fallback.
-    internal::structured_fft_apply(dst, m_symbol, m, rhs.colwise().reverse(), alpha,
-                                   [&](Index k) { directProductColumn(dst, rhs, k, alpha); });
+    internal::structured_fft_apply(dst, m_symbol, m, rhs.colwise().reverse(), alpha);
   }
 
  private:
@@ -308,20 +295,12 @@ class Hankel : public EigenBase<Hankel<Scalar_, Rows_, Cols_>> {
    * public constructor. Used by transpose(), conjugate() and adjoint(), whose
    * symbols are cheap transformations of the existing one. */
   Hankel(const GeneratorType& h, Index rows, Index cols, const ComplexVector& symbol)
-      : m_rows(rows), m_cols(cols), m_h(h), m_symbol(symbol), m_fftUsable(computeFftUsable()) {}
-
-  /** \internal Whether products may take the FFT path: the generating sequence
-   * and the cached symbol must be finite. The symbol accumulates up to p addends,
-   * so it can overflow to Inf even for a finite sequence; such operators fall
-   * back to the direct kernels, which stay exact. */
-  bool computeFftUsable() const { return m_h.allFinite() && (m_symbol.size() == 0 || m_symbol.allFinite()); }
+      : m_rows(rows), m_cols(cols), m_h(h), m_symbol(symbol) {}
 
   /** \internal Direct kernel for column \a k of the right-hand side: computes
    * \c dst.col(k) += alpha * (*this) * rhs.col(k) without transforms. Serves
-   * operators below the FFT threshold, single-row and single-column operators
-   * (whose products cost O(n) directly, however large the operator), and any
-   * column involving non-finite data, whose entrywise IEEE semantics the
-   * transforms cannot preserve. */
+   * operators below the FFT threshold and single-row and single-column operators
+   * (whose products cost O(n) directly, however large the operator). */
   template <typename Dest, typename Rhs, typename ProductScalar>
   void directProductColumn(Dest& dst, const Rhs& rhs, Index k, const ProductScalar& alpha) const {
     const Index m = rows(), n = cols();
@@ -424,7 +403,6 @@ class Hankel : public EigenBase<Hankel<Scalar_, Rows_, Cols_>> {
   internal::variable_if_dynamic<Index, ColsAtCompileTime> m_cols;
   GeneratorType m_h;
   ComplexVector m_symbol;
-  bool m_fftUsable;
 };
 
 /** \ingroup StructuredMatrices_Module
@@ -445,6 +423,27 @@ struct generic_product_impl<Hankel<Scalar_, Rows_, Cols_>, Rhs, StructuredShape,
     : structured_product_impl<Hankel<Scalar_, Rows_, Cols_>, Rhs> {};
 
 }  // namespace internal
+
+#if EIGEN_COMP_CXXVER < 17
+template <typename Scalar_, int Rows_, int Cols_>
+constexpr int Hankel<Scalar_, Rows_, Cols_>::RowsAtCompileTime;
+template <typename Scalar_, int Rows_, int Cols_>
+constexpr int Hankel<Scalar_, Rows_, Cols_>::ColsAtCompileTime;
+template <typename Scalar_, int Rows_, int Cols_>
+constexpr int Hankel<Scalar_, Rows_, Cols_>::MaxRowsAtCompileTime;
+template <typename Scalar_, int Rows_, int Cols_>
+constexpr int Hankel<Scalar_, Rows_, Cols_>::MaxColsAtCompileTime;
+template <typename Scalar_, int Rows_, int Cols_>
+constexpr int Hankel<Scalar_, Rows_, Cols_>::SizeAtCompileTime;
+template <typename Scalar_, int Rows_, int Cols_>
+constexpr int Hankel<Scalar_, Rows_, Cols_>::MaxSizeAtCompileTime;
+template <typename Scalar_, int Rows_, int Cols_>
+constexpr bool Hankel<Scalar_, Rows_, Cols_>::IsRowMajor;
+template <typename Scalar_, int Rows_, int Cols_>
+constexpr int Hankel<Scalar_, Rows_, Cols_>::GenSizeAtCompileTime;
+template <typename Scalar_, int Rows_, int Cols_>
+constexpr int Hankel<Scalar_, Rows_, Cols_>::SolveRowsAtCompileTime;
+#endif
 
 }  // namespace Eigen
 

@@ -63,7 +63,7 @@ class LLT {
   /** Factor a device-resident A immediately (D2D copy). */
   explicit LLT(const DeviceMatrix<Scalar>& d_A) { compute(d_A); }
 
-  /** Factor a device-resident A immediately (adopt, no copy). */
+  /** Factor a device-resident A immediately (adopt, no copy; a view is copied). */
   explicit LLT(DeviceMatrix<Scalar>&& d_A) { compute(std::move(d_A)); }
 
   /** Bind to \p ctx and factor A immediately. */
@@ -74,6 +74,9 @@ class LLT {
 
   /** Bind to \p ctx and factor a device-resident A (D2D copy). */
   LLT(Context& ctx, const DeviceMatrix<Scalar>& d_A) : solver_ctx_(ctx) { compute(d_A); }
+
+  /** Bind to \p ctx and factor a device-resident A (adopt, no copy; a view is copied). */
+  LLT(Context& ctx, DeviceMatrix<Scalar>&& d_A) : solver_ctx_(ctx) { compute(std::move(d_A)); }
 
   ~LLT() = default;
 
@@ -139,8 +142,7 @@ class LLT {
   /** Compute the Cholesky factorization from a device matrix (move, no copy).
    * A view is copied instead: its storage belongs to another object. */
   LLT& compute(DeviceMatrix<Scalar>&& d_A) {
-    if (!internal::DeviceMatrixAccess::buffer(d_A).owns())
-      return compute(static_cast<const DeviceMatrix<Scalar>&>(d_A));
+    if (d_A.isView()) return compute(static_cast<const DeviceMatrix<Scalar>&>(d_A));
     eigen_assert(d_A.rows() == d_A.cols());
     if (!begin_compute(d_A.rows())) return *this;
 
@@ -160,6 +162,7 @@ class LLT {
     // the sync — use info() explicitly when failure must be detected.
     eigen_assert(solver_ctx_.info() == Success && "LLT::solve called on a failed or uninitialized factorization");
     eigen_assert(B.rows() == n_);
+    if (n_ == 0) return PlainMatrix(0, B.cols());
 
     const Ref<const PlainMatrix> rhs(B.derived());
     const int64_t nrhs = static_cast<int64_t>(rhs.cols());
@@ -203,7 +206,7 @@ class LLT {
    * no RHS copy and no allocation (potrs overwrites its RHS). A view is copied
    * instead: its storage belongs to another object. */
   DeviceMatrix<Scalar> solve(DeviceMatrix<Scalar>&& d_B) const {
-    if (!internal::DeviceMatrixAccess::buffer(d_B).owns()) return solve(static_cast<const DeviceMatrix<Scalar>&>(d_B));
+    if (d_B.isView()) return solve(static_cast<const DeviceMatrix<Scalar>&>(d_B));
     eigen_assert(solver_ctx_.info() == Success && "LLT::solve called on a failed or uninitialized factorization");
     eigen_assert(d_B.rows() == n_);
     const int64_t nrhs = static_cast<int64_t>(d_B.cols());
@@ -223,7 +226,7 @@ class LLT {
 
  private:
   mutable internal::GpuSolverContext solver_ctx_;
-  internal::DeviceBuffer d_factor_;  // grow-only
+  internal::DeviceBuffer d_factor_;  // adopted from an rvalue input, else grow-only
   int64_t n_ = 0;
   int64_t lda_ = 0;
 
@@ -246,8 +249,10 @@ class LLT {
     constexpr cudaDataType_t dtype = internal::cusolver_data_type<Scalar>::value;
     constexpr cublasFillMode_t uplo = internal::cusolver_fill_mode<UpLo_>::value;
 
-    EIGEN_CUSOLVER_CHECK(cusolverDnXpotrs(solver_ctx_.cusolverHandle(), solver_ctx_.params_.p, uplo, n_, nrhs, dtype,
-                                          d_factor_.get(), lda_, dtype, d_x.get(), ldb, solver_ctx_.scratch_info()));
+    // cuSOLVER rejects the empty problem's leading dimensions.
+    if (n_ > 0)
+      EIGEN_CUSOLVER_CHECK(cusolverDnXpotrs(solver_ctx_.cusolverHandle(), solver_ctx_.params_.p, uplo, n_, nrhs, dtype,
+                                            d_factor_.get(), lda_, dtype, d_x.get(), ldb, solver_ctx_.scratch_info()));
 
     DeviceMatrix<Scalar> result =
         internal::DeviceMatrixAccess::wrap<Scalar>(std::move(d_x), n_, static_cast<Index>(nrhs));

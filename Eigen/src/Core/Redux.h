@@ -46,6 +46,15 @@ struct redux_max_size<CwiseBinaryOp<Op, Lhs, Rhs>> {
       min_size_prefer_fixed(min_size_prefer_fixed(Left::Size, Right::Size), size_at_compile_time(Rows, Cols));
 };
 
+template <typename Op, typename Arg>
+struct redux_max_size<CwiseUnaryOp<Op, Arg>> : redux_max_size<remove_all_t<Arg>> {};
+
+template <typename Arg>
+struct redux_max_size<ArrayWrapper<Arg>> : redux_max_size<remove_all_t<Arg>> {};
+
+template <typename Arg>
+struct redux_max_size<MatrixWrapper<Arg>> : redux_max_size<remove_all_t<Arg>> {};
+
 template <typename Op, typename Arg1, typename Arg2, typename Arg3>
 struct redux_max_size<CwiseTernaryOp<Op, Arg1, Arg2, Arg3>> {
   using First = redux_max_size<remove_all_t<Arg1>>;
@@ -267,7 +276,7 @@ struct redux_impl<Func, Evaluator, DefaultTraversal, NoUnrolling> {
 
   template <typename XprType>
   EIGEN_DEVICE_FUNC static EIGEN_STRONG_INLINE Scalar run(const Evaluator& eval, const Func& func, const XprType& xpr) {
-    eigen_assert(xpr.rows() > 0 && xpr.cols() > 0 && "you are using an empty matrix");
+    EIGEN_INTERNAL_ASSERT_NONEMPTY(xpr);
     const Index innerSize = xpr.innerSize();
     const Index outerSize = xpr.outerSize();
     using Bounds = redux_max_size<XprType>;
@@ -345,7 +354,7 @@ struct redux_impl<Func, Evaluator, LinearTraversal, NoUnrolling> {
   template <typename XprType>
   EIGEN_DEVICE_FUNC static EIGEN_STRONG_INLINE Scalar run(const Evaluator& eval, const Func& func, const XprType& xpr) {
     const Index size = xpr.size();
-    eigen_assert(size > 0 && "you are using an empty matrix");
+    EIGEN_INTERNAL_ASSERT_NONEMPTY_SIZE(xpr, size);
     // Do not generate wide reduction bodies for bounded expressions that cannot
     // reach their cutoff (GCC can otherwise diagnose their unreachable loads).
     EIGEN_IF_CONSTEXPR (functor_is_commutative<Func>::value) {
@@ -529,7 +538,7 @@ struct redux_impl<Func, Evaluator, SliceVectorizedTraversal, Unrolling> {
 
   template <typename XprType>
   EIGEN_DEVICE_FUNC static Scalar run(const Evaluator& eval, const Func& func, const XprType& xpr) {
-    eigen_assert(xpr.rows() > 0 && xpr.cols() > 0 && "you are using an empty matrix");
+    EIGEN_INTERNAL_ASSERT_NONEMPTY(xpr);
     const Index innerSize = xpr.innerSize();
     const Index outerSize = xpr.outerSize();
     const Index packetedInnerSize = numext::round_down(innerSize, PacketSize);
@@ -630,7 +639,7 @@ struct redux_impl<Func, Evaluator, LinearVectorizedTraversal, CompleteUnrolling>
   template <typename XprType>
   EIGEN_DEVICE_FUNC static EIGEN_STRONG_INLINE Scalar run(const Evaluator& eval, const Func& func, const XprType& xpr) {
     EIGEN_ONLY_USED_FOR_DEBUG(xpr);
-    eigen_assert(xpr.rows() > 0 && xpr.cols() > 0 && "you are using an empty matrix");
+    EIGEN_INTERNAL_ASSERT_NONEMPTY(xpr);
     if (VectorizedSize > 0) {
       Scalar res = func.predux(
           redux_vec_linear_unroller<Func, Evaluator, 0, Size / PacketSize>::template run<PacketType>(eval, func));
@@ -731,6 +740,36 @@ struct redux_dispatch<Func, Evaluator, XprType, true> {
   }
 };
 
+// Convert identity to Scalar only for empty inputs; otherwise reduce without inserting it.
+// Tag dispatch avoids instantiating redux for statically empty inputs in C++14.
+// TODO(C++17): replace tag dispatch with if constexpr.
+template <typename Derived, typename Func, typename Identity>
+EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE typename Derived::Scalar redux_with_identity_impl(const DenseBase<Derived>&,
+                                                                                        const Func&,
+                                                                                        Identity&& identity,
+                                                                                        true_type) {
+  return typename Derived::Scalar(std::forward<Identity>(identity));
+}
+
+template <typename Derived, typename Func, typename Identity>
+EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE typename Derived::Scalar redux_with_identity_impl(const DenseBase<Derived>& xpr,
+                                                                                        const Func& func,
+                                                                                        Identity&& identity,
+                                                                                        false_type) {
+  EIGEN_IF_CONSTEXPR (Derived::SizeAtCompileTime == Dynamic) {
+    if (xpr.size() == 0) return typename Derived::Scalar(std::forward<Identity>(identity));
+  }
+  return xpr.derived().redux(func);
+}
+
+template <typename Derived, typename Func, typename Identity>
+EIGEN_DEVICE_FUNC EIGEN_ALWAYS_INLINE typename Derived::Scalar redux_with_identity(const DenseBase<Derived>& xpr,
+                                                                                   const Func& func,
+                                                                                   Identity&& identity) {
+  return redux_with_identity_impl(xpr, func, std::forward<Identity>(identity),
+                                  bool_constant<Derived::MaxSizeAtCompileTime == 0>());
+}
+
 }  // end namespace internal
 
 /***************************************************************************
@@ -753,7 +792,7 @@ template <typename Derived>
 template <typename Func>
 EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE typename internal::traits<Derived>::Scalar DenseBase<Derived>::redux(
     const Func& func) const {
-  eigen_assert(this->rows() > 0 && this->cols() > 0 && "you are using an empty matrix");
+  EIGEN_INTERNAL_ASSERT_NONEMPTY(*this);
 
   using ThisEvaluator = typename internal::redux_evaluator<Derived>;
   ThisEvaluator thisEval(derived());
@@ -799,14 +838,7 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE typename internal::traits<Derived>::Scalar
  */
 template <typename Derived>
 EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE typename internal::traits<Derived>::Scalar DenseBase<Derived>::sum() const {
-  EIGEN_IF_CONSTEXPR (MaxSizeAtCompileTime == 0 || SizeAtCompileTime == 0) {
-    return Scalar(0);
-  } else {
-    EIGEN_IF_CONSTEXPR (SizeAtCompileTime == Dynamic) {
-      if (size() == 0) return Scalar(0);
-    }
-    return derived().redux(Eigen::internal::scalar_sum_op<Scalar, Scalar>());
-  }
+  return internal::redux_with_identity(*this, internal::scalar_sum_op<Scalar, Scalar>(), 0);
 }
 
 /** \returns the mean of all coefficients of *this
@@ -834,14 +866,7 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE typename internal::traits<Derived>::Scalar
  */
 template <typename Derived>
 EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE typename internal::traits<Derived>::Scalar DenseBase<Derived>::prod() const {
-  EIGEN_IF_CONSTEXPR (MaxSizeAtCompileTime == 0 || SizeAtCompileTime == 0) {
-    return Scalar(1);
-  } else {
-    EIGEN_IF_CONSTEXPR (SizeAtCompileTime == Dynamic) {
-      if (size() == 0) return Scalar(1);
-    }
-    return derived().redux(Eigen::internal::scalar_product_op<Scalar>());
-  }
+  return internal::redux_with_identity(*this, internal::scalar_product_op<Scalar>(), 1);
 }
 
 /** \returns the trace of \c *this, i.e. the sum of the coefficients on the main diagonal.

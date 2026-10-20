@@ -673,8 +673,18 @@ class SparseContext {
 
     exec_spmv(x_size, y_size, d_x_.get(), d_y_.get(), alpha, beta, op);
 
-    EIGEN_CUDA_RUNTIME_CHECK(
-        cudaMemcpyAsync(y.data(), d_y_.get(), y_size * sizeof(Scalar), cudaMemcpyDeviceToHost, stream_));
+    // The spacing of y's elements. innerStride() is not it for a vector shaped only at run time: a 1 x n block of a
+    // column-major matrix has innerStride() == 1 with its elements outerStride() apart.
+    const Index incy = y.cols() == 1 ? y.rowStride() : y.colStride();
+    if (incy == 1) {
+      EIGEN_CUDA_RUNTIME_CHECK(
+          cudaMemcpyAsync(y.data(), d_y_.get(), y_size * sizeof(Scalar), cudaMemcpyDeviceToHost, stream_));
+    } else {
+      // y is a strided block, e.g. a row of a column-major matrix.
+      EIGEN_CUDA_RUNTIME_CHECK(cudaMemcpy2DAsync(y.data(), static_cast<size_t>(incy) * sizeof(Scalar), d_y_.get(),
+                                                 sizeof(Scalar), sizeof(Scalar), static_cast<size_t>(y_size),
+                                                 cudaMemcpyDeviceToHost, stream_));
+    }
     EIGEN_CUDA_RUNTIME_CHECK(cudaStreamSynchronize(stream_));
   }
 
@@ -1018,14 +1028,14 @@ class SparseContext {
   }
 
   // Destroy the sparse-matrix descriptor and reset the cache identity.
-  // `checked` selects assert-on-failure (mid-lifetime rebuilds) vs swallow
+  // `checked` selects checking (mid-lifetime rebuilds) vs swallowing failure
   // (noexcept destructor).
   void destroy_spmat_descriptor(bool checked) {
     if (spmat_desc_) {
-      cusparseStatus_t s = cusparseDestroySpMat(spmat_desc_);
-      eigen_assert((!checked || s == CUSPARSE_STATUS_SUCCESS) && "cusparseDestroySpMat failed");
-      EIGEN_UNUSED_VARIABLE(s);
-      EIGEN_UNUSED_VARIABLE(checked);
+      if (checked)
+        EIGEN_CUSPARSE_CHECK(cusparseDestroySpMat(spmat_desc_));
+      else
+        (void)cusparseDestroySpMat(spmat_desc_);
       spmat_desc_ = nullptr;
     }
     set_descriptor_key(-1, -1, -1, 0);

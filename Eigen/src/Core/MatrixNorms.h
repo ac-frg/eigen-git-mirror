@@ -85,8 +85,9 @@ struct selfadjoint_l1norm_real_lanes {
 
   // The running sums of a pass over two columns.
   struct Pass {
-    RPacket acc0 = pzero(RPacket());
-    RPacket acc1 = pzero(RPacket());
+    // pset1 rather than pzero(RPacket()): nvc++ 26.1 crashes on a value-initialized __m512 (#3193).
+    RPacket acc0 = pset1<RPacket>(Real(0));
+    RPacket acc1 = pset1<RPacket>(Real(0));
     template <typename SumsEvaluator>
     EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void step(const RPacket& u, const RPacket& v, SumsEvaluator& s, Index i) {
       RPacket a = pabs(u);
@@ -125,8 +126,8 @@ struct selfadjoint_l1norm_complex_lanes {
   }
 
   struct Pass {
-    RPacket acc = pzero(RPacket());    // |u| in the even lanes, |v| in the odd ones
-    RPacket peak_ = pzero(RPacket());  // the largest component seen
+    RPacket acc = pset1<RPacket>(Real(0));    // |u| in the even lanes, |v| in the odd ones
+    RPacket peak_ = pset1<RPacket>(Real(0));  // the largest component seen
     template <typename SumsEvaluator>
     EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void step(const RPacket& u, const RPacket& v, SumsEvaluator& s, Index i) {
       peak_ = pmax(peak_, pmax(pabs(u), pabs(v)));
@@ -168,8 +169,9 @@ struct selfadjoint_l1norm_packet_impl : Lanes {
   template <typename SumsDerived, typename Derived>
   EIGEN_DEVICE_FUNC void accumulate(DenseBase<SumsDerived>& sums, const DenseBase<Derived>& m, Index j0, Index j1,
                                     Index begin, Index end) {
-    accumulateCast(sums, j0, j1, begin, m.col(j0).segment(begin, end - begin).template cast<Scalar>(),
-                   m.col(j1).segment(begin, end - begin).template cast<Scalar>());
+    // Fixed-width blocks rather than col().segment(): with a zero-sized fixed dimension col() is not a vector.
+    accumulateCast(sums, j0, j1, begin, m.template block<Dynamic, 1>(begin, j0, end - begin, 1).template cast<Scalar>(),
+                   m.template block<Dynamic, 1>(begin, j1, end - begin, 1).template cast<Scalar>());
   }
 
  private:
@@ -254,8 +256,7 @@ struct selfadjoint_l1norm_impl {
 template <typename Scalar>
 struct selfadjoint_l1norm_impl<Scalar, std::enable_if_t<!NumTraits<Scalar>::IsComplex>>
     : selfadjoint_l1norm_packet_impl<selfadjoint_l1norm_real_lanes<typename stable_norm_accumulator<Scalar>::type>> {};
-// The real view must lay the components out one per lane: Z13 stores four floats in two double
-// packets, which the lane masks do not describe.
+// The real view must lay the components out one per lane, which the lane masks assume.
 template <typename Packet, typename Enable = void>
 struct selfadjoint_l1norm_plain_real_view : std::false_type {};
 template <typename Packet>
@@ -298,12 +299,18 @@ class selfadjoint_l1norm {
   using L1NormScalar = typename L1NormImpl::Scalar;
   using L1NormAccumulator = typename L1NormImpl::Real;
 
+  // As in LAPACK's xLANSY, a NaN column sum makes the norm NaN; maxi(0, NaN) would return 0.
+  static EIGEN_DEVICE_FUNC L1NormAccumulator maxColumnSum(const L1NormAccumulator& norm, const L1NormAccumulator& sum) {
+    return (norm < sum || (numext::isnan)(sum)) ? sum : norm;
+  }
+
   // Each column is read once, top to bottom, two at a time: |a_ij| goes to column j's sum and, as
   // the mirrored a_ji, to sums[i]. Lower walks the columns forward and Upper backward so that
   // sums[j] is complete when column j is reached. Of a pair (j0, j1) only j0's element in row j1
   // lies outside the rows the two share.
   template <int Mode, typename Mat>
   RealScalar l1NormStreaming(const Mat& m) const {
+    EIGEN_IF_CONSTEXPR (Mat::MaxRowsAtCompileTime == 0) return RealScalar(0);
     const Index n = m.rows();
     // The accumulator lives in the object for bounded sizes and on the stack otherwise, so that
     // neither fixed-size nor preallocated dynamic-size decompositions allocate.
@@ -326,31 +333,37 @@ class selfadjoint_l1norm {
       // an autodiff sum is an expression).
       L1NormAccumulator col0 = numext::real(sums.coeff(j0)) + impl.abs(m.coeff(j0, j0)) + boundary;
       L1NormAccumulator col1 = numext::real(sums.coeff(j1)) + impl.abs(m.coeff(j1, j1)) + boundary;
-      norm = numext::maxi(norm, col0);
-      norm = numext::maxi(norm, col1);
+      norm = maxColumnSum(norm, col0);
+      norm = maxColumnSum(norm, col1);
     }
     if (k < n) {
       Index j = Mode == Lower ? k : 0;
       L1NormAccumulator col = numext::real(sums.coeff(j)) + impl.abs(m.coeff(j, j));
-      norm = numext::maxi(norm, col);
+      norm = maxColumnSum(norm, col);
     }
     return impl.inRange(n) ? RealScalar(norm) : l1NormPerColumn();
   }
 
-  // One column at a time, the mirrored term read as a row; no workspace.
+  template <typename Xpr>
+  EIGEN_DEVICE_FUNC static L1NormAccumulator absSum(const Xpr& x) {
+    return x.template cast<L1NormScalar>().template lpNorm<1>();
+  }
+
+  // One column at a time, the mirrored term read as a row; no workspace. Fixed-width and fixed-height blocks rather
+  // than col()/row(): with a zero-sized fixed dimension those are not vectors, so head()/tail() would not compile.
   EIGEN_DEVICE_FUNC RealScalar l1NormPerColumn() const {
     L1NormAccumulator norm = L1NormAccumulator(0);
     const Index n = m_matrix.rows();
     for (Index col = 0; col < n; ++col) {
       L1NormAccumulator abs_col_sum;
       EIGEN_IF_CONSTEXPR (UpLo == Lower) {
-        abs_col_sum = m_matrix.col(col).tail(n - col).template cast<L1NormScalar>().template lpNorm<1>() +
-                      m_matrix.row(col).head(col).template cast<L1NormScalar>().template lpNorm<1>();
+        abs_col_sum = absSum(m_matrix.template block<Dynamic, 1>(col, col, n - col, 1)) +
+                      absSum(m_matrix.template block<1, Dynamic>(col, 0, 1, col));
       } else {
-        abs_col_sum = m_matrix.col(col).head(col).template cast<L1NormScalar>().template lpNorm<1>() +
-                      m_matrix.row(col).tail(n - col).template cast<L1NormScalar>().template lpNorm<1>();
+        abs_col_sum = absSum(m_matrix.template block<Dynamic, 1>(0, col, col, 1)) +
+                      absSum(m_matrix.template block<1, Dynamic>(col, col, 1, n - col));
       }
-      norm = numext::maxi(norm, abs_col_sum);
+      norm = maxColumnSum(norm, abs_col_sum);
     }
     return RealScalar(norm);
   }
@@ -362,7 +375,7 @@ class selfadjoint_l1norm {
 template <unsigned int UpLo, typename Derived>
 EIGEN_DEVICE_FUNC typename Derived::RealScalar selfadjoint_l1_norm(const MatrixBase<Derived>& matrix) {
   static_assert(UpLo == Upper || UpLo == Lower, "UpLo must be Upper or Lower");
-  eigen_assert(matrix.rows() == matrix.cols());
+  EIGEN_INTERNAL_ASSERT_SQUARE(matrix);
   return selfadjoint_l1norm<Derived, UpLo>(matrix.derived()).run();
 }
 

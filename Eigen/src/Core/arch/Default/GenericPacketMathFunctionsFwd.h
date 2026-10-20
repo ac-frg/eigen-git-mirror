@@ -43,7 +43,7 @@ EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC Packet pfrexp_generic_get_biased_exponent(
 template <typename Packet>
 EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC Packet pldexp_generic(const Packet& a, const Packet& exponent);
 
-/** \internal \returns (((a * c1) * c1) * c1) * c2 in that order, for the implementations of pldexp. */
+/** \internal \returns ((a * c1) * c1) * c2 in that order, for the implementations of pldexp. */
 template <typename Packet>
 EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC Packet pldexp_apply_factors(const Packet& a, const Packet& c1, const Packet& c2);
 
@@ -131,6 +131,10 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet generic_atan(const Pa
 /** \internal \returns exp2(x) */
 template <typename Packet>
 EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet generic_exp2(const Packet& x);
+
+/** \internal \returns exp2(f) for |f| <= 1/2 */
+template <typename Packet>
+EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet generic_exp2_reduced(const Packet& f);
 
 /** \internal \returns exp(x) for single precision float */
 template <typename Packet, bool IsFinite = false>
@@ -243,8 +247,8 @@ EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet pmul_complex(const Pa
 template <typename Packet, int N>
 struct ppolevl;
 
-/** \internal \returns log(x) for complex types */
-template <typename Packet>
+/** \internal \returns log(x), or log2(x) for Base2, for complex types */
+template <typename Packet, bool Base2 = false>
 EIGEN_DEFINE_FUNCTION_ALLOWING_MULTIPLE_DEFINITIONS Packet plog_complex(const Packet& x);
 
 /** \internal \returns exp(x) for complex types */

@@ -1412,13 +1412,44 @@ EIGEN_STRONG_INLINE Packet2ul pmax<Packet2ul>(const Packet2ul& a, const Packet2u
   return vaddq_u64(b, vqsubq_u64(a, b));
 }
 
+// GCC defines the ARM32 vcge/vcgt float intrinsics as generic vector comparisons and, unless
+// -funsafe-math-optimizations is given, expands them one lane at a time through VFP, because Advanced SIMD
+// flushes subnormal inputs. Emit the Advanced SIMD comparison directly, as Clang does.
+#if EIGEN_COMP_GNUC_STRICT && !EIGEN_ARCH_ARM64
+EIGEN_STRONG_INLINE uint32x2_t neon_vcge_f32(float32x2_t a, float32x2_t b) {
+  uint32x2_t r;
+  __asm__("vcge.f32 %P0, %P1, %P2" : "=w"(r) : "w"(a), "w"(b));
+  return r;
+}
+EIGEN_STRONG_INLINE uint32x4_t neon_vcgeq_f32(float32x4_t a, float32x4_t b) {
+  uint32x4_t r;
+  __asm__("vcge.f32 %q0, %q1, %q2" : "=w"(r) : "w"(a), "w"(b));
+  return r;
+}
+EIGEN_STRONG_INLINE uint32x2_t neon_vcgt_f32(float32x2_t a, float32x2_t b) {
+  uint32x2_t r;
+  __asm__("vcgt.f32 %P0, %P1, %P2" : "=w"(r) : "w"(a), "w"(b));
+  return r;
+}
+EIGEN_STRONG_INLINE uint32x4_t neon_vcgtq_f32(float32x4_t a, float32x4_t b) {
+  uint32x4_t r;
+  __asm__("vcgt.f32 %q0, %q1, %q2" : "=w"(r) : "w"(a), "w"(b));
+  return r;
+}
+#else
+EIGEN_STRONG_INLINE uint32x2_t neon_vcge_f32(float32x2_t a, float32x2_t b) { return vcge_f32(a, b); }
+EIGEN_STRONG_INLINE uint32x4_t neon_vcgeq_f32(float32x4_t a, float32x4_t b) { return vcgeq_f32(a, b); }
+EIGEN_STRONG_INLINE uint32x2_t neon_vcgt_f32(float32x2_t a, float32x2_t b) { return vcgt_f32(a, b); }
+EIGEN_STRONG_INLINE uint32x4_t neon_vcgtq_f32(float32x4_t a, float32x4_t b) { return vcgtq_f32(a, b); }
+#endif
+
 template <>
 EIGEN_STRONG_INLINE Packet2f pcmp_le<Packet2f>(const Packet2f& a, const Packet2f& b) {
-  return vreinterpret_f32_u32(vcle_f32(a, b));
+  return vreinterpret_f32_u32(neon_vcge_f32(b, a));
 }
 template <>
 EIGEN_STRONG_INLINE Packet4f pcmp_le<Packet4f>(const Packet4f& a, const Packet4f& b) {
-  return vreinterpretq_f32_u32(vcleq_f32(a, b));
+  return vreinterpretq_f32_u32(neon_vcgeq_f32(b, a));
 }
 template <>
 EIGEN_STRONG_INLINE Packet4c pcmp_le<Packet4c>(const Packet4c& a, const Packet4c& b) {
@@ -1481,11 +1512,11 @@ EIGEN_STRONG_INLINE Packet4ui pcmp_le<Packet4ui>(const Packet4ui& a, const Packe
 
 template <>
 EIGEN_STRONG_INLINE Packet2f pcmp_lt<Packet2f>(const Packet2f& a, const Packet2f& b) {
-  return vreinterpret_f32_u32(vclt_f32(a, b));
+  return vreinterpret_f32_u32(neon_vcgt_f32(b, a));
 }
 template <>
 EIGEN_STRONG_INLINE Packet4f pcmp_lt<Packet4f>(const Packet4f& a, const Packet4f& b) {
-  return vreinterpretq_f32_u32(vcltq_f32(a, b));
+  return vreinterpretq_f32_u32(neon_vcgtq_f32(b, a));
 }
 template <>
 EIGEN_STRONG_INLINE Packet4c pcmp_lt<Packet4c>(const Packet4c& a, const Packet4c& b) {
@@ -1675,11 +1706,39 @@ EIGEN_STRONG_INLINE Packet2l pcmp_eq<Packet2l>(const Packet2l& a, const Packet2l
 
 template <>
 EIGEN_STRONG_INLINE Packet2f pcmp_lt_or_nan<Packet2f>(const Packet2f& a, const Packet2f& b) {
-  return vreinterpret_f32_u32(vmvn_u32(vcge_f32(a, b)));
+  return vreinterpret_f32_u32(vmvn_u32(neon_vcge_f32(a, b)));
 }
 template <>
 EIGEN_STRONG_INLINE Packet4f pcmp_lt_or_nan<Packet4f>(const Packet4f& a, const Packet4f& b) {
-  return vreinterpretq_f32_u32(vmvnq_u32(vcgeq_f32(a, b)));
+  return vreinterpretq_f32_u32(vmvnq_u32(neon_vcgeq_f32(a, b)));
+}
+
+// Classify with absolute comparisons against infinity: |a| >= inf holds only for +-inf, inf > |a| only for finite
+// values, and |a| <= inf fails only for NaN. Each is one instruction (FACGE/FACGT, VACGE/VACGT), is unaffected by
+// flushing subnormal inputs, and avoids the self-comparison a != a, which Clang rewrites into two comparisons.
+template <>
+EIGEN_STRONG_INLINE Packet2f pisinf<Packet2f>(const Packet2f& a) {
+  return vreinterpret_f32_u32(vcage_f32(a, pinf<Packet2f>()));
+}
+template <>
+EIGEN_STRONG_INLINE Packet4f pisinf<Packet4f>(const Packet4f& a) {
+  return vreinterpretq_f32_u32(vcageq_f32(a, pinf<Packet4f>()));
+}
+template <>
+EIGEN_STRONG_INLINE Packet2f pisfinite<Packet2f>(const Packet2f& a) {
+  return vreinterpret_f32_u32(vcagt_f32(pinf<Packet2f>(), a));
+}
+template <>
+EIGEN_STRONG_INLINE Packet4f pisfinite<Packet4f>(const Packet4f& a) {
+  return vreinterpretq_f32_u32(vcagtq_f32(pinf<Packet4f>(), a));
+}
+template <>
+EIGEN_STRONG_INLINE Packet2f pisnan<Packet2f>(const Packet2f& a) {
+  return vreinterpret_f32_u32(vmvn_u32(vcage_f32(pinf<Packet2f>(), a)));
+}
+template <>
+EIGEN_STRONG_INLINE Packet4f pisnan<Packet4f>(const Packet4f& a) {
+  return vreinterpretq_f32_u32(vmvnq_u32(vcageq_f32(pinf<Packet4f>(), a)));
 }
 
 // Logical Operations are not supported for float, so we have to reinterpret casts using NEON intrinsics
@@ -1973,6 +2032,79 @@ EIGEN_STRONG_INLINE Packet2l pandnot<Packet2l>(const Packet2l& a, const Packet2l
 template <>
 EIGEN_STRONG_INLINE Packet2ul pandnot<Packet2ul>(const Packet2ul& a, const Packet2ul& b) {
   return vbicq_u64(a, b);
+}
+
+template <>
+EIGEN_STRONG_INLINE Packet2f pnot<Packet2f>(const Packet2f& a) {
+  return vreinterpret_f32_u32(vmvn_u32(vreinterpret_u32_f32(a)));
+}
+template <>
+EIGEN_STRONG_INLINE Packet4f pnot<Packet4f>(const Packet4f& a) {
+  return vreinterpretq_f32_u32(vmvnq_u32(vreinterpretq_u32_f32(a)));
+}
+template <>
+EIGEN_STRONG_INLINE Packet4c pnot<Packet4c>(const Packet4c& a) {
+  return ~a;
+}
+template <>
+EIGEN_STRONG_INLINE Packet8c pnot<Packet8c>(const Packet8c& a) {
+  return vmvn_s8(a);
+}
+template <>
+EIGEN_STRONG_INLINE Packet16c pnot<Packet16c>(const Packet16c& a) {
+  return vmvnq_s8(a);
+}
+template <>
+EIGEN_STRONG_INLINE Packet4uc pnot<Packet4uc>(const Packet4uc& a) {
+  return ~a;
+}
+template <>
+EIGEN_STRONG_INLINE Packet8uc pnot<Packet8uc>(const Packet8uc& a) {
+  return vmvn_u8(a);
+}
+template <>
+EIGEN_STRONG_INLINE Packet16uc pnot<Packet16uc>(const Packet16uc& a) {
+  return vmvnq_u8(a);
+}
+template <>
+EIGEN_STRONG_INLINE Packet4s pnot<Packet4s>(const Packet4s& a) {
+  return vmvn_s16(a);
+}
+template <>
+EIGEN_STRONG_INLINE Packet8s pnot<Packet8s>(const Packet8s& a) {
+  return vmvnq_s16(a);
+}
+template <>
+EIGEN_STRONG_INLINE Packet4us pnot<Packet4us>(const Packet4us& a) {
+  return vmvn_u16(a);
+}
+template <>
+EIGEN_STRONG_INLINE Packet8us pnot<Packet8us>(const Packet8us& a) {
+  return vmvnq_u16(a);
+}
+template <>
+EIGEN_STRONG_INLINE Packet2i pnot<Packet2i>(const Packet2i& a) {
+  return vmvn_s32(a);
+}
+template <>
+EIGEN_STRONG_INLINE Packet4i pnot<Packet4i>(const Packet4i& a) {
+  return vmvnq_s32(a);
+}
+template <>
+EIGEN_STRONG_INLINE Packet2ui pnot<Packet2ui>(const Packet2ui& a) {
+  return vmvn_u32(a);
+}
+template <>
+EIGEN_STRONG_INLINE Packet4ui pnot<Packet4ui>(const Packet4ui& a) {
+  return vmvnq_u32(a);
+}
+template <>
+EIGEN_STRONG_INLINE Packet2l pnot<Packet2l>(const Packet2l& a) {
+  return vreinterpretq_s64_s32(vmvnq_s32(vreinterpretq_s32_s64(a)));
+}
+template <>
+EIGEN_STRONG_INLINE Packet2ul pnot<Packet2ul>(const Packet2ul& a) {
+  return vreinterpretq_u64_u32(vmvnq_u32(vreinterpretq_u32_u64(a)));
 }
 
 template <int N>
@@ -2642,6 +2774,17 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet2f pgather<float, Packet2f>(const fl
 }
 template <>
 EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet4f pgather<float, Packet4f>(const float* from, Index stride) {
+  if (stride == 2) {
+    // Overlap the loads so the second ends at the last gathered coefficient, from[6].
+#if EIGEN_ARCH_ARM64
+    // lo = [0 1 2 3], hi = [3 4 5 6]. GCC turns the equivalent vuzp2q(vrev64q(lo), hi) into a slower TBL.
+    Packet4f lo = vld1q_f32(from);
+    Packet4f hi = vld1q_f32(from + 3);
+    return vcombine_f32(vget_low_f32(vuzp1q_f32(lo, lo)), vget_high_f32(vuzp2q_f32(hi, hi)));
+#else
+    return vcombine_f32(vld2_f32(from).val[0], vld2_f32(from + 3).val[1]);
+#endif
+  }
   Packet4f res = vld1q_dup_f32(from);
   res = vld1q_lane_f32(from + 1 * stride, res, 1);
   res = vld1q_lane_f32(from + 2 * stride, res, 2);
@@ -3902,6 +4045,85 @@ EIGEN_STRONG_INLINE bool predux_any(const Packet4f& x) {
 #endif
 }
 
+namespace detail {
+// Whether any bit of a 128-bit register is set. Integer masks reduce through these bits rather than through the
+// generic horizontal sum. On ARMv7, the 32-bit lane move after vpmax keeps predux_all's dependency chain as short as
+// the sum's; a two-register vmov lengthens it.
+EIGEN_STRONG_INLINE bool neon_any_bit(uint32x4_t u) {
+#if EIGEN_ARCH_ARM64
+  return vmaxvq_u32(u) != 0;
+#else
+  uint32x2_t tmp = vorr_u32(vget_low_u32(u), vget_high_u32(u));
+  return vget_lane_u32(vpmax_u32(tmp, tmp), 0) != 0;
+#endif
+}
+}  // namespace detail
+
+template <>
+EIGEN_STRONG_INLINE bool predux_any(const Packet4c& x) {
+  return static_cast<int32_t>(x) != 0;
+}
+template <>
+EIGEN_STRONG_INLINE bool predux_any(const Packet4uc& x) {
+  return static_cast<uint32_t>(x) != 0;
+}
+template <>
+EIGEN_STRONG_INLINE bool predux_any(const Packet8c& x) {
+  return vget_lane_u64(vreinterpret_u64_s8(x), 0) != 0;
+}
+template <>
+EIGEN_STRONG_INLINE bool predux_any(const Packet8uc& x) {
+  return vget_lane_u64(vreinterpret_u64_u8(x), 0) != 0;
+}
+template <>
+EIGEN_STRONG_INLINE bool predux_any(const Packet16c& x) {
+  return detail::neon_any_bit(vreinterpretq_u32_s8(x));
+}
+template <>
+EIGEN_STRONG_INLINE bool predux_any(const Packet16uc& x) {
+  return detail::neon_any_bit(vreinterpretq_u32_u8(x));
+}
+template <>
+EIGEN_STRONG_INLINE bool predux_any(const Packet4s& x) {
+  return vget_lane_u64(vreinterpret_u64_s16(x), 0) != 0;
+}
+template <>
+EIGEN_STRONG_INLINE bool predux_any(const Packet4us& x) {
+  return vget_lane_u64(vreinterpret_u64_u16(x), 0) != 0;
+}
+template <>
+EIGEN_STRONG_INLINE bool predux_any(const Packet8s& x) {
+  return detail::neon_any_bit(vreinterpretq_u32_s16(x));
+}
+template <>
+EIGEN_STRONG_INLINE bool predux_any(const Packet8us& x) {
+  return detail::neon_any_bit(vreinterpretq_u32_u16(x));
+}
+template <>
+EIGEN_STRONG_INLINE bool predux_any(const Packet2i& x) {
+  return vget_lane_u64(vreinterpret_u64_s32(x), 0) != 0;
+}
+template <>
+EIGEN_STRONG_INLINE bool predux_any(const Packet2ui& x) {
+  return vget_lane_u64(vreinterpret_u64_u32(x), 0) != 0;
+}
+template <>
+EIGEN_STRONG_INLINE bool predux_any(const Packet4i& x) {
+  return detail::neon_any_bit(vreinterpretq_u32_s32(x));
+}
+template <>
+EIGEN_STRONG_INLINE bool predux_any(const Packet4ui& x) {
+  return detail::neon_any_bit(x);
+}
+template <>
+EIGEN_STRONG_INLINE bool predux_any(const Packet2l& x) {
+  return detail::neon_any_bit(vreinterpretq_u32_s64(x));
+}
+template <>
+EIGEN_STRONG_INLINE bool predux_any(const Packet2ul& x) {
+  return detail::neon_any_bit(vreinterpretq_u32_u64(x));
+}
+
 // Helpers for ptranspose.
 namespace detail {
 
@@ -4432,19 +4654,21 @@ EIGEN_STRONG_INLINE Packet2f prsqrt(const Packet2f& a) {
 template <>
 EIGEN_STRONG_INLINE Packet4f preciprocal<Packet4f>(const Packet4f& a) {
   // Compute approximate reciprocal.
-  float32x4_t result = vrecpeq_f32(a);
+  const float32x4_t estimate = vrecpeq_f32(a);
+  float32x4_t result = vmulq_f32(vrecpsq_f32(a, estimate), estimate);
   result = vmulq_f32(vrecpsq_f32(a, result), result);
-  result = vmulq_f32(vrecpsq_f32(a, result), result);
-  return result;
+  // 1 / a has the sign of a. The estimate is +-inf for |a| < 2^-128, which the steps turn into -+inf.
+  return vbslq_f32(vdupq_n_u32(0x80000000u), a, result);
 }
 
 template <>
 EIGEN_STRONG_INLINE Packet2f preciprocal<Packet2f>(const Packet2f& a) {
   // Compute approximate reciprocal.
-  float32x2_t result = vrecpe_f32(a);
+  const float32x2_t estimate = vrecpe_f32(a);
+  float32x2_t result = vmul_f32(vrecps_f32(a, estimate), estimate);
   result = vmul_f32(vrecps_f32(a, result), result);
-  result = vmul_f32(vrecps_f32(a, result), result);
-  return result;
+  // 1 / a has the sign of a. The estimate is +-inf for |a| < 2^-128, which the steps turn into -+inf.
+  return vbsl_f32(vdup_n_u32(0x80000000u), a, result);
 }
 
 // Unfortunately vsqrt_f32 is only available for A64.
@@ -4709,6 +4933,16 @@ EIGEN_STRONG_INLINE Packet4bf pandnot(const Packet4bf& a, const Packet4bf& b) {
 }
 
 template <>
+EIGEN_STRONG_INLINE Packet4bf pnot(const Packet4bf& a) {
+  return Packet4bf(pnot<Packet4us>(Packet4us(a)));
+}
+
+template <>
+EIGEN_STRONG_INLINE Packet4bf ptrue(const Packet4bf& /*a*/) {
+  return Packet4bf(vdup_n_u16(0xffff));
+}
+
+template <>
 EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet4bf pselect(const Packet4bf& mask, const Packet4bf& a, const Packet4bf& b) {
   return Packet4bf(pselect<Packet4us>(Packet4us(mask), Packet4us(a), Packet4us(b)));
 }
@@ -4855,6 +5089,15 @@ EIGEN_STRONG_INLINE Packet4bf pisnan<Packet4bf>(const Packet4bf& a) {
   constexpr uint16_t kInf = ((1 << 8) - 1) << 7;
   constexpr uint16_t kAbsMask = (1 << 15) - 1;
   return vcgt_u16(vand_u16(a, vdup_n_u16(kAbsMask)), vdup_n_u16(kInf));
+}
+
+// Compare encoded lanes: widening bf16 subnormals to float loses them under DAZ/FZ.
+template <>
+EIGEN_STRONG_INLINE Packet4bf psign<Packet4bf>(const Packet4bf& a) {
+  const uint16x4_t abs_mask = vdup_n_u16(0x7fff);
+  const uint16x4_t is_nan = vcgt_u16(vand_u16(a, abs_mask), vdup_n_u16(0x7f80));
+  const uint16x4_t keep = vorr_u16(is_nan, vdup_n_u16(0x8000));
+  return vand_u16(vbsl_u16(keep, a, vdup_n_u16(0x3f80)), vtst_u16(a, abs_mask));
 }
 
 template <>
@@ -5110,6 +5353,11 @@ EIGEN_STRONG_INLINE Packet2d pandnot<Packet2d>(const Packet2d& a, const Packet2d
 }
 
 template <>
+EIGEN_STRONG_INLINE Packet2d pnot<Packet2d>(const Packet2d& a) {
+  return vreinterpretq_f64_u32(vmvnq_u32(vreinterpretq_u32_f64(a)));
+}
+
+template <>
 EIGEN_STRONG_INLINE Packet2d pcmp_le(const Packet2d& a, const Packet2d& b) {
   return vreinterpretq_f64_u64(vcleq_f64(a, b));
 }
@@ -5300,6 +5548,22 @@ EIGEN_STRONG_INLINE Packet2d psqrt(const Packet2d& _x) {
   return vsqrtq_f64(_x);
 }
 
+// Absolute comparisons as for Packet4f.
+template <>
+EIGEN_STRONG_INLINE Packet2d pisinf<Packet2d>(const Packet2d& a) {
+  return vreinterpretq_f64_u64(vcageq_f64(a, pinf<Packet2d>()));
+}
+template <>
+EIGEN_STRONG_INLINE Packet2d pisfinite<Packet2d>(const Packet2d& a) {
+  return vreinterpretq_f64_u64(vcagtq_f64(pinf<Packet2d>(), a));
+}
+// |bits| > inf bits as an unsigned comparison. !vcage(inf, a) is one instruction shorter inside a select, but Clang's
+// inliner charges more for the intrinsic, and pexp_complex<Packet1cd> sits within a few units of its threshold.
+template <>
+EIGEN_STRONG_INLINE Packet2d pisnan<Packet2d>(const Packet2d& a) {
+  return vreinterpretq_f64_u64(vcgtq_u64(vreinterpretq_u64_f64(vabsq_f64(a)), vdupq_n_u64(0x7ff0000000000000ull)));
+}
+
 #endif  // EIGEN_ARCH_ARM64
 
 // Do we have fp16 and support Neon intrinsics?
@@ -5479,6 +5743,15 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet8hf pselect(const Packet8hf& mask, c
 template <>
 EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet4hf pselect(const Packet4hf& mask, const Packet4hf& a, const Packet4hf& b) {
   return vbsl_f16(vreinterpret_u16_f16(mask), a, b);
+}
+
+template <>
+EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet8hf pnot(const Packet8hf& a) {
+  return vreinterpretq_f16_u16(vmvnq_u16(vreinterpretq_u16_f16(a)));
+}
+template <>
+EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet4hf pnot(const Packet4hf& a) {
+  return vreinterpret_f16_u16(vmvn_u16(vreinterpret_u16_f16(a)));
 }
 
 EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Packet8hf pinsertlast(const Packet8hf& a, half b) {
@@ -5811,6 +6084,32 @@ EIGEN_STRONG_INLINE Packet8hf pcmp_lt_or_nan<Packet8hf>(const Packet8hf& a, cons
 template <>
 EIGEN_STRONG_INLINE Packet4hf pcmp_lt_or_nan<Packet4hf>(const Packet4hf& a, const Packet4hf& b) {
   return vreinterpret_f16_u16(vmvn_u16(vcge_f16(a, b)));
+}
+
+// Absolute comparisons as for Packet4f.
+template <>
+EIGEN_STRONG_INLINE Packet4hf pisinf<Packet4hf>(const Packet4hf& a) {
+  return vreinterpret_f16_u16(vcage_f16(a, pinf<Packet4hf>()));
+}
+template <>
+EIGEN_STRONG_INLINE Packet8hf pisinf<Packet8hf>(const Packet8hf& a) {
+  return vreinterpretq_f16_u16(vcageq_f16(a, pinf<Packet8hf>()));
+}
+template <>
+EIGEN_STRONG_INLINE Packet4hf pisfinite<Packet4hf>(const Packet4hf& a) {
+  return vreinterpret_f16_u16(vcagt_f16(pinf<Packet4hf>(), a));
+}
+template <>
+EIGEN_STRONG_INLINE Packet8hf pisfinite<Packet8hf>(const Packet8hf& a) {
+  return vreinterpretq_f16_u16(vcagtq_f16(pinf<Packet8hf>(), a));
+}
+template <>
+EIGEN_STRONG_INLINE Packet4hf pisnan<Packet4hf>(const Packet4hf& a) {
+  return vreinterpret_f16_u16(vmvn_u16(vcage_f16(pinf<Packet4hf>(), a)));
+}
+template <>
+EIGEN_STRONG_INLINE Packet8hf pisnan<Packet8hf>(const Packet8hf& a) {
+  return vreinterpretq_f16_u16(vmvnq_u16(vcageq_f16(pinf<Packet8hf>(), a)));
 }
 
 template <>
@@ -6178,6 +6477,41 @@ EIGEN_HALF_HORIZONTAL_REDUX(predux_max, max);
 #undef EIGEN_MAKE_HALF_BINOP
 
 #endif  // end EIGEN_HAS_ARM64_FP16_VECTOR_ARITHMETIC
+
+#if !EIGEN_HAS_ARM64_FP16_VECTOR_ARITHMETIC
+// Without FP16 arithmetic, half comparisons convert lane by lane. Classify on the raw bits instead, as for bfloat16:
+// |a| ==, >, < 0x7c00.
+EIGEN_STRONG_INLINE uint16x4_t neon_half_abs_bits(const Packet4hf& a) {
+  return vbic_u16(vreinterpret_u16_f16(a), vdup_n_u16(0x8000));
+}
+EIGEN_STRONG_INLINE uint16x8_t neon_half_abs_bits(const Packet8hf& a) {
+  return vbicq_u16(vreinterpretq_u16_f16(a), vdupq_n_u16(0x8000));
+}
+template <>
+EIGEN_STRONG_INLINE Packet4hf pisinf<Packet4hf>(const Packet4hf& a) {
+  return vreinterpret_f16_u16(vceq_u16(neon_half_abs_bits(a), vdup_n_u16(0x7c00)));
+}
+template <>
+EIGEN_STRONG_INLINE Packet8hf pisinf<Packet8hf>(const Packet8hf& a) {
+  return vreinterpretq_f16_u16(vceqq_u16(neon_half_abs_bits(a), vdupq_n_u16(0x7c00)));
+}
+template <>
+EIGEN_STRONG_INLINE Packet4hf pisnan<Packet4hf>(const Packet4hf& a) {
+  return vreinterpret_f16_u16(vcgt_u16(neon_half_abs_bits(a), vdup_n_u16(0x7c00)));
+}
+template <>
+EIGEN_STRONG_INLINE Packet8hf pisnan<Packet8hf>(const Packet8hf& a) {
+  return vreinterpretq_f16_u16(vcgtq_u16(neon_half_abs_bits(a), vdupq_n_u16(0x7c00)));
+}
+template <>
+EIGEN_STRONG_INLINE Packet4hf pisfinite<Packet4hf>(const Packet4hf& a) {
+  return vreinterpret_f16_u16(vclt_u16(neon_half_abs_bits(a), vdup_n_u16(0x7c00)));
+}
+template <>
+EIGEN_STRONG_INLINE Packet8hf pisfinite<Packet8hf>(const Packet8hf& a) {
+  return vreinterpretq_f16_u16(vcltq_u16(neon_half_abs_bits(a), vdupq_n_u16(0x7c00)));
+}
+#endif
 
 #define EIGEN_MAKE_HALF_NEG_FMA(name, base, packet)                                                      \
   template <>                                                                                            \

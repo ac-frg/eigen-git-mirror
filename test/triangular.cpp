@@ -167,6 +167,19 @@ void triangular_permutation_products(const MatrixType& m) {
   triangular_permutation_products_check(a.template triangularView<StrictlyUpper>(), perm);
   triangular_permutation_products_check(a.template selfadjointView<Lower>(), perm);
   triangular_permutation_products_check(a.template selfadjointView<Upper>(), perm);
+
+  // A complex alpha folded into a self-adjoint view scales the whole view, as in its other products, rather than
+  // being conjugated with the mirrored triangle.
+  using Scalar = typename MatrixType::Scalar;
+  using RealScalar = typename NumTraits<Scalar>::Real;
+  const Scalar alpha = internal::random<Scalar>() + Scalar(RealScalar(2));
+  const MatrixType lower = a.template selfadjointView<Lower>(), upper = a.template selfadjointView<Upper>();
+  const MatrixType permDense = perm.toDenseMatrix().template cast<Scalar>();
+  MatrixType result = alpha * (a.template selfadjointView<Lower>() * perm);
+  VERIFY_IS_APPROX(result, MatrixType(alpha * MatrixType(lower * permDense)));
+  result = a;
+  result += alpha * (a.template selfadjointView<Upper>() * perm.inverse());
+  VERIFY_IS_APPROX(result, MatrixType(a + alpha * MatrixType(upper * permDense.transpose())));
 }
 
 template <typename MatrixType>
@@ -642,6 +655,19 @@ void triangular_at_blocking_boundaries() {
   }
 }
 
+// nestedExpression() on a non-const view keeps the operand's constness: callable for a const operand, writable for a
+// mutable one.
+template <typename = void>
+void triangular_nested_expression() {
+  const Matrix3d a = Matrix3d::Identity();
+  auto lower = a.triangularView<Lower>();
+  VERIFY(&lower.nestedExpression() == &a);
+  Matrix3d b = Matrix3d::Zero();
+  auto upper = b.triangularView<Upper>();
+  upper.nestedExpression()(0, 1) = 1;
+  VERIFY_IS_EQUAL(b(0, 1), 1.0);
+}
+
 void bug_159() {
   Matrix3d m = Matrix3d::Random().triangularView<Lower>();
   EIGEN_UNUSED_VARIABLE(m);
@@ -688,6 +714,7 @@ EIGEN_DECLARE_TEST(triangular) {
   }
 
   CALL_SUBTEST_1(bug_159());
+  CALL_SUBTEST_1(triangular_nested_expression<>());
 
   // Triangular solve/product at blocking boundaries (deterministic, outside g_repeat).
   CALL_SUBTEST_11(triangular_at_blocking_boundaries<0>());

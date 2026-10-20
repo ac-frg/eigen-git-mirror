@@ -186,9 +186,11 @@ TensorExecutorTilingContext<TensorBlockMapper> GetTensorExecutorTilingContext(co
   // Query expression tree for desired block size/shape.
   TensorBlockResourceRequirements requirements = evaluator.getResourceRequirements();
 
-  // Update target block size based on cost model.
-  double taskSize = TensorCostModel<ThreadPoolDevice>::taskSize(1, requirements.cost_per_coeff);
-  requirements.size = static_cast<size_t>(1.0 / taskSize);
+  // Update target block size based on cost model, preserving tighter
+  // cache-targeted block size bounds requested by subexpressions.
+  double task_inverse_ratio = TensorCostModel<ThreadPoolDevice>::taskSize(1, requirements.cost_per_coeff);
+  const size_t task_size = numext::maxi<size_t>(1, static_cast<size_t>(1.0 / task_inverse_ratio));
+  requirements.size = (requirements.size > 1) ? numext::mini(requirements.size, task_size) : task_size;
 
   TensorBlockMapper block_mapper(typename TensorBlockMapper::Dimensions(evaluator.dimensions()), requirements);
 
@@ -414,9 +416,12 @@ class TensorAsyncExecutor<Expression, ThreadPoolDevice, DoneCallback, Vectorizab
 
       // Evaluate small expressions directly as a single block.
       if (ctx->tiling.block_mapper.blockCount() == 1) {
-        TensorBlockScratch scratch(ctx->device);
-        TensorBlockDesc desc(0, ctx->tiling.block_mapper.blockDimensions());
-        ctx->evaluator.evalBlock(desc, scratch);
+        {
+          // Release the scratch buffers before `delete ctx` signals completion and the device may go away.
+          TensorBlockScratch scratch(ctx->device);
+          TensorBlockDesc desc(0, ctx->tiling.block_mapper.blockDimensions());
+          ctx->evaluator.evalBlock(desc, scratch);
+        }
         delete ctx;
       } else {
         ctx->device.parallelForAsync(ctx->tiling.block_mapper.blockCount(), ctx->tiling.cost, eval_block,

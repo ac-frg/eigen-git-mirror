@@ -70,13 +70,18 @@ EIGEN_DEVICE_FUNC void triangular_inverse_unblocked(MatrixType& mat, VectorType&
   }
 }
 
+// With a zero-sized fixed dimension there is nothing to invert, and col() is not a vector, so the kernels' column
+// tails would not compile.
+template <unsigned int Mode, typename MatrixType, std::enable_if_t<MatrixType::SizeAtCompileTime == 0, int> = 0>
+EIGEN_DEVICE_FUNC void triangular_inverse_lower(MatrixType&) {}
+
 // Blocked lower triangular inverse, block columns bottom-up as in LAPACK xTRTRI. With
 // L = [[L11, 0], [L21, L22]] the inverse is [[L11^-1, 0], [-L22^-1 L21 L11^-1, L22^-1]]; walking upwards
 // makes X22 = L22^-1 available first, so the large operation is the TRMM X22 L21 rather than a solve
 // against L22, and Eigen's TRMM runs closer to GEMM rate than its TRSM does on a 128-column operand.
-template <unsigned int Mode, typename MatrixType>
+template <unsigned int Mode, typename MatrixType, std::enable_if_t<MatrixType::SizeAtCompileTime != 0, int> = 0>
 EIGEN_DEVICE_FUNC void triangular_inverse_lower(MatrixType& mat) {
-  eigen_assert(mat.rows() == mat.cols());
+  EIGEN_INTERNAL_ASSERT_SQUARE(mat);
   const Index n = mat.rows();
   if (n < kTriangularInverseMinBlocked) {
     using Scalar = typename MatrixType::Scalar;
@@ -152,7 +157,7 @@ void triangular_adjoint_square_unblocked(MatrixType& mat) {
 // completed against the columns to its left before the trailing block rows consume the factor.
 template <typename MatrixType>
 void triangular_adjoint_square_lower(MatrixType& mat) {
-  eigen_assert(mat.rows() == mat.cols());
+  EIGEN_INTERNAL_ASSERT_SQUARE(mat);
   const Index n = mat.rows();
   if (n < kAdjointSquareMinBlocked) {
     triangular_adjoint_square_unblocked(mat);
@@ -218,7 +223,7 @@ template <typename MatrixType, unsigned int Mode>
 EIGEN_DEVICE_FUNC void TriangularViewImpl<MatrixType, Mode, Dense>::inverseInPlace() {
   EIGEN_STATIC_ASSERT_LVALUE(MatrixType)
   EIGEN_STATIC_ASSERT((int(Mode) & int(Upper | Lower)) != 0 && (int(Mode) & int(ZeroDiag)) == 0, PROGRAMMING_ERROR)
-  eigen_assert(derived().rows() == derived().cols());
+  EIGEN_INTERNAL_ASSERT_SQUARE(derived());
   internal::triangular_inverse_selector<Mode>::run(derived().nestedExpression());
 }
 #endif

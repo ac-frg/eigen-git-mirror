@@ -262,6 +262,36 @@ void bug_1311() {
   VERIFY_IS_APPROX(res, A * b);
 }
 
+template <typename MatrixType>
+void fixed_size_product_assignments() {
+  MatrixType A = MatrixType::Random();
+  MatrixType B = MatrixType::Random();
+  MatrixType C = MatrixType::Random();
+  MatrixType ref = C;
+
+  C = A * B;
+  ref = A.lazyProduct(B);
+  VERIFY_IS_APPROX(C, ref);
+
+  C.setRandom();
+  ref = C;
+  C.noalias() += A * B;
+  ref.noalias() += A.lazyProduct(B);
+  VERIFY_IS_APPROX(C, ref);
+
+  C.setRandom();
+  ref = C;
+  C.noalias() -= A * B;
+  ref.noalias() -= A.lazyProduct(B);
+  VERIFY_IS_APPROX(C, ref);
+
+  C.setRandom();
+  ref = C;
+  C.noalias() += (2.0 * A) * (B * 3.0);
+  ref.noalias() += 6.0 * A.lazyProduct(B);
+  VERIFY_IS_APPROX(C, ref);
+}
+
 template <int>
 void product_small_regressions() {
   {
@@ -307,36 +337,33 @@ void product_small_regressions() {
     constexpr int kGemm = (internal::product_type<Matrix10, Matrix10>::FixedSizeThreshold + 2) / 3;
     typedef Eigen::Matrix<double, kGemm - 1, kGemm - 1> MatrixBelow;
     typedef Eigen::Matrix<double, kGemm, kGemm> MatrixAt;
-    VERIFY((internal::product_type<Matrix10, Matrix10>::value == CoeffBasedProductMode));
     VERIFY((internal::product_type<MatrixBelow, MatrixBelow>::value == CoeffBasedProductMode));
-    VERIFY((internal::product_type<MatrixAt, MatrixAt>::value == GemmProduct));
+    // A dimension below EIGEN_CACHEFRIENDLY_PRODUCT_THRESHOLD (16 on ZVector) keeps the product coefficient-based
+    // whatever the fixed-size threshold.
+    VERIFY((internal::product_type<MatrixAt, MatrixAt>::value ==
+            (kGemm >= EIGEN_CACHEFRIENDLY_PRODUCT_THRESHOLD ? GemmProduct : CoeffBasedProductMode)));
 
-    Matrix10 A = Matrix10::Random();
-    Matrix10 B = Matrix10::Random();
-    Matrix10 C = Matrix10::Random();
-    Matrix10 ref = C;
+    fixed_size_product_assignments<MatrixBelow>();
+    fixed_size_product_assignments<MatrixAt>();
 
-    C = A * B;
-    ref = A.lazyProduct(B);
-    VERIFY_IS_APPROX(C, ref);
-
-    C.setRandom();
-    ref = C;
-    C.noalias() += A * B;
-    ref.noalias() += A.lazyProduct(B);
-    VERIFY_IS_APPROX(C, ref);
-
-    C.setRandom();
-    ref = C;
-    C.noalias() -= A * B;
-    ref.noalias() -= A.lazyProduct(B);
-    VERIFY_IS_APPROX(C, ref);
-
-    C.setRandom();
-    ref = C;
-    C.noalias() += (2.0 * A) * (B * 3.0);
-    ref.noalias() += 6.0 * A.lazyProduct(B);
-    VERIFY_IS_APPROX(C, ref);
+    using Prod3d = internal::product_evaluator<Product<Matrix3d, Matrix3d, LazyProduct>, CoeffBasedProductMode,
+                                               DenseShape, DenseShape>;
+    using Prod4d = internal::product_evaluator<Product<Matrix4d, Matrix4d, LazyProduct>, CoeffBasedProductMode,
+                                               DenseShape, DenseShape>;
+    using Add3d = internal::add_assign_op<double, double>;
+    using RowBlock3d = Block<Matrix3d, 1, 3>;
+    static_assert(!internal::product_packet_cascade_traits<Prod4d, Matrix4d, Add3d>::Enable,
+                  "exact packet multiple keeps the generic path");
+    static_assert(!internal::product_packet_cascade_traits<Prod3d, RowBlock3d, Add3d>::Enable,
+                  "non-unit inner stride must not use the contiguous packet cascade");
+#if defined(EIGEN_VECTORIZE) && EIGEN_UNALIGNED_VECTORIZE
+    if (internal::unpacket_traits<internal::find_largest_packet<double, 3>::type>::size == 2) {
+      VERIFY((internal::product_packet_cascade_traits<Prod3d, Matrix3d, Add3d>::Enable));
+    }
+#else
+    static_assert(!internal::product_packet_cascade_traits<Prod3d, Matrix3d, Add3d>::Enable,
+                  "cascade requires ActualPacketAccessBit and EIGEN_UNALIGNED_VECTORIZE");
+#endif
   }
 }
 
@@ -419,6 +446,27 @@ void product_verify_rejects_nonfinite() {
   VERIFY(!verifyProduct(nan, zero, abs_a, abs_b, 4));
 }
 
+// verifyProductUpdate() bounds C0 + alpha*A*B by 5*sqrt(k+2)*eps*2*|| |alpha|*|A|*|B| + |C0| ||_F, here
+// 20*eps*(2e-6*|alpha| + 1): an error of a few eps*|C0| passes although the bound on A*B alone rejects it.
+template <typename Scalar>
+void product_verify_update(const Scalar &large_alpha) {
+  using Mat = Matrix<Scalar, Dynamic, Dynamic>;
+  using Real = typename NumTraits<Scalar>::Real;
+  const Real eps = NumTraits<Scalar>::epsilon();
+  const Mat A = Mat::Constant(1, 2, Scalar(1e-3f)), B = Mat::Constant(2, 1, Scalar(1e-3f)), C0 = Mat::Ones(1, 1);
+  for (const Scalar alpha : {Scalar(-2), large_alpha}) {
+    const Mat expected = C0 + alpha * A * B;
+    const Mat off4 = expected.array() + Scalar(4 * eps), off40 = expected.array() + Scalar(40 * eps);
+    VERIFY(verifyProductUpdate(off4, expected, alpha, A, B, C0));
+    VERIFY(!verifyProduct(off4, expected, A, B));
+    VERIFY(verifyProductUpdate(off40, expected, alpha, A, B, C0) == (numext::abs(alpha) > Real(2)));
+    VERIFY(!verifyProductUpdate(Mat::Constant(1, 1, Scalar(std::numeric_limits<Real>::infinity())), expected, alpha, A,
+                                B, C0));
+    VERIFY(!verifyProductUpdate(Mat::Constant(1, 1, Scalar(std::numeric_limits<Real>::quiet_NaN())), expected, alpha, A,
+                                B, C0));
+  }
+}
+
 EIGEN_DECLARE_TEST(product_small) {
   for (int i = 0; i < g_repeat; i++) {
     CALL_SUBTEST_1(product(Matrix<float, 3, 2>()));
@@ -465,6 +513,8 @@ EIGEN_DECLARE_TEST(product_small) {
   CALL_SUBTEST_6(product_small_regressions<0>());
   CALL_SUBTEST_6(product_transposed_triple_bound<0>());
   CALL_SUBTEST_6(product_verify_rejects_nonfinite<0>());
+  CALL_SUBTEST_6(product_verify_update(1e6f));
+  CALL_SUBTEST_6(product_verify_update(std::complex<float>(0.0f, 1e6f)));
 
   // Deterministic sweep at transition boundaries (outside g_repeat).
   CALL_SUBTEST_54(product_transition_sizes<float>());

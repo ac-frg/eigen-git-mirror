@@ -102,10 +102,19 @@ void test_multiple_solves(Eigen::Index n) {
   }
 }
 
+// An empty factorization solves a 0 x nrhs right-hand side.
+void test_empty_solve() {
+  const MatrixXd B(0, 3);
+  gpu::LLT<double> solver{MatrixXd(0, 0)};
+  VERIFY_IS_EQUAL(solver.solve(B).cols(), 3);
+  VERIFY_IS_EQUAL(solver.solve(gpu::DeviceMatrix<double>::fromHost(B)).cols(), 3);
+}
+
 // Test that GpuLLT correctly detects a non-SPD matrix.
 void test_not_spd() {
   Eigen::MatrixXd h_A = -Eigen::MatrixXd::Identity(8, 8);  // negative definite
   Eigen::gpu::LLT<double> gpu_llt(h_A);
+  if (gpu_test::cusolver_potrf_missed_non_spd(gpu_llt.info())) return;
   VERIFY_IS_EQUAL(gpu_llt.info(), Eigen::NumericalIssue);
 }
 
@@ -115,6 +124,7 @@ void test_not_spd_device_solve_asserts() {
   Eigen::MatrixXd h_A = -Eigen::MatrixXd::Identity(8, 8);
   Eigen::MatrixXd h_B = Eigen::MatrixXd::Random(8, 4);
   Eigen::gpu::LLT<double> gpu_llt(h_A);
+  if (gpu_test::cusolver_potrf_missed_non_spd(gpu_llt.info())) return;
   VERIFY_IS_EQUAL(gpu_llt.info(), Eigen::NumericalIssue);
   auto d_B = Eigen::gpu::DeviceMatrix<double>::fromHost(h_B);
   VERIFY_RAISES_ASSERT(gpu_llt.solve(d_B));
@@ -230,6 +240,14 @@ void test_context_bound_solver(Index n, Index nrhs) {
   Mat X2 = d_X2.toHost();
   VERIFY((A * X2 - B).norm() / B.norm() < RealScalar(n) * NumTraits<Scalar>::epsilon());
   VERIFY(d_B.data() == nullptr);  // moved-from
+
+  // Context-bound rvalue constructor adopts d_A instead of copying it.
+  gpu::LLT<Scalar> llt_adopt(ctx, std::move(d_A));
+  VERIFY(d_A.empty());
+  VERIFY(llt_adopt.info() == Success);
+  VERIFY(llt_adopt.stream() == ctx.stream());
+  Mat X3 = llt_adopt.solve(B);
+  VERIFY((A * X3 - B).norm() / B.norm() < RealScalar(n) * NumTraits<Scalar>::epsilon());
 }
 
 // ---- Non-plain host input ---------------------------------------------------
@@ -342,5 +360,6 @@ EIGEN_DECLARE_TEST(gpu_cusolver_llt) {
   CALL_SUBTEST_3(test_scalar<std::complex<float>>());
   CALL_SUBTEST_4(test_scalar<std::complex<double>>());
   CALL_SUBTEST_5(test_not_spd());
+  CALL_SUBTEST_5(test_empty_solve());
   CALL_SUBTEST_5(test_not_spd_device_solve_asserts());
 }
