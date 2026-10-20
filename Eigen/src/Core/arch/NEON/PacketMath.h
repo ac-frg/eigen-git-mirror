@@ -4800,30 +4800,13 @@ EIGEN_ALWAYS_INLINE void zip_in_place<Packet4bf>(Packet4bf& p1, Packet4bf& p2) {
 }
 }  // namespace detail
 
+// Round to nearest even on the bfloat16 boundary, with NaN lanes canonicalized to 0x7fc0. With lsb
+// the lowest bit kept, the scalar formula is (p + 0x7fff + lsb) >> 16, and RSHRN computes
+// (v + 0x8000) >> 16, so v = p - 1 + lsb, that is p minus one where lsb is clear.
 EIGEN_STRONG_INLINE Packet4bf F32ToBf16(const Packet4f& p) {
-  // See the scalar implementation in BFloat16.h for a comprehensible explanation
-  // of this fast rounding algorithm
-  Packet4ui input = Packet4ui(vreinterpretq_u32_f32(p));
-
-  // lsb = (input >> 16) & 1
-  Packet4ui lsb = vandq_u32(vshrq_n_u32(input, 16), vdupq_n_u32(1));
-
-  // rounding_bias = 0x7fff + lsb
-  Packet4ui rounding_bias = vaddq_u32(lsb, vdupq_n_u32(0x7fff));
-
-  // input += rounding_bias
-  input = vaddq_u32(input, rounding_bias);
-
-  // input = input >> 16
-  input = vshrq_n_u32(input, 16);
-
-  // Replace float-nans by bfloat16-nans, that is 0x7fc0
-  const Packet4ui bf16_nan = vdupq_n_u32(0x7fc0);
-  const Packet4ui mask = vceqq_f32(p, p);
-  input = vbslq_u32(mask, input, bf16_nan);
-
-  // output = static_cast<uint16_t>(input)
-  return vmovn_u32(input);
+  Packet4ui bits = vbslq_u32(vceqq_f32(p, p), vreinterpretq_u32_f32(p), vdupq_n_u32(0x7fc00000));
+  Packet4ui round_down = vceqq_u32(vandq_u32(bits, vdupq_n_u32(0x10000)), vdupq_n_u32(0));
+  return vrshrn_n_u32(vaddq_u32(bits, round_down), 16);
 }
 
 // Discard the low 16 bits of each float. Only valid when every lane already holds an exact
