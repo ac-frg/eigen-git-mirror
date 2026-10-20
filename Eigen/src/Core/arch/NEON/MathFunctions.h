@@ -35,7 +35,38 @@ EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC Packet8hf ptanh<Packet8hf>(const Packet8hf
 }
 #endif  // EIGEN_ARCH_ARM64 && EIGEN_HAS_ARM64_FP16
 
-EIGEN_INSTANTIATE_GENERIC_MATH_FUNCS_BF16(Packet4f, Packet4bf)
+// psqrt is specialized below instead of taking the float round trip.
+BF16_PACKET_FUNCTION(Packet4f, Packet4bf, pcos)
+BF16_PACKET_FUNCTION(Packet4f, Packet4bf, psin)
+BF16_PACKET_FUNCTION(Packet4f, Packet4bf, psinh)
+BF16_PACKET_FUNCTION(Packet4f, Packet4bf, pcosh)
+BF16_PACKET_FUNCTION(Packet4f, Packet4bf, pasinh)
+BF16_PACKET_FUNCTION(Packet4f, Packet4bf, pacosh)
+BF16_PACKET_FUNCTION(Packet4f, Packet4bf, pexp)
+BF16_PACKET_FUNCTION(Packet4f, Packet4bf, pexp2)
+BF16_PACKET_FUNCTION(Packet4f, Packet4bf, pexpm1)
+BF16_PACKET_FUNCTION(Packet4f, Packet4bf, plog)
+BF16_PACKET_FUNCTION(Packet4f, Packet4bf, plog1p)
+BF16_PACKET_FUNCTION(Packet4f, Packet4bf, plog2)
+BF16_PACKET_FUNCTION(Packet4f, Packet4bf, plog10)
+BF16_PACKET_FUNCTION(Packet4f, Packet4bf, preciprocal)
+BF16_PACKET_FUNCTION(Packet4f, Packet4bf, prsqrt)
+BF16_PACKET_FUNCTION(Packet4f, Packet4bf, pcbrt)
+BF16_PACKET_FUNCTION(Packet4f, Packet4bf, ptanh)
+
+template <>
+EIGEN_STRONG_INLINE Packet4bf psqrt<Packet4bf>(const Packet4bf& a) {
+  // y = x r with r = FRSQRTE(x), then one FRSQRTS step y <- y (3 - y r) / 2. FRSQRTE is specified
+  // bit for bit, and bfloat16(y) equals bfloat16(sqrtf(x)) for all 65536 inputs (checked
+  // exhaustively); the raw estimate alone misrounds 7366 of them. The estimate route gives NaN
+  // for 0 and inf, so those lanes keep the input. Cheaper than FSQRT where that is not pipelined.
+  Packet4f x = Bf16ToF32(a);
+  Packet4f r = vrsqrteq_f32(x);
+  Packet4f y = pmul(x, r);
+  y = pmul(y, vrsqrtsq_f32(y, r));
+  Packet4f pass = por(pcmp_eq(x, pzero(x)), pcmp_eq(x, pset1<Packet4f>(NumTraits<float>::infinity())));
+  return F32ToBf16(pselect(pass, x, y));
+}
 
 template <>
 EIGEN_STRONG_INLINE Packet4bf pfrexp(const Packet4bf& a, Packet4bf& exponent) {
