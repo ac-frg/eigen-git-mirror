@@ -4800,13 +4800,21 @@ EIGEN_ALWAYS_INLINE void zip_in_place<Packet4bf>(Packet4bf& p1, Packet4bf& p2) {
 }
 }  // namespace detail
 
-// Round to nearest even on the bfloat16 boundary, with NaN lanes canonicalized to 0x7fc0. With lsb
-// the lowest bit kept, the scalar formula is (p + 0x7fff + lsb) >> 16, and RSHRN computes
-// (v + 0x8000) >> 16, so v = p - 1 + lsb, that is p minus one where lsb is clear.
-EIGEN_STRONG_INLINE Packet4bf F32ToBf16(const Packet4f& p) {
-  Packet4ui bits = vbslq_u32(vceqq_f32(p, p), vreinterpretq_u32_f32(p), vdupq_n_u32(0x7fc00000));
+// Round to nearest even on the bfloat16 boundary. With lsb the lowest bit kept, the scalar
+// formula is (p + 0x7fff + lsb) >> 16, and RSHRN computes (v + 0x8000) >> 16, so v = p - 1 + lsb,
+// that is p minus one where lsb is clear. The caller guarantees that every NaN lane has a zero low
+// half, which the FPU's NaN propagation does for bfloat16 operands: the rounding then leaves the
+// NaN's high half alone. A NaN with a nonzero low half could carry into the exponent instead.
+EIGEN_STRONG_INLINE Packet4bf F32ToBf16KeepNaN(const Packet4f& p) {
+  Packet4ui bits = vreinterpretq_u32_f32(p);
   Packet4ui round_down = vceqq_u32(vandq_u32(bits, vdupq_n_u32(0x10000)), vdupq_n_u32(0));
   return vrshrn_n_u32(vaddq_u32(bits, round_down), 16);
+}
+
+// F32ToBf16KeepNaN for any float: NaN lanes become the bfloat16 NaN 0x7fc0.
+EIGEN_STRONG_INLINE Packet4bf F32ToBf16(const Packet4f& p) {
+  Packet4ui bits = vbslq_u32(vceqq_f32(p, p), vreinterpretq_u32_f32(p), vdupq_n_u32(0x7fc00000));
+  return F32ToBf16KeepNaN(vreinterpretq_f32_u32(bits));
 }
 
 // Discard the low 16 bits of each float. Only valid when every lane already holds an exact
@@ -4957,42 +4965,42 @@ EIGEN_STRONG_INLINE Packet4bf ptrunc<Packet4bf>(const Packet4bf& a) {
 
 template <>
 EIGEN_STRONG_INLINE Packet4bf padd<Packet4bf>(const Packet4bf& a, const Packet4bf& b) {
-  return F32ToBf16(padd<Packet4f>(Bf16ToF32(a), Bf16ToF32(b)));
+  return F32ToBf16KeepNaN(padd<Packet4f>(Bf16ToF32(a), Bf16ToF32(b)));
 }
 
 template <>
 EIGEN_STRONG_INLINE Packet4bf psub<Packet4bf>(const Packet4bf& a, const Packet4bf& b) {
-  return F32ToBf16(psub<Packet4f>(Bf16ToF32(a), Bf16ToF32(b)));
+  return F32ToBf16KeepNaN(psub<Packet4f>(Bf16ToF32(a), Bf16ToF32(b)));
 }
 
 template <>
 EIGEN_STRONG_INLINE Packet4bf pmul<Packet4bf>(const Packet4bf& a, const Packet4bf& b) {
-  return F32ToBf16(pmul<Packet4f>(Bf16ToF32(a), Bf16ToF32(b)));
+  return F32ToBf16KeepNaN(pmul<Packet4f>(Bf16ToF32(a), Bf16ToF32(b)));
 }
 
 template <>
 EIGEN_STRONG_INLINE Packet4bf pmadd<Packet4bf>(const Packet4bf& a, const Packet4bf& b, const Packet4bf& c) {
-  return F32ToBf16(pmadd<Packet4f>(Bf16ToF32(a), Bf16ToF32(b), Bf16ToF32(c)));
+  return F32ToBf16KeepNaN(pmadd<Packet4f>(Bf16ToF32(a), Bf16ToF32(b), Bf16ToF32(c)));
 }
 
 template <>
 EIGEN_STRONG_INLINE Packet4bf pmsub<Packet4bf>(const Packet4bf& a, const Packet4bf& b, const Packet4bf& c) {
-  return F32ToBf16(pmsub<Packet4f>(Bf16ToF32(a), Bf16ToF32(b), Bf16ToF32(c)));
+  return F32ToBf16KeepNaN(pmsub<Packet4f>(Bf16ToF32(a), Bf16ToF32(b), Bf16ToF32(c)));
 }
 
 template <>
 EIGEN_STRONG_INLINE Packet4bf pnmadd<Packet4bf>(const Packet4bf& a, const Packet4bf& b, const Packet4bf& c) {
-  return F32ToBf16(pnmadd<Packet4f>(Bf16ToF32(a), Bf16ToF32(b), Bf16ToF32(c)));
+  return F32ToBf16KeepNaN(pnmadd<Packet4f>(Bf16ToF32(a), Bf16ToF32(b), Bf16ToF32(c)));
 }
 
 template <>
 EIGEN_STRONG_INLINE Packet4bf pnmsub<Packet4bf>(const Packet4bf& a, const Packet4bf& b, const Packet4bf& c) {
-  return F32ToBf16(pnmsub<Packet4f>(Bf16ToF32(a), Bf16ToF32(b), Bf16ToF32(c)));
+  return F32ToBf16KeepNaN(pnmsub<Packet4f>(Bf16ToF32(a), Bf16ToF32(b), Bf16ToF32(c)));
 }
 
 template <>
 EIGEN_STRONG_INLINE Packet4bf pdiv<Packet4bf>(const Packet4bf& a, const Packet4bf& b) {
-  return F32ToBf16(pdiv<Packet4f>(Bf16ToF32(a), Bf16ToF32(b)));
+  return F32ToBf16KeepNaN(pdiv<Packet4f>(Bf16ToF32(a), Bf16ToF32(b)));
 }
 
 template <>
@@ -5041,7 +5049,7 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE void ptranspose(PacketBlock<Packet4bf, 4>&
 
 template <>
 EIGEN_STRONG_INLINE Packet4bf pabsdiff<Packet4bf>(const Packet4bf& a, const Packet4bf& b) {
-  return F32ToBf16(pabsdiff<Packet4f>(Bf16ToF32(a), Bf16ToF32(b)));
+  return F32ToBf16KeepNaN(pabsdiff<Packet4f>(Bf16ToF32(a), Bf16ToF32(b)));
 }
 
 template <>
