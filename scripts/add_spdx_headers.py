@@ -248,7 +248,7 @@ def insert_spdx(
     # REUSE-IgnoreStart
     spdx_lines = []
     if not has_copyright:
-        is_netlib = any(m in content for m in REFBLAS_MARKERS)
+        is_netlib = spdx_id == "BSD-3-Clause-Open-MPI"
         for holder in NETLIB_COPYRIGHT_HOLDERS if is_netlib else ("The Eigen Authors",):
             spdx_lines.append(f"{comment} SPDX-FileCopyrightText: {holder}{eol}")
     spdx_lines.append(f"{comment} SPDX-License-Identifier: {spdx_id}{eol}")

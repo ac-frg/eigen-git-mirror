@@ -137,8 +137,10 @@ path = "failtest/*.cpp"
 SPDX-FileCopyrightText = "The Eigen Authors"
 SPDX-License-Identifier = "MPL-2.0"
 
-# Reference BLAS test inputs (BLAS/*.in of LAPACK 3.6.0, renamed). LAPACK's
-# license is BSD-3-Clause plus an IP disclaimer, i.e. BSD-3-Clause-Open-MPI.
+# Reference BLAS test inputs: LAPACK's BLAS/*.in, identical to 3.6.0's apart
+# from output file names and, in [cz]blat3.dat, disabled error-exit tests.
+# LAPACK's license is BSD-3-Clause plus an IP disclaimer, i.e.
+# BSD-3-Clause-Open-MPI.
 [[annotations]]
 path = "blas/testing/*.dat"
 SPDX-FileCopyrightText = [
