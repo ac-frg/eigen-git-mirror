@@ -1258,9 +1258,12 @@ struct gebp_rhs_cols<J, MrPackets, NrCols, true> {
   }
 };
 
-// Fully unrolls a loop over the accumulators (at most 3 x 8 = 24), exposing constant indices before GCC's scalar
-// replacement pass at -O2.
+// EIGEN_GEBP_NEON_GCC_WORKAROUNDS: AArch64 NEON with GCC >= 9, where the micro-kernel needs help keeping its
+// accumulators in registers.
+// EIGEN_GEBP_UNROLL_ACCUMULATORS: fully unrolls a loop over the accumulators (at most 3 x 8 = 24), exposing constant
+// indices before GCC's scalar replacement pass at -O2.
 #if EIGEN_ARCH_ARM64 && defined(EIGEN_VECTORIZE_NEON) && EIGEN_GNUC_STRICT_AT_LEAST(9, 0, 0)
+#define EIGEN_GEBP_NEON_GCC_WORKAROUNDS
 #define EIGEN_GEBP_UNROLL_ACCUMULATORS _Pragma("GCC unroll 24")
 #else
 #define EIGEN_GEBP_UNROLL_ACCUMULATORS
@@ -1281,8 +1284,7 @@ struct gebp_micro_step {
     EIGEN_IF_CONSTEXPR (MrPackets >= 3) traits.loadLhs(&blA[(2 + MrPackets * K) * LhsProg], A[2]);
 
     gebp_rhs_cols<0, MrPackets, NrCols>::run(traits, blB, Index(NrCols * K), A, rhs_panel, T0, C);
-#if EIGEN_ARCH_ARM64 && defined(EIGEN_VECTORIZE_NEON) && EIGEN_GNUC_STRICT_AT_LEAST(9, 0, 0) && \
-    !defined(EIGEN_DONT_DISABLE_GEBP_INSN_SCHEDULING)
+#if defined(EIGEN_GEBP_NEON_GCC_WORKAROUNDS) && !defined(EIGEN_DONT_DISABLE_GEBP_INSN_SCHEDULING)
     using AccPacket = typename GEBPTraits::AccPacket;
     constexpr bool kRealPacket = std::is_same<AccPacket, Packet4f>::value || std::is_same<AccPacket, Packet2d>::value;
     EIGEN_IF_CONSTEXPR (MrPackets == 3 && NrCols == 8 && kRealPacket) {
@@ -1525,6 +1527,7 @@ EIGEN_ALWAYS_INLINE void gebp_micro_panel_impl(GEBPTraits& traits, const DataMap
   }
 }
 #undef EIGEN_GEBP_UNROLL_ACCUMULATORS
+#undef EIGEN_GEBP_NEON_GCC_WORKAROUNDS
 
 // Workaround a GCC/AArch64 register-allocation issue (through at least GCC 14.3): the float
 // kernel's mr=12 x nr=8 tile holds 24 of the 32 NEON registers, and GCC's pre-RA scheduler
