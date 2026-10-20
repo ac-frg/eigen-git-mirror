@@ -115,11 +115,12 @@ static constexpr int kSmeNrCD = sme_block<std::complex<double>>::nr;
 // Appends the leading w <= svl lanes of v to the `fill` < svl lanes of cur that `tail` selects, and stores cur at out
 // whenever it fills. Lanes of v left over after a store stay in place, selected by `tail`; the next splice moves them
 // to the front. A packed panel's lines are contiguous, so a panel narrower than whole vectors is stored in whole
-// vectors this way: a predicated store of each partial line costs about 10 ns on Apple M4 in streaming mode.
+// vectors this way: a predicated store of each partial line costs about 10 ns on Apple M4 in streaming mode. The
+// counts are int64_t, the type whilelt takes, so the loop-carried `fill` is not sign-extended before each whilelt.
 template <typename Scalar>
-EIGEN_ALWAYS_INLINE void sme_append_lanes(typename sme_packet_traits<Scalar>::type& cur, svbool_t& tail, int& fill,
-                                          Scalar*& out, typename sme_packet_traits<Scalar>::type v, int w,
-                                          int svl) __arm_streaming EIGEN_SME_ZA_AGNOSTIC {
+EIGEN_ALWAYS_INLINE void sme_append_lanes(typename sme_packet_traits<Scalar>::type& cur, svbool_t& tail, int64_t& fill,
+                                          Scalar*& out, typename sme_packet_traits<Scalar>::type v, int64_t w,
+                                          int64_t svl) __arm_streaming EIGEN_SME_ZA_AGNOSTIC {
   using Traits = sme_packet_traits<Scalar>;
   const auto joined = psplice(tail, cur, v);
   if (fill + w < svl) {
@@ -176,7 +177,7 @@ static EIGEN_ALWAYS_INLINE void sve_copy_panel_range(Scalar* EIGEN_RESTRICT dst,
     const svbool_t pg_lo = Traits::whilelt(0, w_lo), pg_hi = Traits::whilelt(0, w_hi);
     typename Traits::type cur = pset1<typename Traits::type>(Scalar(0));
     svbool_t tail = svpfalse_b();
-    int fill = 0;
+    int64_t fill = 0;
     Scalar* out = dst + k0 * width;
     for (Index k = k0; k < k1; ++k) {
       const Scalar* s = &src[k * src_stride];
@@ -264,7 +265,7 @@ static EIGEN_ALWAYS_INLINE void sve_copy_panel_range(std::complex<RealScalar>* E
     const svbool_t pg_lo1 = Traits::whilelt(0, 2 * w1), pg_hi1 = Traits::whilelt(svl, 2 * w1);
     Vec cur = pset1<Vec>(RealScalar(0));
     svbool_t tail = svpfalse_b();
-    int fill = 0;
+    int64_t fill = 0;
     RealScalar* out = rdst + k0 * step;
     for (Index k = k0; k < k1; ++k) {
       const RealScalar* p = rsrc + Index(2) * k * src_stride;
