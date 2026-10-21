@@ -197,7 +197,7 @@ EIGEN_BLAS_HEMM_L(scomplex, float, cf, EIGEN_BLAS_SYM(chemm))
       a = _rhs;                                                                                                  \
                                                                                                                  \
       EIGEN_IF_CONSTEXPR (LhsStorageOrder == RowMajor) {                                                         \
-        Map<const MatrixX##EIGPREFIX, 0, OuterStride<> > lhs(_lhs, n, m, OuterStride<>(rhsStride));              \
+        Map<const MatrixX##EIGPREFIX, 0, OuterStride<> > lhs(_lhs, n, m, OuterStride<>(lhsStride));              \
         b_tmp = lhs.adjoint();                                                                                   \
         b = b_tmp.data();                                                                                        \
         ldb = convert_index<BlasIndex>(b_tmp.outerStride());                                                     \
