@@ -363,6 +363,41 @@ void symm_blas_operand_strides() {
 #endif
 }
 
+template <typename RealScalar, int LhsOrder, int RhsOrder>
+void hemm_blas_empty_product() {
+  using Scalar = std::complex<RealScalar>;
+  using Lhs = Matrix<Scalar, Dynamic, Dynamic, LhsOrder>;
+  using Rhs = Matrix<Scalar, Dynamic, Dynamic, RhsOrder>;
+  using Dst = Matrix<Scalar, Dynamic, Dynamic, ColMajor>;
+  const Index shapes[][2] = {{0, 0}, {0, 3}, {3, 0}};
+  for (const auto& shape : shapes) {
+    const Index rows = shape[0], cols = shape[1];
+    const Lhs lhs = Lhs::Zero(rows, cols);
+    const Rhs rhs = Rhs::Identity(cols, cols);
+    const Dst result = lhs * rhs.template selfadjointView<Lower>();
+    VERIFY_IS_EQUAL(result.rows(), rows);
+    VERIFY_IS_EQUAL(result.cols(), cols);
+    VERIFY_IS_EQUAL(result.size(), 0);
+#ifdef EIGEN_USE_BLAS
+    std::vector<Index> strides{3};
+    EIGEN_IF_CONSTEXPR (std::numeric_limits<Index>::digits > std::numeric_limits<BlasIndex>::digits) {
+      Index oversized = static_cast<Index>((std::numeric_limits<BlasIndex>::max)());
+      strides.push_back(++oversized);
+    }
+    const Matrix<Scalar, 3, 3> input = Matrix<Scalar, 3, 3>::Constant(Scalar(7, -3));
+    internal::gemm_blocking_space<ColMajor, Scalar, Scalar, Dynamic, Dynamic, Dynamic> blocking(rows, cols, cols, 1,
+                                                                                                false);
+    for (Index stride : strides) {
+      Matrix<Scalar, 3, 3> storage = input;
+      internal::product_selfadjoint_matrix<Scalar, Index, LhsOrder, false, false, RhsOrder, true, false, ColMajor,
+                                           1>::run(rows, cols, input.data(), stride, input.data(), stride,
+                                                   storage.data(), Index(1), stride, Scalar(1), blocking);
+      VERIFY_IS_CWISE_EQUAL(storage, input);
+    }
+#endif
+  }
+}
+
 EIGEN_DECLARE_TEST(product_symm) {
   for (int i = 0; i < g_repeat; i++) {
     CALL_SUBTEST_1((symm<float, Dynamic, Dynamic>(internal::random<int>(1, EIGEN_TEST_MAX_SIZE),
@@ -387,4 +422,6 @@ EIGEN_DECLARE_TEST(product_symm) {
   CALL_SUBTEST_10(symm_packers_and_rowmajor_operands<0>());
   CALL_SUBTEST_11((symm_blas_operand_strides<float, ColMajor>()));
   CALL_SUBTEST_11((symm_blas_operand_strides<double, RowMajor>()));
+  CALL_SUBTEST_12((hemm_blas_empty_product<float, ColMajor, RowMajor>()));
+  CALL_SUBTEST_12((hemm_blas_empty_product<double, RowMajor, ColMajor>()));
 }

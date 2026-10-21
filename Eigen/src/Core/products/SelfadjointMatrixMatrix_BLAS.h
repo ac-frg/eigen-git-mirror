@@ -216,6 +216,7 @@ EIGEN_BLAS_HEMM_L(scomplex, float, cf, EIGEN_BLAS_SYM(chemm))
     static void run(Index rows, Index cols, const EIGTYPE* _lhs, Index lhsStride, const EIGTYPE* _rhs,           \
                     Index rhsStride, EIGTYPE* res, Index resIncr, Index resStride, EIGTYPE alpha,                \
                     level3_blocking<EIGTYPE, EIGTYPE>& /*blocking*/) {                                           \
+      if (rows == 0 || cols == 0) return;                                                                        \
       EIGEN_ONLY_USED_FOR_DEBUG(resIncr);                                                                        \
       eigen_assert(resIncr == 1);                                                                                \
       char side = 'R', uplo = 'L';                                                                               \
