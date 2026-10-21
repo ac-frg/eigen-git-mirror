@@ -3121,7 +3121,8 @@ void packetmath_bfloat16_sign_bits_flushed() {
 }
 #endif
 
-#if defined(EIGEN_VECTORIZE_AVX) || defined(EIGEN_VECTORIZE_AVX512) || defined(EIGEN_VECTORIZE_NEON)
+#if defined(EIGEN_VECTORIZE_AVX) || defined(EIGEN_VECTORIZE_AVX512) || defined(EIGEN_VECTORIZE_NEON) || \
+    defined(EIGEN_VECTORIZE_SME)
 // The bfloat16 arithmetic packets round a float result to nearest even. Check them against that rounding applied to
 // the float packet op, over every encoding of one operand and a fixed set for the other that puts sums and products
 // on exact midpoints: 1 and 3 against [256, 512), 1 + 2^-7 and 2^-7 against values near 1, plus the range ends and
@@ -3259,7 +3260,8 @@ EIGEN_DECLARE_TEST(packetmath) {
   CALL_SUBTEST_15(packetmath_bfloat16_sign_bits_flushed());
 #endif
 
-#if defined(EIGEN_VECTORIZE_AVX) || defined(EIGEN_VECTORIZE_AVX512) || defined(EIGEN_VECTORIZE_NEON)
+#if defined(EIGEN_VECTORIZE_AVX) || defined(EIGEN_VECTORIZE_AVX512) || defined(EIGEN_VECTORIZE_NEON) || \
+    defined(EIGEN_VECTORIZE_SME)
   CALL_SUBTEST_15(packetmath_bfloat16_arithmetic_rounding());
 #endif
 
