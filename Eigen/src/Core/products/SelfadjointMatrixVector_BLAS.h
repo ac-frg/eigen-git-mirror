@@ -75,11 +75,17 @@ EIGEN_BLAS_SYMV_SPECIALIZE(scomplex)
 #define EIGEN_BLAS_SYMV_SPECIALIZATION(EIGTYPE, BLASTYPE, BLASFUNC)                                               \
   template <typename Index, int StorageOrder, int UpLo, bool ConjugateLhs, bool ConjugateRhs>                     \
   struct selfadjoint_matrix_vector_product_symv<EIGTYPE, Index, StorageOrder, UpLo, ConjugateLhs, ConjugateRhs> { \
+    using Scalar = EIGTYPE;                                                                                       \
     typedef Matrix<EIGTYPE, Dynamic, 1, ColMajor> SYMVVector;                                                     \
                                                                                                                   \
-    static void run(Index size, const EIGTYPE* lhs, Index lhsStride, const EIGTYPE* _rhs, EIGTYPE* res,           \
+    static void run(Index size, const EIGTYPE* lhs, Index lhsStride, const EIGTYPE* _rhs, Scalar* res,            \
                     EIGTYPE alpha) {                                                                              \
-      if (size == 0) return;                                                                                      \
+      if (size == 0 || numext::is_exactly_zero(alpha)) return;                                                    \
+      if (!blas_compatible_stride<StorageOrder>(size, size, lhsStride)) {                                         \
+        selfadjoint_matrix_vector_product<EIGTYPE, Index, StorageOrder, UpLo, ConjugateLhs, ConjugateRhs,         \
+                                          BuiltIn>::run(size, lhs, lhsStride, _rhs, res, alpha);                  \
+        return;                                                                                                   \
+      }                                                                                                           \
       enum { IsRowMajor = StorageOrder == RowMajor ? 1 : 0, IsLower = UpLo == Lower ? 1 : 0 };                    \
       BlasIndex n = convert_index<BlasIndex>(size), lda = blas_leading_dim<StorageOrder>(size, size, lhsStride),  \
                 incx = 1, incy = 1;                                                                               \
