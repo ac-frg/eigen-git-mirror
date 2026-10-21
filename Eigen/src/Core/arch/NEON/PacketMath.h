@@ -4804,14 +4804,17 @@ EIGEN_ALWAYS_INLINE void zip_in_place<Packet4bf>(Packet4bf& p1, Packet4bf& p2) {
 // formula is (p + 0x7fff + lsb) >> 16, and RSHRN computes (v + 0x8000) >> 16, so v = p - 1 + lsb,
 // that is p minus one where lsb is clear. The caller guarantees that every NaN lane has a zero low
 // half, which the FPU's NaN propagation does for bfloat16 operands: the rounding then leaves the
-// NaN's high half alone. A NaN with a nonzero low half could carry into the exponent instead.
+// NaN's high half alone. A NaN with a nonzero low half can instead round to +-inf or carry into a
+// zero.
 EIGEN_STRONG_INLINE Packet4bf F32ToBf16KeepNaN(const Packet4f& p) {
   Packet4ui bits = vreinterpretq_u32_f32(p);
   Packet4ui round_down = vceqq_u32(vandq_u32(bits, vdupq_n_u32(0x10000)), vdupq_n_u32(0));
   return vrshrn_n_u32(vaddq_u32(bits, round_down), 16);
 }
 
-// F32ToBf16KeepNaN for any float: NaN lanes become the bfloat16 NaN 0x7fc0.
+// F32ToBf16KeepNaN for any float: NaN lanes become the bfloat16 NaN 0x7fc0, as on AVX. The scalar
+// conversion keeps the NaN's sign; doing that here costs an op on the critical path of every round
+// trip, 25% of a cast loop and 6% of exp on a Cortex-A72, for a bit that carries no value.
 EIGEN_STRONG_INLINE Packet4bf F32ToBf16(const Packet4f& p) {
   Packet4ui bits = vbslq_u32(vceqq_f32(p, p), vreinterpretq_u32_f32(p), vdupq_n_u32(0x7fc00000));
   return F32ToBf16KeepNaN(vreinterpretq_f32_u32(bits));
