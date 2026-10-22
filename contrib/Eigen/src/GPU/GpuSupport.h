@@ -362,8 +362,10 @@ class DeviceBuffer {
   /** True for a buffer made by alias(). */
   bool isAlias() const noexcept { return parent_ != nullptr; }
 
+  // An alias of a parent that holds no memory is null too, not null + offset_.
   void* get() const noexcept {
-    return parent_ ? static_cast<void*>(static_cast<char*>(parent_->ptr_) + offset_) : ptr_;
+    if (!parent_) return ptr_;
+    return parent_->ptr_ ? static_cast<void*>(static_cast<char*>(parent_->ptr_) + offset_) : nullptr;
   }
   explicit operator bool() const noexcept { return get() != nullptr; }
 

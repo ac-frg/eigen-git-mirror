@@ -156,7 +156,10 @@ gpu::DeviceMatrix<double> u = V.col(j);       // an owning copy
 
 A block's accesses are ordered with every access to the parent on any context,
 tracked for the parent as a whole: accesses to different columns from
-different contexts are ordered as if they overlapped. Assigning to a block
+different contexts are ordered as if they overlapped, and a write through a
+block needs exclusive access to the parent and all of its blocks. Unlike
+disjoint Eigen blocks, two blocks of one matrix cannot be written from
+different threads at once. Assigning to a block
 writes into the parent (moving into a block copies); resizing a block, or
 handing its memory to a solver, asserts. Resizing, moving or destroying the
 parent invalidates its blocks.

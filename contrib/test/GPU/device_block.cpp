@@ -230,6 +230,18 @@ void test_block_cannot_own() {
   VERIFY(block.data() == d_A.data() + 8);
 }
 
+// An alias of a parent that no longer holds memory is null at any offset, so
+// the existing null checks catch it.
+void test_alias_of_empty_parent() {
+  gpu::Context ctx;
+  gpu::internal::DeviceBuffer parent(64, ctx.streamHandle());
+  const gpu::internal::DeviceBuffer alias = gpu::internal::DeviceBuffer::alias(parent, 16, 16);
+  VERIFY(alias.get() == static_cast<char*>(parent.get()) + 16);
+  parent.reset();
+  VERIFY(alias.get() == nullptr);
+  VERIFY(!alias);
+}
+
 template <typename Scalar>
 void test_scalar() {
   CALL_SUBTEST(test_block_values<Scalar>(64, 12));
@@ -246,5 +258,6 @@ EIGEN_DECLARE_TEST(gpu_device_block) {
   CALL_SUBTEST_3(test_parent_read_after_block_write());
   CALL_SUBTEST_3(test_block_write_after_block_read());
   CALL_SUBTEST_3(test_block_cannot_own());
+  CALL_SUBTEST_3(test_alias_of_empty_parent());
   CALL_SUBTEST_3(test_block_base_interface());
 }

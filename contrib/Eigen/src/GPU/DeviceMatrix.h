@@ -557,7 +557,10 @@ class DeviceMatrix {
  * access ordering, so every DeviceMatrix operation applies to it and a read or
  * write through it is ordered with every other access to the parent, on any
  * context. Accesses are tracked for the whole parent, so accesses to different
- * columns from different contexts are ordered as if they overlapped.
+ * columns from different contexts are ordered as if they overlapped, and a write
+ * through a block needs exclusive access to the parent and all of its blocks.
+ * Unlike disjoint Eigen blocks, two blocks of one parent cannot be written from
+ * different threads at once.
  *
  * As for an Eigen Block, assigning to a block writes into the parent (moving
  * into a block copies), also through noalias() or a DeviceMatrix&; copying a
