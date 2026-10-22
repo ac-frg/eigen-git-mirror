@@ -265,6 +265,32 @@ void test_free_after_read_through_view() {
   }
 }
 
+// Releasing a view to a third stream hands its reads back to the view's stream
+// as destroying it does.
+void test_free_after_read_through_released_view() {
+  gpu::Context writer, reader, other;
+  const Vec a = Vec::Random(kSize);
+  for (bool park : {false, true}) {
+    DeviceVec owner = DeviceVec::fromHost(writer, a);
+    DeviceVec d_b;
+    DeviceVec d_reuse;
+    {
+      MaybeParked gate(reader.stream(), park);
+      {
+        DeviceVec view = DeviceVec::view(writer, owner.data(), owner.rows(), owner.cols());
+        d_b = view.clone(reader);
+        VERIFY(view.release(other) == owner.data());
+      }
+      owner = DeviceVec();
+      d_reuse = DeviceVec(writer, kSize, 1);
+      d_reuse.setZero(writer);
+      gate.openAfter(kGateDelay);
+      wait_for(writer);
+    }
+    VERIFY_IS_APPROX(d_b.toHost(reader), a);
+  }
+}
+
 // release() orders the matrix's pending write before the work the caller then
 // enqueues on the Context it passes.
 void test_release_orders_pending_write() {
@@ -755,6 +781,7 @@ EIGEN_DECLARE_TEST(gpu_stream_ordering) {
   CALL_SUBTEST(test_no_legacy_stream<double>());
   CALL_SUBTEST(test_no_legacy_stream<std::complex<float>>());
   CALL_SUBTEST(test_free_after_read_through_view());
+  CALL_SUBTEST(test_free_after_read_through_released_view());
   CALL_SUBTEST(test_release_after_context());
   CALL_SUBTEST(test_release_orders_pending_write());
   CALL_SUBTEST(test_write_through_view());

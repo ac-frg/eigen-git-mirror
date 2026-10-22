@@ -214,6 +214,12 @@ of such an object waits for. An owned stream needs no such care: it stays
 alive, even after the `Context` is destroyed, as long as an object or a
 pending read still needs it.
 
+A per-thread default stream (`cudaStreamPerThread`, or `0` in a translation
+unit built with `--default-stream per-thread`) is a different stream on each
+thread, but `DeviceMatrix` and `DeviceScalar` tell streams apart by handle. Use
+the objects that a `Context` on such a stream reads or writes, and destroy
+them, on that `Context`'s thread only.
+
 To override the thread-local default (e.g., in CG where all ops share one
 context):
 
@@ -942,7 +948,8 @@ The entry points that exchange raw pointers carry the same ordering:
   ownership: free the pointer with `cudaFree`, or with
   `cudaFreeAsync(p, ctx.stream())` where the matrix was allocated
   stream-ordered. A view returns its borrowed pointer, which its owner still
-  frees.
+  frees; as on destruction, the view's stream then waits for every access made
+  through it.
 
 ### Error handling {#eigen_gpu_errors}
 

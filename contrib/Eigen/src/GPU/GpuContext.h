@@ -105,7 +105,13 @@ class Context {
    * legacy default stream puts this Context's work there. \p stream must outlive
    * this Context, every DeviceMatrix or DeviceScalar last written on it (their
    * memory is freed stream-ordered on it), and every read enqueued on it that a
-   * later write or free of such an object waits for. */
+   * later write or free of such an object waits for.
+   *
+   * A per-thread default stream (cudaStreamPerThread, or 0 in a translation unit
+   * built with --default-stream per-thread) is a different stream on each thread,
+   * but DeviceMatrix and DeviceScalar tell streams apart by handle. Use the
+   * objects that such a Context reads or writes, and destroy them, on its thread
+   * only. */
   explicit Context(cudaStream_t stream) : Context(internal::borrow_stream(stream)) { init_cublas(); }
 
   /** Internal: an owned stream, with the cuBLAS handle created on first use, for

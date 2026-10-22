@@ -498,7 +498,8 @@ class DeviceMatrix {
    * only in work ordered after that stream's. An owning matrix transfers
    * ownership: free the pointer with cudaFree, or with cudaFreeAsync on
    * ctx.stream() where the matrix was allocated stream-ordered. A view
-   * (isView()) returns its borrowed pointer, which its owner still frees. */
+   * (isView()) returns its borrowed pointer, which its owner still frees; as on
+   * destruction, the view's stream then waits for every access made through it. */
   Scalar* release(Context& ctx);
 
   /** release() to the thread-local Context. */

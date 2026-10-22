@@ -377,6 +377,10 @@ class DeviceBuffer {
     for (ReadMark& r : reads_) {
       if (mark) break;
       if (r.pending && cudaEventQuery(r.event) == cudaSuccess) {
+        // Free for the device, since the read is complete, but it gives a later
+        // free on home an edge that compute-sanitizer sees: its race tracking
+        // does not count the host's query as ordering.
+        EIGEN_CUDA_RUNTIME_CHECK(cudaStreamWaitEvent(stream_.get(), r.event, 0));
         r.pending = false;
         r.stream.reset();
       }
@@ -433,11 +437,13 @@ class DeviceBuffer {
   /** Gives up ownership without freeing. \p target is first ordered after every
    * pending access, as for a write, so the caller only has to order its own use
    * and the free after \p target's work; the buffer's own stream, which may die
-   * with the buffer, is not needed. */
+   * with the buffer, is not needed. A borrowed buffer's origin stream then
+   * waits for \p target, as on reset(). */
   void* release(const StreamHandle& target) {
     prepareWrite(target);
     void* p = ptr_;
-    ptr_ = nullptr;
+    // reset() then frees nothing, but still hands a borrowed buffer back.
+    owns_ = false;
     reset();
     return p;
   }
