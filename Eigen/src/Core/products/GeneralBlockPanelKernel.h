@@ -786,6 +786,11 @@ struct DoublePacket {
 };
 
 template <typename Packet>
+struct is_double_packet : std::false_type {};
+template <typename Packet>
+struct is_double_packet<DoublePacket<Packet>> : std::true_type {};
+
+template <typename Packet>
 DoublePacket<Packet> padd(const DoublePacket<Packet>& a, const DoublePacket<Packet>& b) {
   DoublePacket<Packet> res;
   res.first = padd(a.first, b.first);
@@ -866,7 +871,12 @@ class gebp_traits<std::complex<RealScalar>, std::complex<RealScalar>, ConjLhs_, 
     NumberOfRegisters = EIGEN_ARCH_DEFAULT_NUMBER_OF_REGISTERS,
 
     nr = 4,
+#ifdef EIGEN_HAS_SINGLE_INSTRUCTION_MADD
+    // Each DoublePacket accumulator takes two registers.
+    mr = plain_enum_max(1, NumberOfRegisters / 4 / nr) * ResPacketSize,
+#else
     mr = (plain_enum_min(16, NumberOfRegisters) / 2 / nr) * ResPacketSize,
+#endif
 
     LhsProgress = ResPacketSize,
     RhsProgress = 1
@@ -1354,6 +1364,17 @@ EIGEN_ALWAYS_INLINE void gebp_sse_spilling_workaround(LhsArray_& A, AccArray_& A
 #endif
 }
 
+// Double-accumulation trick for 1pX4 path to break FMA dependency chains. A DoublePacket
+// accumulator already holds two chains, and with 16 registers doubling it would spill.
+template <typename AccPacket, int MrPackets, int NrCols>
+struct gebp_use_double_accum {
+  static constexpr bool value = MrPackets == 1 && NrCols == 4
+#ifdef EIGEN_HAS_SINGLE_INSTRUCTION_MADD
+                                && !(is_double_packet<AccPacket>::value && EIGEN_ARCH_DEFAULT_NUMBER_OF_REGISTERS < 32)
+#endif
+      ;
+};
+
 // Unrolled peeled loop body: calls gebp_micro_step for K=0..7, handling
 // double-accumulation for 1pX4, prefetches, and compiler workarounds.
 template <int MrPackets, int NrCols>
@@ -1362,7 +1383,7 @@ struct gebp_peeled_loop {
             typename RhsPacketType, typename AccArray, typename AccArrayD, typename FullLhsPacket>
   static EIGEN_ALWAYS_INLINE void run(GEBPTraits& traits, const LhsScalar_* blA, const RhsScalar_* blB, LhsArray& A,
                                       RhsPanelType& rhs_panel, RhsPacketType& T0, AccArray& C, AccArrayD& D) {
-    constexpr bool use_double_accum = (MrPackets == 1 && NrCols == 4);
+    constexpr bool use_double_accum = gebp_use_double_accum<typename GEBPTraits::AccPacket, MrPackets, NrCols>::value;
 
     // Prefetch for 4-col paths
     EIGEN_IF_CONSTEXPR (NrCols == 4) {
@@ -1452,8 +1473,7 @@ EIGEN_ALWAYS_INLINE void gebp_micro_panel_impl(GEBPTraits& traits, const DataMap
   EIGEN_GEBP_UNROLL_ACCUMULATORS
   for (int n = 0; n < MrPackets * NrCols; ++n) traits.initAcc(C[n]);
 
-  // Double-accumulation trick for 1pX4 path to break FMA dependency chains
-  constexpr bool use_double_accum = (MrPackets == 1 && NrCols == 4);
+  constexpr bool use_double_accum = gebp_use_double_accum<AccPacketLocal, MrPackets, NrCols>::value;
 #ifdef EIGEN_HAS_CXX17_IFCONSTEXPR
   alignas(AccPacketLocal) AccPacketLocal D[use_double_accum ? NrCols : 1];
 #else
