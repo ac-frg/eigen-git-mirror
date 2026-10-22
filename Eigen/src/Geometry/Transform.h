@@ -210,9 +210,6 @@ struct transform_make_affine;
  * \endcode
  * Note that there is zero overhead.
  *
- * Conversion methods from/to Qt's QMatrix and QTransform are available if the
- * preprocessor token EIGEN_QT_SUPPORT is defined.
- *
  * This class can be extended with the help of the plugin mechanism described on the page
  * \ref TopicCustomizing_Plugins by defining the preprocessor symbol \c EIGEN_TRANSFORM_PLUGIN.
  *
@@ -373,17 +370,6 @@ class Transform {
     other.evalTo(*this);
     return *this;
   }
-
-#ifdef EIGEN_QT_SUPPORT
-#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
-  inline Transform(const QMatrix& other);
-  inline Transform& operator=(const QMatrix& other);
-  inline QMatrix toQMatrix(void) const;
-#endif
-  inline Transform(const QTransform& other);
-  inline Transform& operator=(const QTransform& other);
-  inline QTransform toQTransform(void) const;
-#endif
 
   EIGEN_DEVICE_FUNC constexpr Index rows() const noexcept {
     return int(Mode) == int(Projective) ? m_matrix.cols() : (m_matrix.cols() - 1);
@@ -716,95 +702,6 @@ using Projective3f = Transform<float, 3, Projective>;
 using Projective2d = Transform<double, 2, Projective>;
 /** \ingroup Geometry_Module */
 using Projective3d = Transform<double, 3, Projective>;
-
-/**************************
-*** Optional QT support ***
-**************************/
-
-#ifdef EIGEN_QT_SUPPORT
-
-#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
-/** Initializes \c *this from a QMatrix assuming the dimension is 2.
- *
- * This function is available only if the token EIGEN_QT_SUPPORT is defined.
- */
-template <typename Scalar, int Dim, int Mode, int Options>
-Transform<Scalar, Dim, Mode, Options>::Transform(const QMatrix& other) {
-  check_template_params();
-  *this = other;
-}
-
-/** Set \c *this from a QMatrix assuming the dimension is 2.
- *
- * This function is available only if the token EIGEN_QT_SUPPORT is defined.
- */
-template <typename Scalar, int Dim, int Mode, int Options>
-Transform<Scalar, Dim, Mode, Options>& Transform<Scalar, Dim, Mode, Options>::operator=(const QMatrix& other) {
-  EIGEN_STATIC_ASSERT(Dim == 2, YOU_MADE_A_PROGRAMMING_MISTAKE)
-  if (EIGEN_CONST_CONDITIONAL(Mode == int(AffineCompact)))
-    m_matrix << other.m11(), other.m21(), other.dx(), other.m12(), other.m22(), other.dy();
-  else
-    m_matrix << other.m11(), other.m21(), other.dx(), other.m12(), other.m22(), other.dy(), 0, 0, 1;
-  return *this;
-}
-
-/** \returns a QMatrix from \c *this assuming the dimension is 2.
- *
- * \warning this conversion might lose data if \c *this is not affine
- *
- * This function is available only if the token EIGEN_QT_SUPPORT is defined.
- */
-template <typename Scalar, int Dim, int Mode, int Options>
-QMatrix Transform<Scalar, Dim, Mode, Options>::toQMatrix(void) const {
-  check_template_params();
-  EIGEN_STATIC_ASSERT(Dim == 2, YOU_MADE_A_PROGRAMMING_MISTAKE)
-  return QMatrix(m_matrix.coeff(0, 0), m_matrix.coeff(1, 0), m_matrix.coeff(0, 1), m_matrix.coeff(1, 1),
-                 m_matrix.coeff(0, 2), m_matrix.coeff(1, 2));
-}
-#endif
-
-/** Initializes \c *this from a QTransform assuming the dimension is 2.
- *
- * This function is available only if the token EIGEN_QT_SUPPORT is defined.
- */
-template <typename Scalar, int Dim, int Mode, int Options>
-Transform<Scalar, Dim, Mode, Options>::Transform(const QTransform& other) {
-  check_template_params();
-  *this = other;
-}
-
-/** Set \c *this from a QTransform assuming the dimension is 2.
- *
- * This function is available only if the token EIGEN_QT_SUPPORT is defined.
- */
-template <typename Scalar, int Dim, int Mode, int Options>
-Transform<Scalar, Dim, Mode, Options>& Transform<Scalar, Dim, Mode, Options>::operator=(const QTransform& other) {
-  check_template_params();
-  EIGEN_STATIC_ASSERT(Dim == 2, YOU_MADE_A_PROGRAMMING_MISTAKE)
-  if (EIGEN_CONST_CONDITIONAL(Mode == int(AffineCompact)))
-    m_matrix << other.m11(), other.m21(), other.dx(), other.m12(), other.m22(), other.dy();
-  else
-    m_matrix << other.m11(), other.m21(), other.dx(), other.m12(), other.m22(), other.dy(), other.m13(), other.m23(),
-        other.m33();
-  return *this;
-}
-
-/** \returns a QTransform from \c *this assuming the dimension is 2.
- *
- * This function is available only if the token EIGEN_QT_SUPPORT is defined.
- */
-template <typename Scalar, int Dim, int Mode, int Options>
-QTransform Transform<Scalar, Dim, Mode, Options>::toQTransform(void) const {
-  EIGEN_STATIC_ASSERT(Dim == 2, YOU_MADE_A_PROGRAMMING_MISTAKE)
-  if (EIGEN_CONST_CONDITIONAL(Mode == int(AffineCompact)))
-    return QTransform(m_matrix.coeff(0, 0), m_matrix.coeff(1, 0), m_matrix.coeff(0, 1), m_matrix.coeff(1, 1),
-                      m_matrix.coeff(0, 2), m_matrix.coeff(1, 2));
-  else
-    return QTransform(m_matrix.coeff(0, 0), m_matrix.coeff(1, 0), m_matrix.coeff(2, 0), m_matrix.coeff(0, 1),
-                      m_matrix.coeff(1, 1), m_matrix.coeff(2, 1), m_matrix.coeff(0, 2), m_matrix.coeff(1, 2),
-                      m_matrix.coeff(2, 2));
-}
-#endif
 
 /*********************
 *** Procedural API ***

@@ -126,7 +126,6 @@ EXPAND_ONLY_PREDEF     = YES
 PREDEFINED             = EIGEN_EMPTY_STRUCT \
                          EIGEN_PARSED_BY_DOXYGEN \
                          EIGEN_VECTORIZE \
-                         EIGEN_QT_SUPPORT \
                          EIGEN_STRONG_INLINE=inline \
                          EIGEN_DEVICE_FUNC= \
                          "EIGEN_MAKE_CWISE_UNARY_OP(METHOD,FUNCTOR,RETURN_TYPE)=const CwiseUnaryOp<FUNCTOR<Scalar>,const Derived> METHOD() const; using RETURN_TYPE=CwiseUnaryOp<FUNCTOR<Scalar>,const Derived>;" \
