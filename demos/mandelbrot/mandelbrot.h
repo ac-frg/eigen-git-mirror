@@ -12,8 +12,8 @@
 #define MANDELBROT_H
 
 #include <Eigen/Core>
-#include <QtGui/QApplication>
-#include <QtGui/QWidget>
+#include <QtWidgets/QApplication>
+#include <QtWidgets/QWidget>
 #include <QtCore/QThread>
 
 class MandelbrotWidget;

@@ -79,7 +79,7 @@ class Camera {
 
   void localTranslate(const Eigen::Vector3f& t);
 
-  /** Setup OpenGL matrices and viewport */
+  /** Setup OpenGL matrices; the widget owns the physical-pixel viewport. */
   void activateGL(void);
 
   Eigen::Vector3f unProject(const Eigen::Vector2f& uv, float depth, const Eigen::Matrix4f& invModelview) const;

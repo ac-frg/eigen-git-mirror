@@ -3,7 +3,7 @@
 
 #include <Eigen/Sparse>
 #include <vector>
-#include <QImage>
+#include <fstream>
 
 typedef Eigen::SparseMatrix<double> SpMat;  // declares a column-major sparse matrix type of double
 typedef Eigen::Triplet<double> T;
@@ -36,10 +36,13 @@ void buildProblem(std::vector<T>& coefficients, Eigen::VectorXd& b, int n) {
   }
 }
 
-void saveAsBitmap(const Eigen::VectorXd& x, int n, const char* filename) {
-  Eigen::Array<unsigned char, Eigen::Dynamic, Eigen::Dynamic> bits = (x * 255).cast<unsigned char>();
-  QImage img(bits.data(), n, n, QImage::Format_Indexed8);
-  img.setColorCount(256);
-  for (int i = 0; i < 256; i++) img.setColor(i, qRgb(i, i, i));
-  img.save(filename);
+bool saveAsBitmap(const Eigen::VectorXd& x, int n, const char* filename) {
+  std::ofstream image(filename, std::ios::binary);
+  if (!image) return false;
+  // Binary PGM: https://netpbm.sourceforge.net/doc/pgm.html
+  image << "P5\n" << n << ' ' << n << "\n255\n";
+  const Eigen::Array<unsigned char, Eigen::Dynamic, 1> bits = (x * 255).cast<unsigned char>();
+  image.write(reinterpret_cast<const char*>(bits.data()), static_cast<std::streamsize>(bits.size()));
+  image.close();
+  return bool(image);
 }

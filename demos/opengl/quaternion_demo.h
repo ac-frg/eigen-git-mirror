@@ -16,14 +16,14 @@
 #include "trackball.h"
 #include <map>
 #include <QTimer>
-#include <QtGui/QApplication>
-#include <QtOpenGL/QGLWidget>
-#include <QtGui/QMainWindow>
+#include <QtWidgets/QApplication>
+#include <QtOpenGLWidgets/QOpenGLWidget>
+#include <QtWidgets/QMainWindow>
 
-class RenderingWidget : public QGLWidget {
+class RenderingWidget : public QOpenGLWidget {
   Q_OBJECT
 
-  typedef std::map<float, Frame> TimeLine;
+  using TimeLine = std::map<float, Frame>;
   TimeLine m_timeline;
   Frame lerpFrame(float t);
 
