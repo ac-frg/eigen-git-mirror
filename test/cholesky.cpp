@@ -554,19 +554,20 @@ void cholesky_ldlt_zero_pivots_last(const MatrixType& A, Index r) {
   check_ldlt_zero_pivots_last<MatrixType, Upper>(A, r);
 }
 
-// The panel width at the smallest size that LDLT factors in panels. The width grows with the size, so the blocked
-// tests below take their sizes from this one.
+// The panel width at the smallest size that LDLT factors in panels, or 0 if it factors none, as with
+// EIGEN_LDLT_BLOCKSIZE=0. The width grows with the size, so the blocked tests below take their sizes from this one.
 template <typename MatrixType>
 Index ldlt_smallest_blocksize() {
-  Index n = 1;
-  while (internal::ldlt_blocksize<MatrixType>(n) == 0) ++n;
-  return internal::ldlt_blocksize<MatrixType>(n);
+  for (Index n = 1; n <= 4096; ++n)
+    if (internal::ldlt_blocksize<MatrixType>(n) > 0) return internal::ldlt_blocksize<MatrixType>(n);
+  return 0;
 }
 
 // P (I_m kron [1 1; 1 1]) P^T has rank m, at a size that takes the blocked factorization.
 template <typename MatrixType>
 void cholesky_ldlt_zero_pivots_last_blocked() {
   const Index nb = ldlt_smallest_blocksize<MatrixType>();
+  if (nb == 0) return;
   const Index m = 2 * nb + 1, n = 2 * m;
   VERIFY(internal::ldlt_blocksize<MatrixType>(n) > 0);
   MatrixType A = MatrixType::Zero(n, n);
@@ -691,6 +692,7 @@ template <typename MatrixType>
 void cholesky_ldlt_blocked() {
   using Scalar = typename MatrixType::Scalar;
   const Index nb = ldlt_smallest_blocksize<MatrixType>();
+  if (nb == 0) return;
   VERIFY_IS_EQUAL(internal::ldlt_blocksize<MatrixType>(3 * nb), Index(0));
   VERIFY_IS_EQUAL((internal::ldlt_blocksize<Matrix<Scalar, Dynamic, Dynamic, 0, 512, 512> >(4 * nb + 1)), Index(0));
   for (Index n : {4 * nb + 1, 5 * nb, 5 * nb + nb / 2}) {
@@ -740,7 +742,7 @@ void cholesky_ldlt_imaginary_nan(Index n) {
 template <typename Scalar>
 void cholesky_ldlt_blocked_preallocated_no_malloc() {
   using MatrixType = Matrix<Scalar, Dynamic, Dynamic>;
-  const Index size = 4 * ldlt_smallest_blocksize<MatrixType>() + 3;
+  const Index size = 4 * numext::maxi(ldlt_smallest_blocksize<MatrixType>(), Index(32)) + 3;
   const MatrixType A = MatrixType::Random(size, size);
   const MatrixType spd = A * A.adjoint() + MatrixType::Identity(size, size);
   LDLT<MatrixType> ldlt(size);
@@ -1240,8 +1242,8 @@ EIGEN_DECLARE_TEST(cholesky) {
   CALL_SUBTEST_1(cholesky_ldlt_blocked_preallocated_no_malloc<std::complex<double> >());
 
   {
-    // Two unblocked sizes and two blocked ones.
-    const Index nb = ldlt_smallest_blocksize<MatrixXd>();
+    // Two unblocked sizes and two blocked ones, unless EIGEN_LDLT_BLOCKSIZE=0 disables blocking.
+    const Index nb = numext::maxi(ldlt_smallest_blocksize<MatrixXd>(), Index(32));
     for (Index n : {Index(3), Index(17), 4 * nb + 1, 5 * nb + nb / 2}) {
       CALL_SUBTEST_2(cholesky_ldlt_semidefinite<MatrixXd>(n, 1));
       CALL_SUBTEST_2(cholesky_ldlt_semidefinite<MatrixXd>(n, n / 2));
