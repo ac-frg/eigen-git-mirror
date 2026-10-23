@@ -362,14 +362,21 @@ namespace internal {
 
 /** \internal Panel width of the blocked factorization of a \a size x \a size matrix, or 0 where a single
  * unblocked panel covers the whole matrix: up to three panel widths, below which the level-3 update does not pay
- * off, and for fixed-size or bounded matrices, which must not allocate the panel workspace. Can be overridden
- * (mainly for testing the panel logic at small sizes) by defining EIGEN_LDLT_BLOCKSIZE. */
+ * off, and for fixed-size or bounded matrices, which must not allocate the panel workspace.
+ *
+ * The panel's level-2 updates run at a rate R, and the trailing update at P / (1 + kappa / nb), kappa being the
+ * fixed cost of a pass in steps of its depth. Then T(nb) = n^3 / (3 P) (1 + kappa / nb) + n^2 nb / (2 R) is least at
+ * nb = sqrt(c n), c = 2 kappa R / (3 P). Measured c ranges from about 0.7 to 4 with AVX2, AVX-512, NEON and SME
+ * products, and grows once the trailing matrix outgrows the last-level cache. c = 3, with nb rounded to a multiple
+ * of 16 and clamped to [32, 128], the range the measured optimum spans, loses about 2% to the best width on average.
+ * Can be overridden (mainly for testing the panel logic at small sizes) by defining EIGEN_LDLT_BLOCKSIZE. */
 template <typename MatrixType>
 inline Index ldlt_blocksize(Index size) {
 #ifdef EIGEN_LDLT_BLOCKSIZE
   const Index nb = Index(EIGEN_LDLT_BLOCKSIZE);
 #else
-  const Index nb = 32;
+  const Index unclamped = 16 * Index(numext::round(numext::sqrt(3.0 * double(size)) / 16));
+  const Index nb = numext::mini(numext::maxi(unclamped, Index(32)), Index(128));
 #endif
   return int(MatrixType::MaxRowsAtCompileTime) == Dynamic && nb > 0 && size > 3 * nb ? nb : 0;
 }

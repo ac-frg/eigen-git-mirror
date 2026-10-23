@@ -554,10 +554,19 @@ void cholesky_ldlt_zero_pivots_last(const MatrixType& A, Index r) {
   check_ldlt_zero_pivots_last<MatrixType, Upper>(A, r);
 }
 
+// The panel width at the smallest size that LDLT factors in panels. The width grows with the size, so the blocked
+// tests below take their sizes from this one.
+template <typename MatrixType>
+Index ldlt_smallest_blocksize() {
+  Index n = 1;
+  while (internal::ldlt_blocksize<MatrixType>(n) == 0) ++n;
+  return internal::ldlt_blocksize<MatrixType>(n);
+}
+
 // P (I_m kron [1 1; 1 1]) P^T has rank m, at a size that takes the blocked factorization.
 template <typename MatrixType>
 void cholesky_ldlt_zero_pivots_last_blocked() {
-  const Index nb = internal::ldlt_blocksize<MatrixType>(NumTraits<int>::highest());
+  const Index nb = ldlt_smallest_blocksize<MatrixType>();
   const Index m = 2 * nb + 1, n = 2 * m;
   VERIFY(internal::ldlt_blocksize<MatrixType>(n) > 0);
   MatrixType A = MatrixType::Zero(n, n);
@@ -641,47 +650,58 @@ void cholesky_ldlt_graded(Index n, int decades) {
   check_ldlt_graded<MatrixType, Upper>(A);
 }
 
-// Above three panel widths, LDLT factors panels and applies each to the trailing Schur complement in one level-3
-// product. The sizes leave a trailing panel of one column, none, and a partial one; definite and KKT matrices give
-// pivots of both signs. Fixed-size and bounded matrices stay unblocked, so that they allocate no panel workspace.
+// Definite and KKT matrices of size n, which give pivots of both signs.
 template <typename MatrixType>
-void cholesky_ldlt_blocked() {
+void check_ldlt_blocked(Index n) {
   using Scalar = typename MatrixType::Scalar;
   using RealScalar = typename NumTraits<Scalar>::Real;
   using RealMatrixType = Matrix<RealScalar, Dynamic, Dynamic>;
   const RealScalar eps = NumTraits<RealScalar>::epsilon();
-  const Index nb = internal::ldlt_blocksize<MatrixType>(NumTraits<int>::highest());
-  VERIFY(nb > 0);
+  const MatrixType B = MatrixType::Random(n, n);
+  const MatrixType pd = B * B.adjoint() + MatrixType::Identity(n, n);
+  for (RealScalar sign : {RealScalar(1), RealScalar(-1)}) {
+    const MatrixType A = sign * pd;
+    LDLT<MatrixType> ldlt(A);
+    VERIFY(ldlt.info() == Success);
+    VERIFY(ldlt.isPositive() == (sign > 0) && ldlt.isNegative() == (sign < 0));
+    VERIFY((ldlt.reconstructedMatrix() - A).norm() <= RealScalar(2 * n) * eps * A.norm());
+  }
+
+  // [H J^*; J 0] with H positive definite and J of full row rank k has k negative eigenvalues. The matrix is
+  // indefinite, so the backward error is bounded by |L| |D| |L^*| rather than by |A|: |dA| <= c n eps |L| |D| |L^*|
+  // (Higham, ASNA 2nd ed., section 11.1). Measured below 0.01 n eps |A|, with |L| |D| |L^*| <= 3 |A|.
+  const Index k = n / 4;
+  MatrixType kkt = MatrixType::Zero(n, n);
+  kkt.topLeftCorner(n - k, n - k) = pd.topLeftCorner(n - k, n - k);
+  kkt.bottomLeftCorner(k, n - k) = MatrixType::Random(k, n - k);
+  kkt.topRightCorner(n - k, k) = kkt.bottomLeftCorner(k, n - k).adjoint();
+  LDLT<MatrixType, Upper> ldlt(kkt);
+  VERIFY(ldlt.info() == Success);
+  const RealMatrixType absL = MatrixType(ldlt.matrixL()).cwiseAbs();
+  const RealScalar growth = (absL * ldlt.vectorD().real().cwiseAbs().asDiagonal() * absL.transpose()).norm();
+  VERIFY((ldlt.reconstructedMatrix() - kkt).norm() <= RealScalar(2 * n) * eps * growth);
+  VERIFY_IS_EQUAL((ldlt.vectorD().real().array() < 0).count(), k);
+}
+
+// Above three panel widths, LDLT factors panels and applies each to the trailing Schur complement in one level-3
+// product. At the smallest panel width, the sizes leave a trailing panel of one column, none, and a partial one; a
+// fourth size is the first with a wider panel. Fixed-size and bounded matrices stay unblocked, so that they allocate
+// no panel workspace.
+template <typename MatrixType>
+void cholesky_ldlt_blocked() {
+  using Scalar = typename MatrixType::Scalar;
+  const Index nb = ldlt_smallest_blocksize<MatrixType>();
   VERIFY_IS_EQUAL(internal::ldlt_blocksize<MatrixType>(3 * nb), Index(0));
   VERIFY_IS_EQUAL((internal::ldlt_blocksize<Matrix<Scalar, Dynamic, Dynamic, 0, 512, 512> >(4 * nb + 1)), Index(0));
-
   for (Index n : {4 * nb + 1, 5 * nb, 5 * nb + nb / 2}) {
     VERIFY_IS_EQUAL(internal::ldlt_blocksize<MatrixType>(n), nb);
-    const MatrixType B = MatrixType::Random(n, n);
-    const MatrixType pd = B * B.adjoint() + MatrixType::Identity(n, n);
-    for (RealScalar sign : {RealScalar(1), RealScalar(-1)}) {
-      const MatrixType A = sign * pd;
-      LDLT<MatrixType> ldlt(A);
-      VERIFY(ldlt.info() == Success);
-      VERIFY(ldlt.isPositive() == (sign > 0) && ldlt.isNegative() == (sign < 0));
-      VERIFY((ldlt.reconstructedMatrix() - A).norm() <= RealScalar(2 * n) * eps * A.norm());
-    }
-
-    // [H J^*; J 0] with H positive definite and J of full row rank k has k negative eigenvalues. The matrix is
-    // indefinite, so the backward error is bounded by |L| |D| |L^*| rather than by |A|: |dA| <= c n eps |L| |D| |L^*|
-    // (Higham, ASNA 2nd ed., section 11.1). Measured below 0.01 n eps |A|, with |L| |D| |L^*| <= 3 |A|.
-    const Index k = n / 4;
-    MatrixType kkt = MatrixType::Zero(n, n);
-    kkt.topLeftCorner(n - k, n - k) = pd.topLeftCorner(n - k, n - k);
-    kkt.bottomLeftCorner(k, n - k) = MatrixType::Random(k, n - k);
-    kkt.topRightCorner(n - k, k) = kkt.bottomLeftCorner(k, n - k).adjoint();
-    LDLT<MatrixType, Upper> ldlt(kkt);
-    VERIFY(ldlt.info() == Success);
-    const RealMatrixType absL = MatrixType(ldlt.matrixL()).cwiseAbs();
-    const RealScalar growth = (absL * ldlt.vectorD().real().cwiseAbs().asDiagonal() * absL.transpose()).norm();
-    VERIFY((ldlt.reconstructedMatrix() - kkt).norm() <= RealScalar(2 * n) * eps * growth);
-    VERIFY_IS_EQUAL((ldlt.vectorD().real().array() < 0).count(), k);
+    check_ldlt_blocked<MatrixType>(n);
   }
+#ifndef EIGEN_LDLT_BLOCKSIZE
+  Index n = 5 * nb + nb / 2;
+  while (internal::ldlt_blocksize<MatrixType>(n) == nb) ++n;
+  check_ldlt_blocked<MatrixType>(n);
+#endif
 }
 
 // A NaN or an infinity anywhere in the matrix reaches a pivot, so the factorization reports it instead of Success.
@@ -720,7 +740,7 @@ void cholesky_ldlt_imaginary_nan(Index n) {
 template <typename Scalar>
 void cholesky_ldlt_blocked_preallocated_no_malloc() {
   using MatrixType = Matrix<Scalar, Dynamic, Dynamic>;
-  const Index size = 4 * internal::ldlt_blocksize<MatrixType>(NumTraits<int>::highest()) + 3;
+  const Index size = 4 * ldlt_smallest_blocksize<MatrixType>() + 3;
   const MatrixType A = MatrixType::Random(size, size);
   const MatrixType spd = A * A.adjoint() + MatrixType::Identity(size, size);
   LDLT<MatrixType> ldlt(size);
@@ -1221,7 +1241,7 @@ EIGEN_DECLARE_TEST(cholesky) {
 
   {
     // Two unblocked sizes and two blocked ones.
-    const Index nb = internal::ldlt_blocksize<MatrixXd>(NumTraits<int>::highest());
+    const Index nb = ldlt_smallest_blocksize<MatrixXd>();
     for (Index n : {Index(3), Index(17), 4 * nb + 1, 5 * nb + nb / 2}) {
       CALL_SUBTEST_2(cholesky_ldlt_semidefinite<MatrixXd>(n, 1));
       CALL_SUBTEST_2(cholesky_ldlt_semidefinite<MatrixXd>(n, n / 2));
