@@ -253,8 +253,11 @@ void svd_min_norm(const MatrixType& m) {
   MatrixType2 m2(rank, cols);
   m2.setRandom();
   if (SVD_FOR_MIN_NORM(MatrixType2)(m2).setThreshold(test_precision<Scalar>()).rank() != rank) {
-    // Ensure full row rank by making the leading square block diagonally dominant.
-    for (Index i = 0; i < rank; ++i) m2(i, i) += Scalar(1);
+    // Shift the leading square block's diagonal by 2 |m2|_F. By Weyl's inequality the block's smallest singular value
+    // is then at least |m2|_F, and m2's is no smaller, while m2's largest is at most 3 |m2|_F: cond(m2) <= 3. A unit
+    // shift bounds nothing, since a random n x n block has norm ~sqrt(n); it left cond(m2) = 1.6e4 at n = 154 in float.
+    const Scalar shift = Scalar(2 * m2.norm());
+    m2.diagonal().array() += shift;
   }
 
   RhsType2 rhs2 = RhsType2::Random(rank);
@@ -277,7 +280,12 @@ void svd_min_norm(const MatrixType& m) {
   typedef Matrix<Scalar, RowsAtCompileTime3, 1> RhsType3;
   Index rows3 =
       ColsAtCompileTime == Dynamic ? internal::random<Index>(rank + 1, 2 * cols) : Index(ColsAtCompileTime + 1);
-  Matrix<Scalar, RowsAtCompileTime3, Dynamic> C = Matrix<Scalar, RowsAtCompileTime3, Dynamic>::Random(rows3, rank);
+  // C has orthonormal columns, so m3 = C * m2 has the nonzero singular values of m2. A random C multiplies cond(m2) by
+  // its own condition number, and once cond(m3) passes 1/(diagSize * eps), the reciprocal of the default rank
+  // threshold, solve() drops a genuine singular direction: m3 * x3 then missed rhs3 by 2% in float at cond(m3) = 8.3e4.
+  using MatrixTypeC = Matrix<Scalar, RowsAtCompileTime3, Dynamic>;
+  const MatrixTypeC C =
+      HouseholderQR<MatrixTypeC>(MatrixTypeC::Random(rows3, rank)).householderQ() * MatrixTypeC::Identity(rows3, rank);
   MatrixType3 m3 = C * m2;
   RhsType3 rhs3 = C * rhs2;
   SVD_STATIC_OPTIONS(MatrixType3, Options) svd3(m3);
