@@ -108,6 +108,10 @@ class LDLT : public SolverBase<LDLT<MatrixType_, UpLo_> > {
    *
    * Like the default constructor but with preallocation of the internal data
    * according to the specified problem \a size.
+   *
+   * Above 96 rows, compute() factors a dynamic-size matrix in blocks, and the matrix products of the blocked
+   * factorization can allocate their packing buffers, as those of LLT and PartialPivLU do. Fixed-size and bounded
+   * matrices are factored unblocked and allocate nothing.
    * \sa LDLT()
    */
   explicit LDLT(Index size)
