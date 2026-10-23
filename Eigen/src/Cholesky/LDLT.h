@@ -396,7 +396,6 @@ struct ldlt_inplace<Lower> {
   static bool factor_trivial(const MatrixType& mat, TranspositionType& transpositions, SignMatrix& sign, bool& ret) {
     using Scalar = typename MatrixType::Scalar;
     using RealScalar = typename MatrixType::RealScalar;
-    using IndexType = typename TranspositionType::StorageIndex;
     const Index size = mat.rows();
 
     if (size <= 1) {
@@ -414,12 +413,10 @@ struct ldlt_inplace<Lower> {
     }
 
     if ((mat.diagonal().real().array() == RealScalar(0)).all()) {
+      transpositions.setIdentity();
       sign = ZeroSign;
       ret = true;
-      for (Index j = 0; j < size; ++j) {
-        transpositions.coeffRef(j) = IndexType(j);
-        ret = ret && (mat.col(j).tail(size - j - 1).array() == Scalar(0)).all();
-      }
+      for (Index j = 0; ret && j < size; ++j) ret = (mat.col(j).tail(size - j - 1).array() == Scalar(0)).all();
       return true;
     }
     return false;
@@ -431,7 +428,6 @@ struct ldlt_inplace<Lower> {
   template <typename MatrixType, typename TranspositionType, typename Workspace>
   static bool factor_panel(MatrixType& mat, Index k0, Index kb, TranspositionType& transpositions, Workspace& temp,
                            SignMatrix& sign) {
-    using std::abs;
     using Scalar = typename MatrixType::Scalar;
     using RealScalar = typename MatrixType::RealScalar;
     using IndexType = typename TranspositionType::StorageIndex;
@@ -459,11 +455,11 @@ struct ldlt_inplace<Lower> {
       // product's operand D A10^* takes temp(k0:k), whose diagonal entries of S have all been used as pivots.
       Index rs = size - k - 1;
       Index done = k - k0;
-      Block<MatrixType, Dynamic, 1> A21(mat, k + 1, k, rs, 1);
+      auto A21 = mat.block(k + 1, k, rs, fix<1>);
 
       if (done > 0 && rs > 0) {
-        Block<MatrixType, 1, Dynamic> A10(mat, k, k0, 1, done);
-        Block<MatrixType, Dynamic, Dynamic> A20(mat, k + 1, k0, rs, done);
+        auto A10 = mat.block(k, k0, fix<1>, done);
+        auto A20 = mat.block(k + 1, k0, rs, done);
         temp.segment(k0, done) = mat.diagonal().real().segment(k0, done).asDiagonal() * A10.adjoint();
         A21.noalias() -= A20 * temp.segment(k0, done);
       }
@@ -474,7 +470,7 @@ struct ldlt_inplace<Lower> {
       // Remark that LAPACK also uses 0 as the cutoff value.
       RealScalar realAkk = numext::real(temp.coeff(k));
       mat.coeffRef(k, k) = Scalar(realAkk);
-      bool pivot_is_valid = (abs(realAkk) > RealScalar(0));
+      bool pivot_is_valid = (numext::abs(realAkk) > RealScalar(0));
       if (!(numext::isfinite)(realAkk)) ret = false;
 
       // A zero pivot is the largest remaining, so the rest of D is zero too, and its column must be zero as well.
