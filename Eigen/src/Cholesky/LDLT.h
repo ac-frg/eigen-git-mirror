@@ -376,13 +376,17 @@ namespace internal {
  * Can be overridden (mainly for testing the panel logic at small sizes) by defining EIGEN_LDLT_BLOCKSIZE. */
 template <typename MatrixType>
 inline Index ldlt_blocksize(Index size) {
+  if (int(MatrixType::MaxRowsAtCompileTime) != Dynamic || int(MatrixType::MaxColsAtCompileTime) != Dynamic) return 0;
 #ifdef EIGEN_LDLT_BLOCKSIZE
   const Index nb = Index(EIGEN_LDLT_BLOCKSIZE);
 #else
+  constexpr Index kMinBlockSize = 32;
+  // Three of the narrowest panels are not blocked either, so small matrices skip the square root.
+  if (size <= 3 * kMinBlockSize) return 0;
   const Index unclamped = 16 * Index(numext::round(numext::sqrt(3.0 * double(size)) / 16));
-  const Index nb = numext::mini(numext::maxi(unclamped, Index(32)), Index(128));
+  const Index nb = numext::mini(numext::maxi(unclamped, kMinBlockSize), Index(128));
 #endif
-  return int(MatrixType::MaxRowsAtCompileTime) == Dynamic && nb > 0 && size > 3 * nb ? nb : 0;
+  return nb > 0 && size > 3 * nb ? nb : 0;
 }
 
 template <int UpLo>
@@ -391,9 +395,11 @@ struct ldlt_inplace;
 template <>
 struct ldlt_inplace<Lower> {
   // Settles the cases that leave nothing to factor, and returns whether it did: an empty or 1x1 matrix, and a
-  // diagonal that is entirely zero, which offers no pivot and leaves the matrix either zero or indefinite.
-  template <typename MatrixType, typename TranspositionType>
-  static bool factor_trivial(const MatrixType& mat, TranspositionType& transpositions, SignMatrix& sign, bool& ret) {
+  // diagonal that is entirely zero, which offers no pivot and leaves the matrix either zero or indefinite. Otherwise
+  // it copies the diagonal into temp, where factor_panel() expects it.
+  template <typename MatrixType, typename TranspositionType, typename Workspace>
+  static bool factor_trivial(const MatrixType& mat, TranspositionType& transpositions, Workspace& temp,
+                             SignMatrix& sign, bool& ret) {
     using Scalar = typename MatrixType::Scalar;
     using RealScalar = typename MatrixType::RealScalar;
     const Index size = mat.rows();
@@ -412,7 +418,8 @@ struct ldlt_inplace<Lower> {
       return true;
     }
 
-    if ((mat.diagonal().real().array() == RealScalar(0)).all()) {
+    temp = mat.diagonal().real().template cast<Scalar>();
+    if ((temp.array() == Scalar(0)).all()) {
       transpositions.setIdentity();
       sign = ZeroSign;
       ret = true;
@@ -502,8 +509,7 @@ struct ldlt_inplace<Lower> {
   static bool unblocked(MatrixType& mat, TranspositionType& transpositions, Workspace& temp, SignMatrix& sign) {
     EIGEN_INTERNAL_ASSERT_SQUARE(mat);
     bool ret = true;
-    if (factor_trivial(mat, transpositions, sign, ret)) return ret;
-    temp = mat.diagonal().real().template cast<typename MatrixType::Scalar>();
+    if (factor_trivial(mat, transpositions, temp, sign, ret)) return ret;
     return factor_panel(mat, 0, mat.rows(), transpositions, temp, sign);
   }
 
@@ -517,9 +523,8 @@ struct ldlt_inplace<Lower> {
     const Index nb = ldlt_blocksize<MatrixType>(size);
     if (nb == 0) return unblocked(mat, transpositions, temp, sign);
     bool ret = true;
-    if (factor_trivial(mat, transpositions, sign, ret)) return ret;
+    if (factor_trivial(mat, transpositions, temp, sign, ret)) return ret;
 
-    temp = mat.diagonal().real().template cast<typename MatrixType::Scalar>();
     workspace.resize(size, nb);
     for (Index k0 = 0; k0 < size; k0 += nb) {
       const Index kb = numext::mini(nb, size - k0);

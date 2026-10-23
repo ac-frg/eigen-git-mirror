@@ -25,6 +25,7 @@ Bug fixes:
 - `LDLT` pivoted on the diagonal of its input rather than of the remaining Schur complement, so zero pivots of a semidefinite matrix could come before non-zero ones and report `NumericalIssue`, as for `[1 1 0; 1 1 0; 0 0 1]`; a NaN or infinite pivot reported `Success`. `LDLT` now also factors dynamic-size matrices larger than 96 in blocks, with a panel width that grows as sqrt(3 n): 1.7x faster at n = 128, 3.1x at n = 1024 and 6.2x at n = 3000 [!3423]
 
 Breaking changes:
+- `LDLT` picks a different pivot order for most inputs, which changes `transpositionsP()` and the order of `vectorD()`. A NaN or infinite pivot reports `NumericalIssue`. A preallocated `compute()` of a dynamic-size matrix larger than 96 can allocate the packing buffers of its matrix products, as those of `LLT`, `PartialPivLU` and `BunchKaufman` already do [!3423]
 - The default `epsfcn` for central mode differences was changed to `cbrt(NumTraits<Scalar>::epsilon())` (used to be `sqrt(NumTraits<Scalar>::epsilon())`). The new default should reduce numerical error in most cases.
 - Removed `Eigen/QtAlignedMalloc`, which replaced Qt 4's `qMalloc`, `qFree` and `qRealloc` with aligned versions on platforms whose `malloc` is not already sufficiently aligned. Remove the include. [!3413]
 
