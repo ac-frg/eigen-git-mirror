@@ -19,8 +19,10 @@ namespace Eigen {
 namespace internal {
 
 // GCC 15.1 and 15.2 at -O3 with AVX2 miscompile run() for a real matrix times a complex vector: the SLP vectorizer
-// breaks copies of it specialized for a constant size (#3214). GCC 15.3 is correct.
-#if EIGEN_GNUC_STRICT_AT_LEAST(15, 0, 0) && EIGEN_GNUC_STRICT_LESS_THAN(15, 3, 0)
+// breaks copies of it specialized for a constant size (#3214). GCC 15.3 is correct. MinGW's GCC 15.2 fails the same
+// way, but EIGEN_COMP_GNUC_STRICT leaves MinGW out.
+#if (EIGEN_COMP_GNUC_STRICT || (EIGEN_COMP_MINGW && !EIGEN_COMP_CLANG)) && EIGEN_COMP_GNUC >= 1500 && \
+    EIGEN_COMP_GNUC < 1530
 #define EIGEN_TRMV_DONT_INLINE EIGEN_DONT_INLINE __attribute__((optimize("no-tree-slp-vectorize")))
 #else
 #define EIGEN_TRMV_DONT_INLINE EIGEN_DONT_INLINE

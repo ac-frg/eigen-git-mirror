@@ -118,8 +118,9 @@ void trmv_negative_stride_destination_all() {
 }
 
 // A real triangular matrix times a complex vector at a fixed size, through the column-major kernel (directly and as the
-// transpose of a row-vector product) and the row-major one. GCC 15.1 and 15.2 at -O3 with AVX2 got size 4 wrong here
-// (#3214); which sizes they miscompile depends on every product in the translation unit.
+// transpose of a row-vector product) and the row-major one. The unevaluated s * v.adjoint() reaches the kernel as a
+// conjugated vector and a scale factor, as in #3214. Without the workaround, GCC 15.2 at -O3 with AVX2 gets sizes 3 and
+// 4 wrong here; which sizes it miscompiles depends on every product in the translation unit.
 template <int Size, int Mode>
 void trmv_real_times_complex_fixed_size() {
   using CD = std::complex<double>;
@@ -140,6 +141,8 @@ void trmv_real_times_complex_fixed_size() {
                        ComplexVec(dense_of_transpose * sv), dense_of_transpose, sv));
   const ComplexRowVec svh = s * v.adjoint();
   VERIFY(verifyProduct(ComplexRowVec(svh * m.transpose().template triangularView<Mode>()),
+                       ComplexRowVec(svh * dense_of_transpose), svh, dense_of_transpose));
+  VERIFY(verifyProduct(ComplexRowVec(s * v.adjoint() * m.transpose().template triangularView<Mode>()),
                        ComplexRowVec(svh * dense_of_transpose), svh, dense_of_transpose));
 }
 
