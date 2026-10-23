@@ -22,6 +22,7 @@ Bug fixes:
 - `JacobiSVD` with `FullPivHouseholderQRPreconditioner` accepted `ComputeThinV` and returned a non-orthogonal `V` for wide inputs; it now fails to compile, or asserts when requested at runtime [!3212]
 - `HouseholderQR` (and the decompositions and `SplineFitting` built on it) and `JacobiSVD` did not compile with `AutoDiffScalar` [#3192, !3265]
 - Constructing or assigning an `Affine` or `Isometry` `Transform` from a (Dim+1)x(Dim+1) matrix copied its last row verbatim; the last row is now set to `[0 ... 0 1]`, as for Dim x Dim and Dim x (Dim+1) inputs [#2715, !3412]
+- `LDLT` pivoted on the diagonal of its input rather than of the remaining Schur complement, so zero pivots of a semidefinite matrix could come before non-zero ones and report `NumericalIssue`, as for `[1 1 0; 1 1 0; 0 0 1]`; a NaN or infinite pivot reported `Success`. `LDLT` now also factors dynamic-size matrices larger than 96 in blocks: 1.6x faster at n = 128 and 3.2x at n = 1024 [!3423]
 
 Breaking changes:
 - The default `epsfcn` for central mode differences was changed to `cbrt(NumTraits<Scalar>::epsilon())` (used to be `sqrt(NumTraits<Scalar>::epsilon())`). The new default should reduce numerical error in most cases.
