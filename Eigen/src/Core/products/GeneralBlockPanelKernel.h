@@ -1365,21 +1365,33 @@ EIGEN_ALWAYS_INLINE void gebp_sse_spilling_workaround(LhsArray_& A, AccArray_& A
 #endif
 }
 
-// Clang AVX/AVX2: the 3pX4 tile needs all 16 ymm registers (12 accumulators, 3 LHS packets, 1 RHS broadcast), and
-// clang keeps one or more accumulators on the stack, reloading and storing them on every depth step: a dependency
-// chain through store forwarding that roughly halves the kernel's throughput. With the accumulators pinned, clang
-// spills LHS packets instead, which are off those chains. Only Packet8f and Packet4d: the barrier keeps raw vector
-// types in registers but puts wrapper and complex packets (Packet8i, Packet4cf, ...) in memory.
+// Clang AVX/AVX2 on x86-64: the 3pX4 tile needs all 16 ymm registers (12 accumulators, 3 LHS packets, 1 RHS
+// broadcast), and clang keeps accumulators on the stack, reloading and storing them on every depth step: a dependency
+// chain through store forwarding that roughly halves the kernel's throughput. Pinned accumulators make clang spill LHS
+// packets instead, which are off those chains. 32-bit x86 has 8 ymm registers, so its accumulators spill anyway and
+// pinning only adds stack traffic. A barrier sends a class through memory, so complex packets are pinned through their
+// vector member. Not Packet8i: its madd needs a 17th register, and pinning made rare stack layouts up to 2.8x slower.
+#if EIGEN_COMP_CLANG && EIGEN_ARCH_x86_64 && defined(EIGEN_VECTORIZE_AVX) && !defined(EIGEN_VECTORIZE_AVX512)
+#define EIGEN_GEBP_AVX_CLANG_PIN_ACCUMULATORS
+template <typename Packet>
+EIGEN_ALWAYS_INLINE void gebp_avx_clang_pin_accumulator(Packet& x) {
+  pbarrier(x);
+}
+EIGEN_ALWAYS_INLINE void gebp_avx_clang_pin_accumulator(Packet4cf& x) { pbarrier(x.v); }
+EIGEN_ALWAYS_INLINE void gebp_avx_clang_pin_accumulator(Packet2cd& x) { pbarrier(x.v); }
+#endif
 template <int MrPackets, int NrCols, typename GEBPTraits_, typename FullLhsPacket_, typename AccArray_>
 EIGEN_ALWAYS_INLINE void gebp_avx_clang_spilling_workaround(AccArray_& ACC) {
   EIGEN_UNUSED_VARIABLE(ACC);
-#if EIGEN_COMP_CLANG && defined(EIGEN_VECTORIZE_AVX) && !defined(EIGEN_VECTORIZE_AVX512)
+#ifdef EIGEN_GEBP_AVX_CLANG_PIN_ACCUMULATORS
   using AccElement = std::decay_t<decltype(ACC[0])>;
-  constexpr bool kRealPacket = std::is_same<AccElement, Packet8f>::value || std::is_same<AccElement, Packet4d>::value;
-  constexpr bool apply = GEBPTraits_::Vectorizable && MrPackets == 3 && NrCols == 4 && kRealPacket &&
+  constexpr bool kFloatingPoint =
+      std::is_same<AccElement, Packet8f>::value || std::is_same<AccElement, Packet4d>::value ||
+      std::is_same<AccElement, Packet4cf>::value || std::is_same<AccElement, Packet2cd>::value;
+  constexpr bool apply = GEBPTraits_::Vectorizable && MrPackets == 3 && NrCols == 4 && kFloatingPoint &&
                          std::is_same<AccElement, FullLhsPacket_>::value;
   EIGEN_IF_CONSTEXPR (apply) {
-    for (int n = 0; n < MrPackets * NrCols; ++n) EIGEN_OPTIMIZATION_BARRIER(ACC[n]);
+    for (int n = 0; n < MrPackets * NrCols; ++n) gebp_avx_clang_pin_accumulator(ACC[n]);
   }
 #endif
 }
@@ -1572,6 +1584,7 @@ EIGEN_ALWAYS_INLINE void gebp_micro_panel_impl(GEBPTraits& traits, const DataMap
 }
 #undef EIGEN_GEBP_UNROLL_ACCUMULATORS
 #undef EIGEN_GEBP_NEON_GCC_WORKAROUNDS
+#undef EIGEN_GEBP_AVX_CLANG_PIN_ACCUMULATORS
 
 // Workaround a GCC/AArch64 register-allocation issue (through at least GCC 14.3): the float
 // kernel's mr=12 x nr=8 tile holds 24 of the 32 NEON registers, and GCC's pre-RA scheduler
