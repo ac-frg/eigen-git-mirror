@@ -125,4 +125,5 @@ ei_add_failtest("resize_like_vector_shape")
 
 ei_add_failtest("shape_size_rows")
 ei_add_failtest("shape_size_cols")
+ei_add_failtest("block_linear_coeff_runtime_vector")
 ei_add_failtest_fixture()
