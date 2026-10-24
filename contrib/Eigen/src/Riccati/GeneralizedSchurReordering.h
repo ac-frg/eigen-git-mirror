@@ -160,15 +160,15 @@ bool swap_generalized_schur_sylvester(MatrixType& S, MatrixType& T, MatrixType* 
   // Weak stability test: ||A21||_F <= tau_a after the swap (B21 vanishes by construction).
   LocalMatrix Qn, Zn, Sn, Tn;
   if (qrA21 <= rqA21 && qrA21 <= threshA) {
-    Qn = Ql * H;
+    Qn.noalias() = Ql * H;
     Zn = Zl;
     Sn = Aq;
-    Tn = H.adjoint() * Bn;
+    Tn.noalias() = H.adjoint() * Bn;
   } else if (rqA21 <= threshA) {
     Qn = Ql;
-    Zn = Zl * V;
+    Zn.noalias() = Zl * V;
     Sn = Ar;
-    Tn = Bn * V;
+    Tn.noalias() = Bn * V;
   } else {
     return false;
   }
