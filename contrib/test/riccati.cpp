@@ -103,8 +103,10 @@ void check_real_dare(const MatrixXd& A, const MatrixXd& B, const MatrixXd& Q, co
 // Backward error check for a computed solution X:
 //   rho = ||res||_F / (m eps (||A^* X A||_F + ||E^* X E||_F + ||Q||_F) kappa) <= 30,
 //   kappa = max(1, ||E^* X E||_F / ||Q||_F),
-// where kappa accounts for the amplification of rounding errors by a large solution. Over 200000 solves of
-// dare_random() problems in all four scalar types, rho had p99.9 <= 4.4 and maximum 9.4.
+// where kappa accounts for the amplification of rounding errors by a large solution: for the problems with B scaled by
+// 10^-k, the residual of an accurately computed solution grows in proportion to ||X|| / ||Q||, also with SciPy
+// (LAPACK), up to 1e10 eps for double. Over 160000 solves of dare_random() problems in all four scalar types, rho had
+// p99.9 <= 3.9 and maximum 9.7.
 template <typename DynMatrix>
 void verify_dare_backward_error(const DynMatrix& A, const DynMatrix& B, const DynMatrix& Q, const DynMatrix& R,
                                 const DynMatrix& E, const DynMatrix& S, const DynMatrix& X) {
@@ -294,9 +296,10 @@ void dare_scipy_real_cases() {
     B(0, 0) = 1e-8;
     Q(3, 3) = 1;
     R << 0.25;
-    // ComplexQZ locates the pencil eigenvalue at 1 - 2.24e-8 less accurately than RealQZ and LAPACK's ZGGES, so the
-    // complex solve misses SciPy's bound: its residual is 7.6e-5 with GCC 9 and 1.8e-2 with Clang 22, against 2.4e-8
-    // with ZGGES.
+    // In complex arithmetic the tolerance is raised: where ComplexQZ converges on the balanced pencil (GCC with SSE2),
+    // the residual is 7.6e-5, against 2.4e-8 with LAPACK's ZGGES. With AVX2 and FMA, or with Clang, ComplexQZ stalls
+    // on it, and the solver falls back to the unbalanced pencil, whose residual is close to this tolerance for any QZ
+    // (0.11 here, 5.0e-2 with ZGGES). To be tightened once ComplexQZ converges on this pencil (!3430).
     check_real_dare<MatrixType>(A, B, Q, R, NumTraits<typename MatrixType::Scalar>::IsComplex ? 5e-2 : 1.5e-6);
   }
   {  // DAREX 15
