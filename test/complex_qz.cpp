@@ -60,17 +60,18 @@ void complex_qz(const MatrixType& A, const MatrixType& B) {
 template <typename MatrixType, typename QZType>
 void verify_complex_qz_convergence(const MatrixType& a, const MatrixType& b, const QZType& qz) {
   using RealScalar = typename MatrixType::RealScalar;
-  // Accumulated rounding in the unitary transformations is O(n * epsilon).
+  // Accumulated rounding in the unitary transformations is O(n * epsilon). stableNorm, since the squared entries of
+  // complex_qz_scaled's pencils underflow.
   const RealScalar tolerance = RealScalar(128 * a.rows()) * NumTraits<RealScalar>::epsilon();
   VERIFY_IS_EQUAL(qz.info(), Success);
-  VERIFY((a - qz.matrixQ() * qz.matrixS() * qz.matrixZ()).norm() <= tolerance * a.norm());
-  VERIFY((b - qz.matrixQ() * qz.matrixT() * qz.matrixZ()).norm() <= tolerance * b.norm());
+  VERIFY((a - qz.matrixQ() * qz.matrixS() * qz.matrixZ()).stableNorm() <= tolerance * a.stableNorm());
+  VERIFY((b - qz.matrixQ() * qz.matrixT() * qz.matrixZ()).stableNorm() <= tolerance * b.stableNorm());
   VERIFY(qz.matrixQ().isUnitary(tolerance));
   VERIFY(qz.matrixZ().isUnitary(tolerance));
   const MatrixType lowerS = qz.matrixS().template triangularView<StrictlyLower>();
   const MatrixType lowerT = qz.matrixT().template triangularView<StrictlyLower>();
-  VERIFY(lowerS.norm() <= tolerance * a.norm());
-  VERIFY(lowerT.norm() <= tolerance * b.norm());
+  VERIFY(lowerS.stableNorm() <= tolerance * a.stableNorm());
+  VERIFY(lowerT.stableNorm() <= tolerance * b.stableNorm());
 }
 
 template <typename MatrixType>
@@ -221,6 +222,47 @@ void complex_qz_graded() {
   }
 }
 
+// a = s N for the down-shift N, b = I. At s = 1 the 2x2 blocks have the eigenvalue 0, for which a left rotation formed
+// from lambda T is the identity and leaves T(i+1, i) in place. At s = sqrt(min) eps the products of the sweep-start
+// test underflow to 0, and an unscaled test accepted the first row it tried (0 <= 0) and dropped fill of size s.
+template <typename MatrixType>
+void complex_qz_scaled() {
+  using Scalar = typename MatrixType::Scalar;
+  using RealScalar = typename MatrixType::RealScalar;
+  const RealScalar tiny = std::sqrt((std::numeric_limits<RealScalar>::min)()) * NumTraits<RealScalar>::epsilon();
+  for (RealScalar s : {RealScalar(1), tiny}) {
+    for (Index dim : {4, 5, 8}) {
+      MatrixType a = MatrixType::Zero(dim, dim);
+      a.diagonal(-1).setConstant(Scalar(s));
+      const MatrixType b = MatrixType::Identity(dim, dim);
+      ComplexQZ<MatrixType> qz(a, b);
+      verify_complex_qz_convergence(a, b, qz);
+    }
+  }
+}
+
+// a = V J W^*, b = V W^* with J the 2x2 Jordan block of the eigenvalue 0. On a defective block, refinement steps in
+// reduceDiagonal2x2block can lower |S(1, 0)| / (|S(0, 0)| + |S(1, 1)|) by growing the diagonal while |S(1, 0)| grows
+// past eps ||S||.
+template <typename MatrixType>
+void complex_qz_jordan() {
+  using Scalar = typename MatrixType::Scalar;
+  MatrixType J = MatrixType::Zero(2, 2);
+  J(0, 1) = Scalar(1);
+  for (int trial = 0; trial < 100; ++trial) {
+    for (bool real : {true, false}) {
+      MatrixType V = MatrixType::Random(2, 2), W = MatrixType::Random(2, 2);
+      if (real) {
+        V = V.real().template cast<Scalar>();
+        W = W.real().template cast<Scalar>();
+      }
+      const MatrixType a = V * J * W.adjoint(), b = V * W.adjoint();
+      ComplexQZ<MatrixType> qz(a, b);
+      verify_complex_qz_convergence(a, b, qz);
+    }
+  }
+}
+
 // Block Householder operations still allocate at larger sizes (issue #3163).
 template <typename MatrixType>
 void complex_qz_no_malloc() {
@@ -275,6 +317,14 @@ EIGEN_DECLARE_TEST(complex_qz) {
   CALL_SUBTEST_8((complex_qz_graded<MatrixXcd>()));
   CALL_SUBTEST_9((complex_qz_graded<Matrix<std::complex<float>, Dynamic, Dynamic, RowMajor>>()));
   CALL_SUBTEST_10((complex_qz_graded<Matrix<std::complex<double>, Dynamic, Dynamic, RowMajor>>()));
+  CALL_SUBTEST_7((complex_qz_scaled<MatrixXcf>()));
+  CALL_SUBTEST_8((complex_qz_scaled<MatrixXcd>()));
+  CALL_SUBTEST_9((complex_qz_scaled<Matrix<std::complex<float>, Dynamic, Dynamic, RowMajor>>()));
+  CALL_SUBTEST_10((complex_qz_scaled<Matrix<std::complex<double>, Dynamic, Dynamic, RowMajor>>()));
+  CALL_SUBTEST_7((complex_qz_jordan<MatrixXcf>()));
+  CALL_SUBTEST_8((complex_qz_jordan<MatrixXcd>()));
+  CALL_SUBTEST_9((complex_qz_jordan<Matrix<std::complex<float>, Dynamic, Dynamic, RowMajor>>()));
+  CALL_SUBTEST_10((complex_qz_jordan<Matrix<std::complex<double>, Dynamic, Dynamic, RowMajor>>()));
   CALL_SUBTEST_9((complex_qz_exceptional_shift<Matrix<std::complex<float>, Dynamic, Dynamic, RowMajor>>()));
   CALL_SUBTEST_10((complex_qz_exceptional_shift<Matrix<std::complex<double>, Dynamic, Dynamic, RowMajor>>()));
 
