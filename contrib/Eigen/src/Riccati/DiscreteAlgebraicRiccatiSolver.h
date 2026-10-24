@@ -367,6 +367,7 @@ class DiscreteAlgebraicRiccatiSolver {
  protected:
   using DynamicMatrix = Matrix<Scalar, Dynamic, Dynamic>;
   using RealDynamicMatrix = Matrix<RealScalar, Dynamic, Dynamic>;
+  using RealVector = Matrix<RealScalar, Dynamic, 1>;
 
   static bool isSelfAdjoint(const DynamicMatrix& M) {
     return internal::riccati_norm1(M - M.adjoint()) <=
@@ -379,11 +380,17 @@ class DiscreteAlgebraicRiccatiSolver {
 
   static ComputationInfo solvePencil(const DynamicMatrix& A, const DynamicMatrix& B, const DynamicMatrix& Q,
                                      const DynamicMatrix& R, const DynamicMatrix* E, const DynamicMatrix* S,
-                                     bool balance, RealScalar rcondThreshold, DynamicMatrix& X, bool& balanced);
+                                     bool balance, RealScalar rcondThreshold, DynamicMatrix& X, RealVector& balancing);
 
-  static RealScalar backwardErrorRatio(const DynamicMatrix& A, const DynamicMatrix& B, const DynamicMatrix& Q,
-                                       const DynamicMatrix& R, const DynamicMatrix* E, const DynamicMatrix* S,
-                                       const DynamicMatrix& X);
+  // Backward error ratios of a solution on the original and on the balanced equation, see backwardErrorRatios().
+  struct BackwardErrorRatios {
+    RealScalar original;
+    RealScalar balanced;
+  };
+
+  static BackwardErrorRatios backwardErrorRatios(const DynamicMatrix& A, const DynamicMatrix& B, const DynamicMatrix& Q,
+                                                 const DynamicMatrix& R, const DynamicMatrix* E, const DynamicMatrix* S,
+                                                 const DynamicMatrix& X, const RealVector& balancing);
 
   MatrixType m_X;
   ComputationInfo m_info = InvalidInput;
@@ -423,20 +430,26 @@ DiscreteAlgebraicRiccatiSolver<MatrixType_>& DiscreteAlgebraicRiccatiSolver<Matr
   const RealScalar rcondThreshold = eps;
 
   DynamicMatrix X;
-  bool balanced;
-  m_info = solvePencil(A, B, Q, R, E, S, balance, rcondThreshold, X, balanced);
-  if (balanced) {
+  RealVector balancing;
+  m_info = solvePencil(A, B, Q, R, E, S, balance, rcondThreshold, X, balancing);
+  if (balancing.size() > 0) {
     // Balancing is essential for some badly scaled problems (e.g. DAREX 13 and 14), but costs accuracy for others,
-    // notably when B is small. If the balanced solve fails or its backward error ratio exceeds 10, the unbalanced
-    // pencil is solved as well and the solution with the smaller backward error is kept. If balancing left the
-    // pencil unchanged, there is nothing to fall back to.
-    const RealScalar ratio =
-        m_info == Success ? backwardErrorRatio(A, B, Q, R, E, S, X) : NumTraits<RealScalar>::infinity();
-    if (!(ratio <= RealScalar(10))) {
+    // notably when B is small. The unbalanced pencil is solved as well if the balanced solve fails or looks
+    // inaccurate by either ratio of backwardErrorRatios(): above 10 on the original equation (balancing lost
+    // accuracy) or above 100 on the balanced equation (a poor solution that the kappa factor of the first ratio
+    // hides, e.g. 1e3 for the unbalanced solutions of DAREX 14, against 0.2 to 3 for good ones). Of the two
+    // solutions, the one with the smaller ratio on the original equation is kept. Against a long double reference,
+    // this kept the more accurate solution in 40000 random problems like those of dare_random() whenever the
+    // difference exceeded a factor 2, and triggered the second solve only for problems with B scaled by 10^-1 or
+    // less. If balancing left the pencil unchanged, there is nothing to fall back to.
+    const RealScalar inf = NumTraits<RealScalar>::infinity();
+    const BackwardErrorRatios ratios =
+        m_info == Success ? backwardErrorRatios(A, B, Q, R, E, S, X, balancing) : BackwardErrorRatios{inf, inf};
+    if (!(ratios.original <= RealScalar(10) && ratios.balanced <= RealScalar(100))) {
       DynamicMatrix Xu;
-      bool unused;
-      if (solvePencil(A, B, Q, R, E, S, false, rcondThreshold, Xu, unused) == Success &&
-          (m_info != Success || backwardErrorRatio(A, B, Q, R, E, S, Xu) < ratio)) {
+      RealVector none;
+      if (solvePencil(A, B, Q, R, E, S, false, rcondThreshold, Xu, none) == Success &&
+          (m_info != Success || backwardErrorRatios(A, B, Q, R, E, S, Xu, balancing).original < ratios.original)) {
         X.swap(Xu);
         m_info = Success;
       }
@@ -447,35 +460,53 @@ DiscreteAlgebraicRiccatiSolver<MatrixType_>& DiscreteAlgebraicRiccatiSolver<Matr
 }
 
 /** \internal
- * \returns the backward error ratio of the solution \p X,
+ * \returns the backward error ratios of the solution \p X on the original equation,
  * \f[ \rho = \frac{\|\mathrm{res}\|_F}{m\,\varepsilon\,(\|A^*XA\|_F + \|E^*XE\|_F + \|Q\|_F)\,\kappa},\qquad
  *     \kappa = \max(1, \|E^*XE\|_F / \|Q\|_F), \f]
- * where res is the residual of the equation and \f$ \kappa \f$ accounts for the amplification of rounding errors by a
- * large solution; \f$ \rho = O(1) \f$ for a backward stable solution. Non-finite ratios are reported as infinity.
+ * and on the balanced equation,
+ * \f[ \rho_b = \frac{\|D^{-1} \mathrm{res}\, D^{-1}\|_F}{\varepsilon\,(\|D^{-1} A^*XA\, D^{-1}\|_F
+ *     + \|D^{-1} E^*XE\, D^{-1}\|_F + \|D^{-1} Q D^{-1}\|_F + \|D^{-1} G D^{-1}\|_F)}. \f]
+ * Here res \f$ = A^*XA - E^*XE - G + Q \f$ is the residual, \f$ G = (A^*XB + S)(R + B^*XB)^{-1}(B^*XA + S^*) \f$, and
+ * \f$ D = \f$ diag(\p balancing) relates \p X to the solution of the balanced equation by \f$ X = D X_b D \f$; its
+ * residual \f$ D^{-1} \mathrm{res}\, D^{-1} \f$ is exact in floating point, since \f$ D \f$ consists of powers of two.
+ *
+ * \f$ \kappa \f$ accounts for the residual that a large solution leaves even when computed accurately: for random
+ * problems with B scaled by \f$ 10^{-k} \f$, the residual without \f$ \kappa \f$ grows in proportion to
+ * \f$ \|X\|_F / \|Q\|_F \f$, for SciPy (LAPACK) as for this solver. When \f$ X \f$ is large only because the problem
+ * is badly scaled, \f$ \kappa \f$ also hides poor solutions, which \f$ \rho_b \f$ exposes. Non-finite ratios are
+ * reported as infinity.
  */
 template <typename MatrixType_>
-typename DiscreteAlgebraicRiccatiSolver<MatrixType_>::RealScalar
-DiscreteAlgebraicRiccatiSolver<MatrixType_>::backwardErrorRatio(const DynamicMatrix& A, const DynamicMatrix& B,
-                                                                const DynamicMatrix& Q, const DynamicMatrix& R,
-                                                                const DynamicMatrix* E, const DynamicMatrix* S,
-                                                                const DynamicMatrix& X) {
-  const Index m = A.rows();
+typename DiscreteAlgebraicRiccatiSolver<MatrixType_>::BackwardErrorRatios
+DiscreteAlgebraicRiccatiSolver<MatrixType_>::backwardErrorRatios(const DynamicMatrix& A, const DynamicMatrix& B,
+                                                                 const DynamicMatrix& Q, const DynamicMatrix& R,
+                                                                 const DynamicMatrix* E, const DynamicMatrix* S,
+                                                                 const DynamicMatrix& X, const RealVector& balancing) {
+  const RealScalar eps = NumTraits<RealScalar>::epsilon();
+  const auto finite = [](RealScalar r) { return (numext::isfinite)(r) ? r : NumTraits<RealScalar>::infinity(); };
   const DynamicMatrix XA = X * A;
-  const DynamicMatrix AXA = A.adjoint() * XA;
-  const DynamicMatrix EXE = (E != nullptr) ? DynamicMatrix(E->adjoint() * X * *E) : X;
-  DynamicMatrix res = AXA - EXE + Q;
+  DynamicMatrix AXA = A.adjoint() * XA;
+  DynamicMatrix EXE = (E != nullptr) ? DynamicMatrix(E->adjoint() * X * *E) : X;
+  DynamicMatrix G = DynamicMatrix::Zero(A.rows(), A.rows());
   if (B.cols() > 0) {
     DynamicMatrix AXBS = XA.adjoint() * B;
     if (S != nullptr) AXBS += *S;
-    res -= AXBS * (R + B.adjoint() * X * B).partialPivLu().solve(AXBS.adjoint());
+    G = AXBS * (R + B.adjoint() * X * B).partialPivLu().solve(AXBS.adjoint());
   }
+  DynamicMatrix res = AXA - EXE - G + Q;
+  if (numext::is_exactly_zero(res.norm())) return BackwardErrorRatios{RealScalar(0), RealScalar(0)};
+
+  BackwardErrorRatios ratios;
   const RealScalar normQ = Q.norm(), normEXE = EXE.norm();
   const RealScalar kappa = (normQ > RealScalar(0) && normEXE > normQ) ? normEXE / normQ : RealScalar(1);
-  const RealScalar scale = RealScalar(m) * NumTraits<RealScalar>::epsilon() * (AXA.norm() + normEXE + normQ) * kappa;
-  const RealScalar normRes = res.norm();
-  if (numext::is_exactly_zero(normRes)) return RealScalar(0);
-  const RealScalar ratio = normRes / scale;
-  return (numext::isfinite)(ratio) ? ratio : NumTraits<RealScalar>::infinity();
+  ratios.original = finite(res.norm() / (RealScalar(A.rows()) * eps * (AXA.norm() + normEXE + normQ) * kappa));
+  DynamicMatrix Qb = Q;
+  if (balancing.size() > 0) {
+    const RealVector inv = balancing.cwiseInverse();
+    for (DynamicMatrix* M : {&res, &AXA, &EXE, &G, &Qb}) *M = inv.asDiagonal() * *M * inv.asDiagonal();
+  }
+  ratios.balanced = finite(res.norm() / (eps * (AXA.norm() + EXE.norm() + Qb.norm() + G.norm())));
+  return ratios;
 }
 
 /** \internal
@@ -487,7 +518,7 @@ ComputationInfo DiscreteAlgebraicRiccatiSolver<MatrixType_>::solvePencil(const D
                                                                          const DynamicMatrix& Q, const DynamicMatrix& R,
                                                                          const DynamicMatrix* E, const DynamicMatrix* S,
                                                                          bool balance, RealScalar rcondThreshold,
-                                                                         DynamicMatrix& X, bool& balanced) {
+                                                                         DynamicMatrix& X, RealVector& balancing) {
   const Index m = B.rows();
   const Index n = B.cols();
 
@@ -517,8 +548,9 @@ ComputationInfo DiscreteAlgebraicRiccatiSolver<MatrixType_>::solvePencil(const D
 
   // Balance the pencil without destroying its symplectic structure: the scaling is diag(D, D^-1, D_R),
   // with D derived from the xGEBAL scaling of |H| + |J| with zeroed diagonal, see [3].
-  Matrix<RealScalar, Dynamic, 1> scaling;
-  balanced = false;
+  RealVector scaling;
+  bool balanced = false;
+  balancing.resize(0);
   if (balance) {
     RealDynamicMatrix M = H.cwiseAbs() + J.cwiseAbs();
     M.diagonal().setZero();
@@ -539,6 +571,8 @@ ComputationInfo DiscreteAlgebraicRiccatiSolver<MatrixType_>::solvePencil(const D
       // H <- D H D^-1, J <- D J D^-1 with D = diag(scaling), exact in floating point.
       H = scaling.asDiagonal() * H * scaling.cwiseInverse().asDiagonal();
       J = scaling.asDiagonal() * J * scaling.cwiseInverse().asDiagonal();
+      // Also reported when the solve fails, so that computeImpl() falls back to the unbalanced pencil.
+      balancing = scaling.head(m);
     }
   }
 
@@ -607,7 +641,7 @@ ComputationInfo DiscreteAlgebraicRiccatiSolver<MatrixType_>::solvePencil(const D
   // X = U2 U1^-1 is computed as (U1^-* U2^*)^*.
   X = lu.adjoint().solve(U2.adjoint());
   X.adjointInPlace();
-  if (balanced) X = scaling.head(m).asDiagonal() * X * scaling.head(m).asDiagonal();
+  if (balanced) X = balancing.asDiagonal() * X * balancing.asDiagonal();
   X = (X + X.adjoint()).eval() / RealScalar(2);
   // The solve, the unscaling and the symmetrization can overflow.
   if (!X.allFinite()) return NumericalIssue;
