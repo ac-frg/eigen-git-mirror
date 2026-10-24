@@ -104,10 +104,11 @@ EIGEN_STRONG_INLINE Packet4bf F32ToBf16KeepNaN(const Packet4f& p) {
 // F32ToBf16KeepNaN for any float: NaN lanes become the bfloat16 NaN 0x7fc0, as on AVX. The scalar
 // conversion keeps the NaN's sign; doing that here costs an op on the critical path of every round
 // trip, 25% of a cast loop and 6% of exp on a Cortex-A72, for a bit that carries no value.
-// |p| <= inf is false only for NaN: one FACGE, where clang expands p == p into three ops.
+// |p| <= inf is false only for NaN. The NaN lanes are selected after narrowing, so the rounding
+// reads the raw bits. Selecting first costs clang an extra AND and MOV.
 EIGEN_STRONG_INLINE Packet4bf F32ToBf16(const Packet4f& p) {
-  Packet4ui bits = vbslq_u32(vcageq_f32(pinf<Packet4f>(), p), vreinterpretq_u32_f32(p), vdupq_n_u32(0x7fc00000));
-  return F32ToBf16KeepNaN(vreinterpretq_f32_u32(bits));
+  uint16x4_t not_nan = vmovn_u32(vcageq_f32(pinf<Packet4f>(), p));
+  return vbsl_u16(not_nan, F32ToBf16KeepNaN(p), vdup_n_u16(0x7fc0));
 }
 
 // Discard the low 16 bits of each float. Only valid when every lane already holds an exact
@@ -156,11 +157,12 @@ EIGEN_STRONG_INLINE Packet8bf F32ToBf16KeepNaN(const Packet4f& lo, const Packet4
 #endif
 }
 
+// As the Packet4bf F32ToBf16, with one UZP1 narrowing both NaN masks.
 EIGEN_STRONG_INLINE Packet8bf F32ToBf16(const Packet4f& lo, const Packet4f& hi) {
   Packet4f inf = pinf<Packet4f>();
-  Packet4ui lo_bits = vbslq_u32(vcageq_f32(inf, lo), vreinterpretq_u32_f32(lo), vdupq_n_u32(0x7fc00000));
-  Packet4ui hi_bits = vbslq_u32(vcageq_f32(inf, hi), vreinterpretq_u32_f32(hi), vdupq_n_u32(0x7fc00000));
-  return F32ToBf16KeepNaN(vreinterpretq_f32_u32(lo_bits), vreinterpretq_f32_u32(hi_bits));
+  uint16x8_t not_nan =
+      vuzpq_u16(vreinterpretq_u16_u32(vcageq_f32(inf, lo)), vreinterpretq_u16_u32(vcageq_f32(inf, hi))).val[0];
+  return vbslq_u16(not_nan, F32ToBf16KeepNaN(lo, hi), vdupq_n_u16(0x7fc0));
 }
 
 // The high and low 16 bits of every float: one UZP2 or UZP1 on AArch64, one VUZP on ARMv7.
