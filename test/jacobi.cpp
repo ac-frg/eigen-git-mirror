@@ -223,6 +223,54 @@ void jacobi_makegivens_subnormal() {
          Scalar(8) * NumTraits<Scalar>::epsilon());
 }
 
+// Complex inputs whose components are small integers times a subnormal scale, e.g. p = -4.9e-324i, q = 2e-323i. The
+// rotation must stay unitary and annihilate q although |p| and |q| carry only a few bits.
+template <typename Scalar>
+void jacobi_makegivens_complex_subnormal() {
+  using RealScalar = typename NumTraits<Scalar>::Real;
+  using Wide = std::complex<long double>;
+  const RealScalar minimum = (std::numeric_limits<RealScalar>::min)();
+  const RealScalar tiny = std::numeric_limits<RealScalar>::denorm_min();
+  const long double tolerance = 16 * static_cast<long double>(NumTraits<RealScalar>::epsilon());
+  const int qValues[] = {-4, -1, 0, 1, 4};
+  for (RealScalar scale : {minimum, RealScalar(minimum / RealScalar(16)), tiny}) {
+    for (int pr = -2; pr <= 2; ++pr) {
+      for (int pi = -2; pi <= 2; ++pi) {
+        for (int qr : qValues) {
+          for (int qi : qValues) {
+            if (pr == 0 && pi == 0 && qr == 0 && qi == 0) continue;
+            const Scalar p(RealScalar(pr) * scale, RealScalar(pi) * scale);
+            const Scalar q(RealScalar(qr) * scale, RealScalar(qi) * scale);
+            JacobiRotation<Scalar> rotation, withoutR;
+            Scalar r;
+            rotation.makeGivens(p, q, &r);
+            withoutR.makeGivens(p, q);
+            VERIFY_IS_EQUAL(rotation.c(), withoutR.c());
+            VERIFY_IS_EQUAL(rotation.s(), withoutR.s());
+            VERIFY_IS_EQUAL(numext::imag(rotation.c()), RealScalar(0));
+
+            // With (P, Q) = (p, q) / scale exact: J^* (P, Q) = (c P - conj(s) Q, s P + c Q) = (r / scale, 0).
+            const long double c = static_cast<long double>(numext::real(rotation.c()));
+            const Wide s(static_cast<long double>(numext::real(rotation.s())),
+                         static_cast<long double>(numext::imag(rotation.s())));
+            const Wide P(pr, pi), Q(qr, qi);
+            const long double expected = std::sqrt(std::norm(P) + std::norm(Q));
+            VERIFY(numext::abs(c * c + std::norm(s) - 1) <= tolerance);
+            VERIFY(std::abs(s * P + c * Q) <= tolerance * expected);
+            const Wide rotated = c * P - std::conj(s) * Q;
+            VERIFY(numext::abs(std::abs(rotated) - expected) <= tolerance * expected);
+            const Wide normalizedR =
+                Wide(static_cast<long double>(numext::real(r)), static_cast<long double>(numext::imag(r))) /
+                static_cast<long double>(scale);
+            const long double quantum = static_cast<long double>(tiny) / static_cast<long double>(scale);
+            VERIFY(std::abs(normalizedR - rotated) <= tolerance * expected + quantum);
+          }
+        }
+      }
+    }
+  }
+}
+
 template <typename Scalar>
 EIGEN_DONT_INLINE void jacobi_makejacobi_bounded_ratio_impl(Scalar x, Scalar y, JacobiRotation<Scalar>& rotation) {
   rotation.makeJacobi(x, y, Scalar(0));
@@ -373,6 +421,8 @@ EIGEN_DECLARE_TEST(jacobi) {
     CALL_SUBTEST_7((jacobi_makejacobi_ratio_boundaries<bfloat16>()));
     CALL_SUBTEST_8((jacobi_makejacobi_complex<std::complex<float>>()));
     CALL_SUBTEST_8((jacobi_makejacobi_complex<std::complex<double>>()));
+    CALL_SUBTEST_8((jacobi_makegivens_complex_subnormal<std::complex<float>>()));
+    CALL_SUBTEST_8((jacobi_makegivens_complex_subnormal<std::complex<double>>()));
 
     CALL_SUBTEST_1((jacobi<Matrix3f, float>()));
     CALL_SUBTEST_2((jacobi<Matrix4d, double>()));

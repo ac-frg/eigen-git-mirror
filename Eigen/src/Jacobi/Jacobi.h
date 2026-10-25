@@ -178,8 +178,10 @@ EIGEN_DEVICE_FUNC void JacobiRotation<Scalar>::makeGivens(const Scalar& p, const
     m_s = 0;
     if (r) *r = m_c * p;
   } else if (p == Scalar(0)) {
+    // Normalize q / |q|_1 first: for a subnormal q, abs(q) has only a few bits and q / abs(q) is not unimodular.
+    const Scalar qn = q / numext::norm1(q);
     m_c = 0;
-    m_s = -q / abs(q);
+    m_s = -qn / abs(qn);
     if (r) *r = abs(q);
   } else {
     RealScalar p1 = numext::norm1(p);
@@ -197,19 +199,22 @@ EIGEN_DEVICE_FUNC void JacobiRotation<Scalar>::makeGivens(const Scalar& p, const
       m_s = -qs * conj(ps) * (m_c / p2);
       if (r) *r = p * u;
     } else {
+      // Divide by u = sqrt(p2 + q2), i.e. in the quantities scaled by 1/q1: dividing p and q by q1 u loses all but a
+      // few bits when q1 is subnormal, and the rotation is no longer unitary. The phase of p comes from p / p1, which
+      // is O(1) even when p is subnormal or p / q1 underflows.
       Scalar ps = p / q1;
       RealScalar p2 = numext::abs2(ps);
       Scalar qs = q / q1;
       RealScalar q2 = numext::abs2(qs);
 
-      RealScalar u = q1 * sqrt(p2 + q2);
+      RealScalar u = sqrt(p2 + q2);
       if (numext::real(p) < RealScalar(0)) u = -u;
 
-      p1 = abs(p);
-      ps = p / p1;
-      m_c = p1 / u;
-      m_s = -conj(ps) * (q / u);
-      if (r) *r = ps * u;
+      const Scalar pn = p / p1;
+      const Scalar phase = pn / abs(pn);
+      m_c = abs(ps) / u;
+      m_s = -conj(phase) * (qs / u);
+      if (r) *r = phase * (q1 * u);
     }
   }
 }
