@@ -49,6 +49,58 @@ static void check_ostream() {
   check_ostream_impl<Scalar>::run();
 }
 
+static std::string check_ioformat(const std::string& rowSeparator = "\n", const std::string& rowPrefix = "[",
+                                  const std::string& rowSuffix = "]") {
+  const auto matrix = (Matrix2i() << 1, 20, 300, 4000).finished();
+  std::ostringstream ss;
+  const auto flags{0};
+  const auto coeffSeparator{", "};
+  const auto matPrefix{"ABC"};
+  const auto matSuffix{"XYZ"};
+  const auto fill{'*'};
+  const auto fmt =
+      IOFormat(StreamPrecision, flags, coeffSeparator, rowSeparator, rowPrefix, rowSuffix, matPrefix, matSuffix, fill);
+  ss << matrix.format(fmt);
+  return ss.str();
+}
+
+static void check_ioformat_standard() {
+  const auto found{check_ioformat()};
+  const auto expected =
+      "ABC[***1, **20]\n"
+      "   [*300, 4000]XYZ";
+  VERIFY_IS_EQUAL(found, expected);
+}
+
+static void check_ioformat_row_separator_newline() {
+  const auto found{check_ioformat("\nNext\n")};
+  const auto expected =
+      "ABC[***1, **20]\n"
+      "Next\n"
+      "   [*300, 4000]XYZ";
+  VERIFY_IS_EQUAL(found, expected);
+}
+
+static void check_ioformat_row_prefix_newline() {
+  const auto found{check_ioformat("\n", "[\n", "]")};
+  const auto expected =
+      "ABC[\n"
+      "***1, **20]\n"
+      "   [\n"
+      "*300, 4000]XYZ";
+  VERIFY_IS_EQUAL(found, expected);
+}
+
+static void check_ioformat_row_suffix_newline() {
+  const auto found{check_ioformat("\n", "[", "\n]")};
+  const auto expected =
+      "ABC[***1, **20\n"
+      "]\n"
+      "   [*300, 4000\n"
+      "]XYZ";
+  VERIFY_IS_EQUAL(found, expected);
+}
+
 EIGEN_DECLARE_TEST(io) {
   CALL_SUBTEST(check_ostream<bool>());
   CALL_SUBTEST(check_ostream<float>());
@@ -61,4 +113,8 @@ EIGEN_DECLARE_TEST(io) {
   CALL_SUBTEST(check_ostream<Eigen::numext::uint32_t>());
   CALL_SUBTEST(check_ostream<Eigen::numext::int64_t>());
   CALL_SUBTEST(check_ostream<Eigen::numext::uint64_t>());
+  CALL_SUBTEST(check_ioformat_standard());
+  CALL_SUBTEST(check_ioformat_row_separator_newline());
+  CALL_SUBTEST(check_ioformat_row_prefix_newline());
+  CALL_SUBTEST(check_ioformat_row_suffix_newline());
 }
