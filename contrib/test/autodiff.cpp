@@ -507,6 +507,21 @@ void test_autodiff_spline_interpolate() {
   }
 }
 
+template <typename Derivatives>
+void test_autodiff_hypot() {
+  using AD = AutoDiffScalar<Derivatives>;
+  for (int swapped = 0; swapped < 2; ++swapped) {
+    AD x(swapped ? 4.0 : 3.0), y(swapped ? 3.0 : 4.0);
+    x.derivatives() = Vector2d::UnitX();
+    y.derivatives() = Vector2d::UnitY();
+    const AD result = numext::hypot(x, y);
+    const double tolerance = 8 * NumTraits<double>::epsilon();
+    VERIFY(numext::abs(result.value() - 5.0) <= tolerance * 5.0);
+    VERIFY(numext::abs(result.derivatives()(0) - x.value() / 5.0) <= tolerance);
+    VERIFY(numext::abs(result.derivatives()(1) - y.value() / 5.0) <= tolerance);
+  }
+}
+
 EIGEN_DECLARE_TEST(autodiff) {
   for (int i = 0; i < g_repeat; i++) {
     CALL_SUBTEST_1(test_autodiff_scalar<float>());
@@ -526,6 +541,8 @@ EIGEN_DECLARE_TEST(autodiff) {
   CALL_SUBTEST_5(test_autodiff_selfadjoint_l1norm());
   CALL_SUBTEST_5(test_autodiff_padded_block_derivatives());
   CALL_SUBTEST_5(test_autodiff_atan2_constant());
+  CALL_SUBTEST_5(test_autodiff_hypot<Vector2d>());
+  CALL_SUBTEST_5(test_autodiff_hypot<VectorXd>());
   CALL_SUBTEST_6(test_autodiff_makegivens<Vector2d>());
   CALL_SUBTEST_6(test_autodiff_makegivens<VectorXd>());
   CALL_SUBTEST_7(test_autodiff_householder_qr<Vector4d>());

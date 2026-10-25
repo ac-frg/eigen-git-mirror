@@ -621,8 +621,8 @@ EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Derived& QuaternionBase<Derived>::operator
  */
 template <class Derived>
 EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE Derived& QuaternionBase<Derived>::operator=(const AngleAxisType& aa) {
-  EIGEN_USING_STD(cos)
-  EIGEN_USING_STD(sin)
+  using numext::cos;
+  using numext::sin;
   Scalar ha = Scalar(0.5) * aa.angle();  // Scalar(0.5) to suppress precision loss warnings
   this->w() = cos(ha);
   this->vec() = sin(ha) * aa.axis();
@@ -694,7 +694,7 @@ template <class Derived>
 template <typename Derived1, typename Derived2>
 EIGEN_DEVICE_FUNC inline Derived& QuaternionBase<Derived>::setFromTwoVectors(const MatrixBase<Derived1>& a,
                                                                              const MatrixBase<Derived2>& b) {
-  EIGEN_USING_STD(sqrt)
+  using numext::sqrt;
   Vector3 v0 = a.normalized();
   Vector3 v1 = b.normalized();
   Scalar c = v1.dot(v0);
@@ -731,8 +731,8 @@ template <class Derived>
 template <typename OtherDerived>
 EIGEN_DEVICE_FUNC inline Derived& QuaternionBase<Derived>::setFromScaledAxis(
     const MatrixBase<OtherDerived>& scaled_axis) {
-  EIGEN_USING_STD(sin)
-  EIGEN_USING_STD(cos)
+  using numext::cos;
+  using numext::sin;
   EIGEN_STATIC_ASSERT_VECTOR_SPECIFIC_SIZE(OtherDerived, 3)
 
   // Materialise the input once so the caller's expression (e.g. omega*dt) is not
@@ -771,7 +771,7 @@ EIGEN_DEVICE_FUNC inline Derived& QuaternionBase<Derived>::setFromScaledAxis(
  */
 template <class Derived>
 EIGEN_DEVICE_FUNC inline typename QuaternionBase<Derived>::Vector3 QuaternionBase<Derived>::toScaledAxis() const {
-  EIGEN_USING_STD(atan2)
+  using numext::atan2;
   eigen_assert(internal::isApprox(this->squaredNorm(), Scalar(1), Scalar(8) * NumTraits<Scalar>::dummy_precision()) &&
                "QuaternionBase::toScaledAxis(): the quaternion must be approximately a unit quaternion");
 
@@ -794,9 +794,9 @@ EIGEN_DEVICE_FUNC inline typename QuaternionBase<Derived>::Vector3 QuaternionBas
  */
 template <typename Scalar, int Options>
 EIGEN_DEVICE_FUNC Quaternion<Scalar, Options> Quaternion<Scalar, Options>::UnitRandom() {
-  EIGEN_USING_STD(sqrt)
-  EIGEN_USING_STD(sin)
-  EIGEN_USING_STD(cos)
+  using numext::cos;
+  using numext::sin;
+  using numext::sqrt;
   const Scalar u1 = internal::random<Scalar>(0, 1), u2 = internal::random<Scalar>(0, 2 * EIGEN_PI),
                u3 = internal::random<Scalar>(0, 2 * EIGEN_PI);
   const Scalar a = sqrt(Scalar(1) - u1), b = sqrt(u1);
@@ -914,7 +914,7 @@ template <class Derived>
 template <class OtherDerived>
 EIGEN_DEVICE_FUNC inline typename internal::traits<Derived>::Scalar QuaternionBase<Derived>::angularDistance(
     const QuaternionBase<OtherDerived>& other) const {
-  EIGEN_USING_STD(atan2)
+  using numext::atan2;
   Quaternion<Scalar> d = (*this) * other.conjugate();
   return Scalar(2) * atan2(d.vec().norm(), numext::abs(d.w()));
 }
@@ -929,8 +929,8 @@ template <class Derived>
 template <class OtherDerived>
 EIGEN_DEVICE_FUNC Quaternion<typename internal::traits<Derived>::Scalar> QuaternionBase<Derived>::slerp(
     const Scalar& t, const QuaternionBase<OtherDerived>& other) const {
-  EIGEN_USING_STD(acos)
-  EIGEN_USING_STD(sin)
+  using numext::acos;
+  using numext::sin;
   const Scalar one = Scalar(1) - NumTraits<Scalar>::epsilon();
   Scalar d = this->dot(other);
   Scalar absD = numext::abs(d);
