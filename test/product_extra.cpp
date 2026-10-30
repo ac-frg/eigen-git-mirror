@@ -11,6 +11,161 @@
 #include "main.h"
 #include "NonCommutativeScalar.h"
 
+namespace noncommutative_scalar {
+inline Quaternion operator*(double lhs, const Quaternion& rhs) { return Quaternion(lhs) * rhs; }
+}  // namespace noncommutative_scalar
+
+namespace Eigen {
+template <>
+struct ScalarBinaryOpTraits<noncommutative_scalar::Quaternion, double> {
+  using ReturnType = noncommutative_scalar::Quaternion;
+  static constexpr bool IsCommutative = true;
+};
+template <>
+struct ScalarBinaryOpTraits<double, noncommutative_scalar::Quaternion>
+    : ScalarBinaryOpTraits<noncommutative_scalar::Quaternion, double> {};
+}  // namespace Eigen
+
+template <int LhsOrder, int RhsOrder, int DstOrder>
+void test_dense_quaternion_factor_order() {
+  using Scalar = noncommutative_scalar::Quaternion;
+  using Lhs = Matrix<Scalar, Dynamic, Dynamic, LhsOrder>;
+  using Rhs = Matrix<Scalar, Dynamic, Dynamic, RhsOrder>;
+  using Dst = Matrix<Scalar, Dynamic, Dynamic, DstOrder>;
+  using Impl = internal::generic_product_impl<Lhs, Rhs, DenseShape, DenseShape, GemmProduct>;
+  STATIC_CHECK((!internal::functor_is_commutative<internal::scalar_product_op<Scalar>>::value));
+  const Scalar p(0, 1, 0, 0), q(0, 0, 1, 0), alpha(1, 0, 0, 1), initial(1, 2, 3, 4);
+  const auto verify = [&](const auto& lhs, const auto& rhs) {
+    const Lhs left = lhs;
+    const Rhs right = rhs;
+    Dst expected = Dst::Zero(lhs.rows(), rhs.cols());
+    for (Index j = 0; j < expected.cols(); ++j)
+      for (Index i = 0; i < expected.rows(); ++i)
+        for (Index k = 0; k < left.cols(); ++k) expected(i, j) += left(i, k) * right(k, j);
+    Dst actual = lhs * rhs;
+    VERIFY(actual == expected);
+    Array<Scalar, Dynamic, Dynamic, DstOrder> array = lhs * rhs;
+    VERIFY(array.matrix() == expected);
+    array = alpha * (lhs * rhs);
+    for (Index k = 0; k < array.size(); ++k) VERIFY(array(k) == alpha * expected(k));
+    actual.setConstant(initial);
+    actual.noalias() += lhs * rhs;
+    for (Index k = 0; k < actual.size(); ++k) VERIFY(actual(k) == initial + expected(k));
+    actual.noalias() -= lhs * rhs;
+    for (Index k = 0; k < actual.size(); ++k) VERIFY(actual(k) == initial);
+    actual.noalias() = alpha * (lhs * rhs);
+    for (Index k = 0; k < actual.size(); ++k) VERIFY(actual(k) == alpha * expected(k));
+    actual.noalias() = (lhs * rhs) * alpha;
+    for (Index k = 0; k < actual.size(); ++k) VERIFY(actual(k) == expected(k) * alpha);
+    Lhs aliasLeft = left;
+    aliasLeft = aliasLeft * rhs;
+    VERIFY(aliasLeft == expected);
+    Rhs aliasRight = right;
+    aliasRight = lhs * aliasRight;
+    VERIFY(aliasRight == expected);
+    Dst storage = Dst::Constant(2 * expected.rows(), 2 * expected.cols(), initial);
+    Map<Dst, Unaligned, Stride<Dynamic, 2>> strided(storage.data(), expected.rows(), expected.cols(),
+                                                    Stride<Dynamic, 2>(storage.outerStride(), 2));
+    strided.noalias() = lhs * rhs;
+    VERIFY(strided == expected);
+    for (Index j = 0; j < storage.cols(); ++j)
+      for (Index i = 0; i < storage.rows(); ++i) {
+        const bool written =
+            DstOrder == ColMajor ? i % 2 == 0 && j < expected.cols() : j % 2 == 0 && i < expected.rows();
+        if (!written) VERIFY(storage(i, j) == initial);
+      }
+  };
+  const Index shapes[][3] = {{3, 3, 3}, {12, 9, 11}, {0, 3, 2}, {2, 0, 3}, {1, 7, 5}, {7, 5, 1}};
+  for (const auto& shape : shapes) {
+    const Index rows = shape[0], depth = shape[1], cols = shape[2];
+    Lhs a(rows, depth);
+    Rhs b(depth, cols);
+    for (Index k = 0; k < a.size(); ++k) a(k) = Scalar(double(k % 3), 1, double(k % 2), -1);
+    for (Index k = 0; k < b.size(); ++k) b(k) = Scalar(1, double(k % 2), -1, double(k % 3));
+    verify(a, b);
+    verify(a, b * q);
+    verify(a, q * b);
+    verify(a * p, b);
+    verify(p * a, b);
+    verify(p * (a * q), (q * b) * p);
+    verify(a.conjugate(), (b * q).conjugate());
+    Dst expected = Dst::Zero(rows, cols);
+    for (Index j = 0; j < cols; ++j)
+      for (Index i = 0; i < rows; ++i)
+        for (Index k = 0; k < depth; ++k) expected(i, j) += a(i, k) * b(k, j);
+    Dst actual = Dst::Constant(rows, cols, initial);
+    Impl::scaleAndAddTo(actual, a, b, alpha);
+    for (Index k = 0; k < actual.size(); ++k) VERIFY(actual(k) == initial + alpha * expected(k));
+    Impl::scaleAndEvalTo(actual, a, b, alpha);
+    for (Index k = 0; k < actual.size(); ++k) VERIFY(actual(k) == alpha * expected(k));
+    actual.setConstant(initial);
+    Impl::scaleAndAddTo(actual, a, b, Scalar(0));
+    for (Index k = 0; k < actual.size(); ++k) VERIFY(actual(k) == initial);
+    Impl::scaleAndEvalTo(actual, a, b, Scalar(0));
+    VERIFY(actual == Dst::Zero(rows, cols));
+    a.setConstant(Scalar((std::numeric_limits<double>::quiet_NaN)()));
+    actual.setConstant(initial);
+    Impl::scaleAndAddTo(actual, a, b, Scalar(0));
+    for (Index k = 0; k < actual.size(); ++k) VERIFY(actual(k) == initial);
+    Impl::scaleAndEvalTo(actual, a, b, Scalar(0));
+    VERIFY(actual == Dst::Zero(rows, cols));
+    if (depth == 0) {
+      const Scalar infinity((std::numeric_limits<double>::infinity)());
+      actual.setConstant(initial);
+      Impl::scaleAndAddTo(actual, a, b, infinity);
+      VERIFY(actual == Dst::Constant(rows, cols, initial));
+      Impl::scaleAndEvalTo(actual, a, b, infinity);
+      VERIFY(actual == Dst::Zero(rows, cols));
+    }
+  }
+  const Lhs nonfinite = Lhs::Constant(12, 12, Scalar((std::numeric_limits<double>::infinity)()));
+  const Rhs ones = Rhs::Constant(12, 12, Scalar(1));
+  const Scalar zero(0);
+  Dst zeroResult(12, 12);
+  const auto verifyZeroProduct = [&](const auto& product) {
+    zeroResult.noalias() = product;
+    VERIFY(zeroResult == Dst::Zero(12, 12));
+    zeroResult.setConstant(initial);
+    zeroResult.noalias() += product;
+    VERIFY(zeroResult == Dst::Constant(12, 12, initial));
+    zeroResult.noalias() -= product;
+    VERIFY(zeroResult == Dst::Constant(12, 12, initial));
+  };
+  verifyZeroProduct(zero * (nonfinite * ones));
+  verifyZeroProduct((zero * nonfinite) * ones);
+  verifyZeroProduct((nonfinite * zero) * ones);
+  verifyZeroProduct(nonfinite * (zero * ones));
+  verifyZeroProduct(nonfinite * (ones * zero));
+  verifyZeroProduct((q * (nonfinite * zero)).conjugate() * ones);
+  verifyZeroProduct((zero * (nonfinite * q)).transpose() * ones);
+  verifyZeroProduct(-(q * (nonfinite * zero)) * ones);
+  const Scalar tiny(std::ldexp(1.0, -700)), huge(std::ldexp(1.0, 700));
+  const Lhs largeLeft = Lhs::Constant(12, 12, huge);
+  const Rhs largeRight = Rhs::Constant(12, 12, huge);
+  VERIFY(tiny * tiny == zero);
+  verify(tiny * (largeLeft * tiny), ones);
+  verify(ones, tiny * (largeRight * tiny));
+  const Matrix<Scalar, 9, 9, LhsOrder> fixedLeft = Matrix<Scalar, 9, 9, LhsOrder>::Constant(p);
+  const Matrix<Scalar, 9, 9, RhsOrder> fixedRight = Matrix<Scalar, 9, 9, RhsOrder>::Constant(q);
+  verify(fixedLeft, fixedRight * alpha);
+  using BoundedLhs = Matrix<Scalar, Dynamic, Dynamic, LhsOrder, 9, 9>;
+  using BoundedRhs = Matrix<Scalar, Dynamic, Dynamic, RhsOrder, 9, 9>;
+  const BoundedLhs boundedLeft = fixedLeft.topLeftCorner(3, 3);
+  const BoundedRhs boundedRight = fixedRight.topLeftCorner(3, 3);
+  verify(boundedLeft, boundedRight * alpha);
+  EIGEN_IF_CONSTEXPR (LhsOrder == ColMajor && RhsOrder == ColMajor && DstOrder == ColMajor) {
+    using Fixed = Matrix<Scalar, 65, 65>;
+    const Lhs left = Lhs::Constant(65, 65, p), right = Lhs::Constant(65, 65, q);
+    const Map<const Fixed> leftMap(left.data()), rightMap(right.data());
+    const Dst actual = leftMap * (rightMap * alpha);
+    const Scalar expected = Scalar(65) * (p * (q * alpha));
+    for (Index k = 0; k < actual.size(); ++k) VERIFY(actual(k) == expected);
+    STATIC_CHECK((internal::functor_is_commutative<internal::scalar_product_op<Scalar, double>>::value));
+    using Mixed = internal::generic_product_impl<Lhs, MatrixXd, DenseShape, DenseShape, GemmProduct>;
+    STATIC_CHECK((std::is_base_of<internal::gemm_product_impl<Lhs, MatrixXd, false>, Mixed>::value));
+  }
+}
+
 template <int Order>
 void test_dense_quaternion_row_order() {
   using Scalar = noncommutative_scalar::Quaternion;
@@ -981,6 +1136,14 @@ void small_outer_product_unscaled() {
 #endif
 
 EIGEN_DECLARE_TEST(product_extra) {
+  CALL_SUBTEST_18((test_dense_quaternion_factor_order<ColMajor, ColMajor, ColMajor>()));
+  CALL_SUBTEST_18((test_dense_quaternion_factor_order<ColMajor, RowMajor, ColMajor>()));
+  CALL_SUBTEST_18((test_dense_quaternion_factor_order<RowMajor, ColMajor, ColMajor>()));
+  CALL_SUBTEST_18((test_dense_quaternion_factor_order<RowMajor, RowMajor, ColMajor>()));
+  CALL_SUBTEST_18((test_dense_quaternion_factor_order<ColMajor, ColMajor, RowMajor>()));
+  CALL_SUBTEST_18((test_dense_quaternion_factor_order<ColMajor, RowMajor, RowMajor>()));
+  CALL_SUBTEST_18((test_dense_quaternion_factor_order<RowMajor, ColMajor, RowMajor>()));
+  CALL_SUBTEST_18((test_dense_quaternion_factor_order<RowMajor, RowMajor, RowMajor>()));
   CALL_SUBTEST_17((test_dense_quaternion_row_order<ColMajor>()));
   CALL_SUBTEST_17((test_dense_quaternion_row_order<RowMajor>()));
   CALL_SUBTEST_14(complex_outer_product_overflow<ColMajor>());
