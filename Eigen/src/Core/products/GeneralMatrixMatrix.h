@@ -758,8 +758,72 @@ class gemm_blocking_space<StorageOrder, LhsScalar_, RhsScalar_, MaxRows, MaxCols
 
 namespace internal {
 
+template <typename Lhs, typename Rhs,
+          bool Commutative =
+              functor_is_commutative<scalar_product_op<typename Lhs::Scalar, typename Rhs::Scalar>>::value &&
+              functor_is_commutative<scalar_product_op<typename Lhs::Scalar>>::value &&
+              functor_is_commutative<scalar_product_op<typename Rhs::Scalar>>::value &&
+              functor_is_commutative<scalar_product_op<typename Product<Lhs, Rhs>::Scalar>>::value>
+struct gemm_product_impl;
+
+// The column-major kernel preserves coefficient order when factors stay in the operands and alpha is one.
 template <typename Lhs, typename Rhs>
-struct generic_product_impl<Lhs, Rhs, DenseShape, DenseShape, GemmProduct>
+struct gemm_product_impl<Lhs, Rhs, false>
+    : generic_product_impl_base<Lhs, Rhs, generic_product_impl<Lhs, Rhs, DenseShape, DenseShape, GemmProduct>> {
+  using Scalar = typename Product<Lhs, Rhs>::Scalar;
+
+  template <typename Dest>
+  static void evalTo(Dest& dst, const Lhs& lhs, const Rhs& rhs) {
+    run<true>(dst, lhs, rhs, Scalar(1));
+  }
+
+  template <typename Dest>
+  static void scaleAndAddTo(Dest& dst, const Lhs& lhs, const Rhs& rhs, const Scalar& alpha) {
+    run<false>(dst, lhs, rhs, alpha);
+  }
+
+  template <typename Dest>
+  static void scaleAndEvalTo(Dest& dst, const Lhs& lhs, const Rhs& rhs, const Scalar& alpha) {
+    run<true>(dst, lhs, rhs, alpha);
+  }
+
+ private:
+  template <bool Assign, typename Dest>
+  static void run(Dest& dst, const Lhs& lhs, const Rhs& rhs, const Scalar& alpha) {
+    // Test factors before materializing operands: zero times a nonfinite coefficient need not be evaluated.
+    if (lhs.cols() == 0 || numext::is_exactly_zero(alpha) || blas_traits<Lhs>::hasZeroScalarFactor(lhs) ||
+        blas_traits<Rhs>::hasZeroScalarFactor(rhs)) {
+      EIGEN_IF_CONSTEXPR (Assign) dst.setZero();
+      return;
+    }
+    // Dynamic workspaces also accept fixed-size maps too large for an owning stack matrix.
+    using LhsPlain = Matrix<typename Lhs::Scalar, Dynamic, Dynamic, Lhs::Flags & RowMajorBit>;
+    using RhsPlain = Matrix<typename Rhs::Scalar, Dynamic, Dynamic, Rhs::Flags & RowMajorBit>;
+    using ActualLhs = std::conditional_t<blas_traits<Lhs>::HasScalarFactor, LhsPlain, Lhs>;
+    using ActualRhs = std::conditional_t<blas_traits<Rhs>::HasScalarFactor, RhsPlain, Rhs>;
+    const ActualLhs& actualLhs = lhs;
+    const ActualRhs& actualRhs = rhs;
+    using Packed = gemm_product_impl<ActualLhs, ActualRhs, true>;
+    EIGEN_IF_CONSTEXPR ((Dest::Flags & RowMajorBit) == 0) {
+      EIGEN_IF_CONSTEXPR (Assign) {
+        Packed::evalTo(dst, actualLhs, actualRhs);
+        if (!numext::is_exactly_one(alpha)) dst = alpha * dst;
+        return;
+      } else if (numext::is_exactly_one(alpha)) {
+        Packed::addTo(dst, actualLhs, actualRhs);
+        return;
+      }
+    }
+    Matrix<Scalar, Dynamic, Dynamic, ColMajor> product(dst.rows(), dst.cols());
+    Packed::evalTo(product, actualLhs, actualRhs);
+    using AssignOp = std::conditional_t<Assign, assign_op<typename Dest::Scalar, Scalar>,
+                                        add_assign_op<typename Dest::Scalar, Scalar>>;
+    call_assignment_no_alias(dst, alpha * product, AssignOp());
+  }
+};
+
+template <typename Lhs, typename Rhs>
+struct gemm_product_impl<Lhs, Rhs, true>
     : generic_product_impl_base<Lhs, Rhs, generic_product_impl<Lhs, Rhs, DenseShape, DenseShape, GemmProduct>> {
   using Scalar = typename Product<Lhs, Rhs>::Scalar;
   using LhsScalar = typename Lhs::Scalar;
@@ -939,6 +1003,9 @@ struct generic_product_impl<Lhs, Rhs, DenseShape, DenseShape, GemmProduct>
         Dest::Flags & RowMajorBit);
   }
 };
+
+template <typename Lhs, typename Rhs>
+struct generic_product_impl<Lhs, Rhs, DenseShape, DenseShape, GemmProduct> : gemm_product_impl<Lhs, Rhs> {};
 
 }  // end namespace internal
 

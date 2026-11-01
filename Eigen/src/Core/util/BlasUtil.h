@@ -503,6 +503,8 @@ struct blas_traits {
   EIGEN_DEVICE_FUNC static inline EIGEN_DEVICE_FUNC const Scalar extractScalarFactor(const XprType&) {
     return Scalar(1);
   }
+  // Inspect explicit factors without combining them across noncommuting coefficients.
+  EIGEN_DEVICE_FUNC static bool hasZeroScalarFactor(const XprType&) { return false; }
 };
 
 // pop conjugate
@@ -516,6 +518,9 @@ struct blas_traits<CwiseUnaryOp<scalar_conjugate_op<Scalar>, NestedXpr> > : blas
   EIGEN_DEVICE_FUNC static inline ExtractType extract(const XprType& x) { return Base::extract(x.nestedExpression()); }
   EIGEN_DEVICE_FUNC static inline Scalar extractScalarFactor(const XprType& x) {
     return numext::conj(Base::extractScalarFactor(x.nestedExpression()));
+  }
+  EIGEN_DEVICE_FUNC static bool hasZeroScalarFactor(const XprType& x) {
+    return Base::hasZeroScalarFactor(x.nestedExpression());
   }
 };
 
@@ -535,6 +540,9 @@ struct blas_traits<
   EIGEN_DEVICE_FUNC static inline EIGEN_DEVICE_FUNC Scalar extractScalarFactor(const XprType& x) {
     return x.lhs().functor().m_other * Base::extractScalarFactor(x.rhs());
   }
+  EIGEN_DEVICE_FUNC static bool hasZeroScalarFactor(const XprType& x) {
+    return numext::is_exactly_zero(x.lhs().functor().m_other) || Base::hasZeroScalarFactor(x.rhs());
+  }
 };
 template <typename Scalar, typename NestedXpr, typename Plain>
 struct blas_traits<
@@ -549,11 +557,20 @@ struct blas_traits<
   EIGEN_DEVICE_FUNC static inline Scalar extractScalarFactor(const XprType& x) {
     return Base::extractScalarFactor(x.lhs()) * x.rhs().functor().m_other;
   }
+  EIGEN_DEVICE_FUNC static bool hasZeroScalarFactor(const XprType& x) {
+    return numext::is_exactly_zero(x.rhs().functor().m_other) || Base::hasZeroScalarFactor(x.lhs());
+  }
 };
 template <typename Scalar, typename Plain1, typename Plain2>
 struct blas_traits<CwiseBinaryOp<scalar_product_op<Scalar>, const CwiseNullaryOp<scalar_constant_op<Scalar>, Plain1>,
-                                 const CwiseNullaryOp<scalar_constant_op<Scalar>, Plain2> > >
-    : blas_traits<CwiseNullaryOp<scalar_constant_op<Scalar>, Plain1> > {};
+                                 const CwiseNullaryOp<scalar_constant_op<Scalar>, Plain2>>>
+    : blas_traits<CwiseNullaryOp<scalar_constant_op<Scalar>, Plain1>> {
+  using XprType = CwiseBinaryOp<scalar_product_op<Scalar>, const CwiseNullaryOp<scalar_constant_op<Scalar>, Plain1>,
+                                const CwiseNullaryOp<scalar_constant_op<Scalar>, Plain2>>;
+  EIGEN_DEVICE_FUNC static bool hasZeroScalarFactor(const XprType& x) {
+    return numext::is_exactly_zero(x.lhs().functor().m_other) || numext::is_exactly_zero(x.rhs().functor().m_other);
+  }
+};
 
 // pop opposite
 template <typename Scalar, typename NestedXpr>
@@ -565,6 +582,9 @@ struct blas_traits<CwiseUnaryOp<scalar_opposite_op<Scalar>, NestedXpr> > : blas_
   EIGEN_DEVICE_FUNC static inline ExtractType extract(const XprType& x) { return Base::extract(x.nestedExpression()); }
   EIGEN_DEVICE_FUNC static inline Scalar extractScalarFactor(const XprType& x) {
     return -Base::extractScalarFactor(x.nestedExpression());
+  }
+  EIGEN_DEVICE_FUNC static bool hasZeroScalarFactor(const XprType& x) {
+    return Base::hasZeroScalarFactor(x.nestedExpression());
   }
 };
 
@@ -585,6 +605,9 @@ struct blas_traits<Transpose<NestedXpr> > : blas_traits<NestedXpr> {
   }
   EIGEN_DEVICE_FUNC static inline Scalar extractScalarFactor(const XprType& x) {
     return Base::extractScalarFactor(x.nestedExpression());
+  }
+  EIGEN_DEVICE_FUNC static bool hasZeroScalarFactor(const XprType& x) {
+    return Base::hasZeroScalarFactor(x.nestedExpression());
   }
 };
 
